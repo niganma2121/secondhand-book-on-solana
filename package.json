@@ -1,0 +1,12 @@
+{
+  "name": "solana-book-platform",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "packageManager": "yarn@4.9.2",
+  "scripts": {
+    "anchor:build": "yarn workspace @my-project/book run build",
+    "anchor:test": "yarn workspace @my-project/book run test"
+  }
+}
