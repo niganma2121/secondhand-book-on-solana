@@ -9,7 +9,7 @@ resolver = "2"
 [workspace.dependencies]
 #后端
 tokio = {version = "1.51.1",features = ["full"]}
-axum = {version = "0.8.8",features = ["tokio"]}
+axum = {version = "0.8.8",features = ["tokio","ws"]}
 sqlx={version = "0.8.6",features = ["runtime-tokio","postgres"]}
 dashmap = "6.1.0"
 anchor-client = {version = "1.0.0",features = ["async"]}
@@ -20,6 +20,11 @@ tracing-subscriber = "0.3.23"
 dotenvy="0.15.7"
 solana-system-interface = "3.2.0"
 sonyflake="0.4.0"
+thiserror="2.0.18"
+anyhow = "1.0.102"
+futures = "0.3.32"
+log = "0.4.29"
+
 #链上程序
 anchor-lang = "1.0.0"
 

@@ -2,7 +2,7 @@
 name = "book_server"
 version = "0.1.0"
 edition = "2024"
-
+license = "Apache-2.0"
 
 [dependencies]
 tokio = {workspace = true}
@@ -18,3 +18,7 @@ dotenvy={workspace = true}
 solana-sdk = {workspace = true}
 solana-system-interface = {workspace = true}
 sonyflake={workspace = true}
+log = {workspace = true}
+thiserror = {workspace = true}
+anyhow = {workspace = true}
+futures = {workspace = true}
