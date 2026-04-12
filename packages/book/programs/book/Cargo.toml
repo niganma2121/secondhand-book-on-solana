@@ -21,8 +21,7 @@ custom-panic = []
 
 
 [dependencies]
-anchor-lang = "1.0.0"
-
+anchor-lang = {workspace = true}
 [dev-dependencies]
 litesvm = "0.10.0"
 solana-message = "3.0.1"
