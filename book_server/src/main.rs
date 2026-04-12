@@ -4,10 +4,12 @@ use axum::{serve, Router};
 use axum::routing::get;
 use axum::serve::ListenerExt;
 use dotenvy::{dotenv, var};
-use book_server::routers::page_home;
+use log::info;
+use book_server::routers::{page_home, ws_router};
 use tokio::net::TcpListener;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use book_server::state::AppState;
 
 #[tokio::main]
 async fn main() {
@@ -17,13 +19,17 @@ async fn main() {
         .init();
     let port=var("PORT").unwrap_or_else(|_|"3000".to_string());
     let addr:SocketAddr=format!("0.0.0.0:{}",port).parse().expect("无效的地址");
-
+    
+    let state=AppState::new().await;
     let app=Router::new()
-        .route("/",get(page_home));
+        .route("/",get(page_home))
+        .nest("/api/chat",ws_router())
+        .with_state(state);
+    
     let tcp_listener=TcpListener::bind(addr).await.expect("监听器创建失败");
     let listener=tcp_listener.tap_io(|x| {
-       println!("有新的地址接入{:?}",x.peer_addr());
+        info!("新的连接接入:{:?}",x.peer_addr())
     });
     serve(listener,app).await.expect("服务器创建失败");
-    println!("开始监听地址127.0.0.1:3000")
+    info!("服务器启动,开始监听端口:3000")
 }

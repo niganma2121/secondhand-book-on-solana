@@ -1,7 +1,7 @@
 //逻辑层
 
 
-pub mod chat_service;
+pub mod chat;
 pub struct ChatService;
 
-pub mod client_service;
+pub mod client;

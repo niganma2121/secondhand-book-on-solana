@@ -1,5 +1,8 @@
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+use anchor_client::{Client, Cluster, CommitmentConfig};
+use dashmap::DashMap;
 use dotenvy::var;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::Keypair;
@@ -9,18 +12,22 @@ use sqlx::postgres::PgPoolOptions;
 use crate::types::chat::ConnectionRegistry;
 use crate::types::client::ProgramClient;
 
+const LOCAL:Cluster=Cluster::Localnet;
+const _DEV:Cluster=Cluster::Devnet;
+
 #[derive(Clone)]
 pub struct AppState{
-    pgpool:PgPool,//连接池
-    dash_map: ConnectionRegistry,//聊天路由映射表
-    id_generator:Arc<Sonyflake>,
+    pub pgpool:PgPool,//连接池
+    pub dash_map: ConnectionRegistry,//聊天路由映射表
+    pub id_generator:Arc<Sonyflake>,
+    pub program_id:Pubkey,
     client:Arc<ProgramClient>,//客户端
-    program_id:Pubkey,
     admin_keypair:Arc<Keypair>,//后端签名使用
 }
 
 impl AppState{
     pub async fn new ()->Self{
+        //数据库配置
         let db_url=var("DATABASE_URL").expect("缺少数据库环境变量或地址错误");
         let pgpool=PgPoolOptions::new()
             .max_connections(20)
@@ -30,11 +37,30 @@ impl AppState{
             .connect(&db_url)
             .await
             .expect("数据库连接失败");
-        todo!();
-        //
-        // Self{
-        //     pgpool,
-        //
-        // }
+        let admin_pubkey_url=var("ADMIN_PUBKEY_URL").expect("缺少管理员密钥对");
+        let admin_keypair=Arc::new(Keypair::from_base58_string(&admin_pubkey_url));
+        let payer=admin_keypair.clone();
+        let dash_map=Arc::new(DashMap::new());
+        let id_generator=Arc::new(Sonyflake::new().expect("id生成器生成器构建失败"));
+        let program_client=Client::new_with_options(
+            LOCAL,
+            payer,
+            CommitmentConfig::confirmed()
+        );
+        let client=Arc::new(ProgramClient{
+            client: Arc::new(program_client)
+        });
+
+        let program_id_url=var("PROGRAM_ID_URL").expect("程序ID url加载失败");
+        let program_id=Pubkey::from_str(&program_id_url).expect("程序ID构建失败");
+
+        Self{pgpool,dash_map,id_generator,program_id,client,admin_keypair}
+    }
+
+    pub fn get_program_client(&self)->Arc<ProgramClient>{
+        self.client.clone()
+    }
+    pub fn get_admin_keypair(&self)->Arc<Keypair>{
+        self.admin_keypair.clone()
     }
 }
