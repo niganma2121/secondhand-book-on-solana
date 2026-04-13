@@ -10,7 +10,7 @@ use tokio::net::TcpListener;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use book_server::state::AppState;
-
+use tower_http::cors::{Any, CorsLayer};
 #[tokio::main]
 async fn main() {
     dotenv().ok();
@@ -19,13 +19,18 @@ async fn main() {
         .init();
     let port=var("PORT").unwrap_or_else(|_|"3000".to_string());
     let addr:SocketAddr=format!("0.0.0.0:{}",port).parse().expect("无效的地址");
-    
+
+    let cors = CorsLayer::new()
+        .allow_origin(Any) // 调试阶段允许所有来源
+        .allow_methods(Any)
+        .allow_headers(Any);
     let state=AppState::new().await;
     let app=Router::new()
         .route("/",get(page_home))
         .nest("/api/chat",ws_router())
+        .layer(cors)
         .with_state(state);
-    
+
     let tcp_listener=TcpListener::bind(addr).await.expect("监听器创建失败");
     let listener=tcp_listener.tap_io(|x| {
         info!("新的连接接入:{:?}",x.peer_addr())

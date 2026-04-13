@@ -38,7 +38,10 @@ impl AppState{
             .await
             .expect("数据库连接失败");
         let admin_pubkey_url=var("ADMIN_PUBKEY_URL").expect("缺少管理员密钥对");
-        let admin_keypair=Arc::new(Keypair::from_base58_string(&admin_pubkey_url));
+        let keypair=solana_sdk::signature::read_keypair_file(&admin_pubkey_url)
+            .expect("密钥加载失败");
+        ///TODO,装在服务器上的时候需要使用加密的重新new一个密钥对
+        let admin_keypair=Arc::new(keypair);
         let payer=admin_keypair.clone();
         let dash_map=Arc::new(DashMap::new());
         let id_generator=Arc::new(Sonyflake::new().expect("id生成器生成器构建失败"));

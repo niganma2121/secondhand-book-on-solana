@@ -24,7 +24,7 @@ thiserror="2.0.18"
 anyhow = "1.0.102"
 futures = "0.3.32"
 log = "0.4.29"
-
+tower-http = { version = "0.6.8", features = ["cors"] }
 #链上程序
 anchor-lang = "1.0.0"
 

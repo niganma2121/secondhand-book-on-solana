@@ -3,7 +3,7 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
-
+use crate::utils::pubkey_serde;
 pub type ConnectionRegistry = Arc<DashMap<Pubkey, UserConnection>>;
 
 #[derive(Deserialize)]
@@ -22,7 +22,9 @@ pub struct SyncRequest {
 #[derive(Deserialize, Serialize,Clone)]
 pub struct ChatMessage {
     pub id: u64, //唯一性去重
+    #[serde(with = "pubkey_serde")]
     pub from: Pubkey,
+    #[serde(with = "pubkey_serde")]
     pub to: Pubkey,
     pub timestamp: i64,
     pub content: MessageContent,

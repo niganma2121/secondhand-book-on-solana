@@ -15,5 +15,8 @@ pub enum ChatError{
     InternalError(String),
 
     #[error("系统时间错误:{0}")]
-    SystemError(#[from] std::time::SystemTimeError)
+    SystemError(#[from] std::time::SystemTimeError),
+
+    #[error("发送失败:{0}")]
+    SendError(String)
 }
