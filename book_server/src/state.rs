@@ -37,6 +37,11 @@ impl AppState{
             .connect(&db_url)
             .await
             .expect("数据库连接失败");
+        //解决新增表问题
+        sqlx::migrate!("./migrate")
+            .run(&pgpool)
+            .await
+            .expect("数据库迁移失败,请检查");
         let admin_pubkey_url=var("ADMIN_PUBKEY_URL").expect("缺少管理员密钥对");
         let keypair=solana_sdk::signature::read_keypair_file(&admin_pubkey_url)
             .expect("密钥加载失败");
