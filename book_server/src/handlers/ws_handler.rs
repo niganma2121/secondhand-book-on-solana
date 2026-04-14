@@ -21,7 +21,7 @@ use crate::error::ChatError;
 pub async fn chat_handler(
     ws: WebSocketUpgrade,
     Query(params):Query<HashMap<String,String>>,
-    State(state): State<AppState>,
+    State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     // 从 url 取 ?pubkey=xxxx
     let pubkey_str = params.get("pubkey").map(|s| s.as_str()).unwrap_or("11111111111111111111111111111111");
@@ -33,7 +33,7 @@ pub async fn chat_handler(
     ws.on_upgrade(move |socket| handle_socket(socket, state, user_pubkey))
 }
 
-pub async fn handle_socket(socket: WebSocket, state: AppState, user_pubkey: Pubkey) {
+pub async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_pubkey: Pubkey) {
     let last_active = Arc::new(AtomicU64::new(
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -107,7 +107,7 @@ async fn start_write_task(
 
 async fn start_read_task(
     mut stream:SplitStream<WebSocket>,
-    state:AppState,
+    state:Arc<AppState>,
     user_pubkey:Pubkey,
     last_active:Arc<AtomicU64>
 ){

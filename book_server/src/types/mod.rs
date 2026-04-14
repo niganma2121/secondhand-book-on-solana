@@ -8,5 +8,5 @@ pub mod client;
 //请求
 pub mod requests;
 
-
+pub mod auth;
 

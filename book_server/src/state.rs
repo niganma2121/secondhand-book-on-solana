@@ -21,6 +21,7 @@ pub struct AppState{
     pub dash_map: ConnectionRegistry,//聊天路由映射表
     pub id_generator:Arc<Sonyflake>,
     pub program_id:Pubkey,
+    jwt_secret:String,
     client:Arc<ProgramClient>,//客户端
     admin_keypair:Arc<Keypair>,//后端签名使用
 }
@@ -61,8 +62,8 @@ impl AppState{
 
         let program_id_url=var("PROGRAM_ID_URL").expect("程序ID url加载失败");
         let program_id=Pubkey::from_str(&program_id_url).expect("程序ID构建失败");
-
-        Self{pgpool,dash_map,id_generator,program_id,client,admin_keypair}
+        let jwt_secret=var("JWT_SECRET").expect("JWT密钥加载失败");
+        Self{pgpool,dash_map,id_generator,program_id,jwt_secret,client,admin_keypair}
     }
 
     pub fn get_program_client(&self)->Arc<ProgramClient>{
@@ -70,5 +71,9 @@ impl AppState{
     }
     pub fn get_admin_keypair(&self)->Arc<Keypair>{
         self.admin_keypair.clone()
+    }
+
+    pub fn get_jwt(&self)->&str{
+        &self.jwt_secret
     }
 }

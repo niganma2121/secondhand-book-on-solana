@@ -1,16 +1,18 @@
 use std::net::SocketAddr;
-use std::str::FromStr;
+use std::sync::Arc;
 use axum::{serve, Router};
 use axum::routing::get;
 use axum::serve::ListenerExt;
 use dotenvy::{dotenv, var};
 use log::info;
-use book_server::routers::{page_home, ws_router};
+use book_server::routers::public::{ page_home};
 use tokio::net::TcpListener;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use book_server::state::AppState;
 use tower_http::cors::{Any, CorsLayer};
+use book_server::routers::api;
+
 #[tokio::main]
 async fn main() {
     dotenv().ok();
@@ -24,10 +26,10 @@ async fn main() {
         .allow_origin(Any) // 调试阶段允许所有来源
         .allow_methods(Any)
         .allow_headers(Any);
-    let state=AppState::new().await;
+    let state=Arc::new(AppState::new().await);
     let app=Router::new()
         .route("/",get(page_home))
-        .nest("/api/chat",ws_router())
+        .nest("/",api(state.clone()))
         .layer(cors)
         .with_state(state);
 

@@ -1,16 +1,16 @@
-//该模块专门处理路由
-
+use std::sync::Arc;
 use axum::Router;
-use axum::routing::get;
-use crate::handlers::ws_handler::{chat_handler, handle_socket};
+use crate::routers::protected::{ api_protected_router};
+use crate::routers::public::{api_public_router,};
 use crate::state::AppState;
 
-pub async fn page_home() ->&'static str{
-    "欢迎来到主页"
-}
+//该模块专门处理路由
+pub mod protected;
+pub mod public;
 
 
-pub fn ws_router()->Router<AppState>{
+pub fn api(state:Arc<AppState>)->Router<Arc<AppState>>{
+    let sub_api=Router::merge(api_protected_router(state),api_public_router());
     Router::new()
-        .route("/ws",get(chat_handler))
+        .nest("/api",sub_api)
 }
