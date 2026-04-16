@@ -1,14 +1,14 @@
-use crate::types::auth::LoginRequest;
 use anyhow::{Error, Result};
-use crate::error::AuthError;
-use crate::utils::auth_utils::{create_jwt, verify_stateless_nonce, verify_wallet_signature,};
+use crate::auth::error::AuthError;
+use crate::auth::types::LoginRequest;
+use crate::auth::util::{create_jwt, verify_stateless_nonce, verify_wallet_signature};
 
-pub fn sign_in(payload:LoginRequest,jwt_secret:&str)->Result<String>{
+pub fn sign_in(payload:LoginRequest,nonce_secret:&str,jwt_secret:&str)->Result<String>{
     //验证Nonce
     let is_nonce_valid=verify_stateless_nonce(
         &payload.address,
         &payload.nonce,
-        jwt_secret
+        nonce_secret
     ).map_err(|t|AuthError::BadRequest(t.to_string()))?;
 
     if !is_nonce_valid{

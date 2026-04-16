@@ -40,20 +40,30 @@ CREATE TABLE IF NOT EXISTS offers (
     status INT DEFAULT 0             -- 0:待处理, 1:卖家接受, 2:卖家拒绝, 3:已完成支付
     );
 
--- 联合索引：加速 A 与 B 之间的消息查询，并按 ID 倒序排列（获取最新消息）
-CREATE INDEX idx_messages_pair ON messages (sender, receiver, id DESC);
+-- -- 联合索引：加速 A 与 B 之间的消息查询，并按 ID 倒序排列（获取最新消息）
+-- CREATE INDEX idx_messages_pair ON messages (sender, receiver, id DESC);
+--
+-- -- 索引：加速“查询发给我的未读消息”
+-- CREATE INDEX idx_messages_receiver_unread ON messages (receiver) WHERE is_read = FALSE;
+-- -- 索引：加速查询某个用户的上架书籍（个人中心展示）
+-- CREATE INDEX idx_books_owner ON books (owner_pubkey);
+--
+-- -- 索引：加速通过状态筛选书籍（比如广场只显示 status=1 的在售书籍）
+-- CREATE INDEX idx_books_status ON books (status);
+-- -- 联合索引：查询某本书下的所有出价（卖家看谁出价高）
+-- CREATE INDEX idx_offers_book_price ON offers (book_id, offer_price DESC);
+--
+-- -- 索引：查询某位买家发出的所有出价（买家看自己的出价历史）
+-- CREATE INDEX idx_offers_buyer ON offers (buyer_pubkey);
+-- -- 可选：如果你有搜索用户功能
+-- CREATE INDEX idx_users_username ON users (username);
 
--- 索引：加速“查询发给我的未读消息”
-CREATE INDEX idx_messages_receiver_unread ON messages (receiver) WHERE is_read = FALSE;
--- 索引：加速查询某个用户的上架书籍（个人中心展示）
-CREATE INDEX idx_books_owner ON books (owner_pubkey);
 
--- 索引：加速通过状态筛选书籍（比如广场只显示 status=1 的在售书籍）
-CREATE INDEX idx_books_status ON books (status);
--- 联合索引：查询某本书下的所有出价（卖家看谁出价高）
-CREATE INDEX idx_offers_book_price ON offers (book_id, offer_price DESC);
-
--- 索引：查询某位买家发出的所有出价（买家看自己的出价历史）
-CREATE INDEX idx_offers_buyer ON offers (buyer_pubkey);
--- 可选：如果你有搜索用户功能
-CREATE INDEX idx_users_username ON users (username);
+-- 加上 IF NOT EXISTS
+CREATE INDEX IF NOT EXISTS idx_messages_pair ON messages (sender, receiver, id DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_receiver_unread ON messages (receiver) WHERE is_read = FALSE;
+CREATE INDEX IF NOT EXISTS idx_books_owner ON books (owner_pubkey);
+CREATE INDEX IF NOT EXISTS idx_books_status ON books (status);
+CREATE INDEX IF NOT EXISTS idx_offers_book_price ON offers (book_id, offer_price DESC);
+CREATE INDEX IF NOT EXISTS idx_offers_buyer ON offers (buyer_pubkey);
+CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);

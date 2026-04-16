@@ -1,10 +1,9 @@
+pub mod error;
 pub mod handler;
 pub mod service;
 pub mod types;
 pub mod util;
-pub mod middler;
-pub mod error;
+pub mod connection;
 
 pub use handler::*;
-pub use service::*;
-pub use middler::*;
+pub use types::ConnectionRegistry;

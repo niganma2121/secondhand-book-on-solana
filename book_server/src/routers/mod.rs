@@ -10,7 +10,10 @@ pub mod public;
 
 
 pub fn api(state:Arc<AppState>)->Router<Arc<AppState>>{
-    let sub_api=Router::merge(api_protected_router(state),api_public_router());
+    let sub_api=Router::merge(
+        api_protected_router(state.clone()),
+        api_public_router(state.clone())
+    );
     Router::new()
         .nest("/api",sub_api)
 }

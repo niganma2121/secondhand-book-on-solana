@@ -1,13 +1,12 @@
 
 //必须登陆才能访问的请求
 
-use std::os::linux::raw::stat;
 use std::sync::Arc;
 use axum::middleware::from_fn_with_state;
 use axum::Router;
 use axum::routing::get;
-use crate::handlers::ws_handler::chat_handler;
-use crate::middlewares::auth::auth_middleware;
+use crate::auth::auth_middleware;
+use crate::chat::chat_handler;
 use crate::state::AppState;
 
 ///访问需要登陆的路由

@@ -5,11 +5,12 @@ use chrono::Utc;
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 type HmacSha256 = Hmac<Sha256>;
-use crate::error::UtilsError;
 use anyhow::Result;
 use ed25519_dalek::{VerifyingKey, Signature, Verifier};
 use jsonwebtoken::{decode, Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation};
-use crate::types::auth::Claims;
+use crate::auth::error::AuthError;
+use crate::auth::types::Claims;
+use crate::auth::error::AuthError::*;
 
 //产生nonce
 pub fn generate_stateless_nonce(address: &str, secret: &str) -> Result<String> {
@@ -17,7 +18,7 @@ pub fn generate_stateless_nonce(address: &str, secret: &str) -> Result<String> {
     let data = format!("{}:{}", address, timestamp);
 
     let mut mac = <HmacSha256 as KeyInit>::new_from_slice(secret.as_bytes())
-        .map_err(|_| UtilsError::InvalidSecretLength)?;
+        .map_err(|_| InvalidSecretLength)?;
     mac.update(data.as_bytes());
     let res = mac.finalize().into_bytes();
 
@@ -34,10 +35,10 @@ pub fn verify_stateless_nonce(addr: &str, nonce: &str, secret: &str) -> Result<b
     let provided_hash=parts[1];
 
     //校验是否过期
-    let ts=time_stamp_str.parse::<u64>()
-        .map_err(|_| UtilsError::InvalidNonceFormat)?;
+    let ts=time_stamp_str.parse::<i64>()
+        .map_err(|_| InvalidNonceFormat)?;
     let now=Utc::now().timestamp();
-    if (now-ts as i64).abs()>300{
+    if (now-ts).abs()>300{
         return Ok(false)
     }
 
@@ -45,7 +46,7 @@ pub fn verify_stateless_nonce(addr: &str, nonce: &str, secret: &str) -> Result<b
     let data=format!("{}:{}",addr,time_stamp_str);
     let mut mac=<HmacSha256 as KeyInit>::new_from_slice(
         secret.as_bytes()
-    ).map_err(|_|UtilsError::InvalidSecretLength)?;
+    ).map_err(|_|InvalidSecretLength)?;
     mac.update(data.as_bytes());
 
     let code_bytes=mac.finalize().into_bytes();
@@ -63,19 +64,19 @@ pub fn verify_wallet_signature(
 )->Result<bool>{
     //解码钱包地址
     let pubkey_bytes=bs58::decode(addr).into_vec()
-        .map_err(|_|UtilsError::InvalidAddress)?;
+        .map_err(|_|InvalidAddress)?;
 
     //解码签名
     let sig_bytes=bs58::decode(sig_base58).into_vec()
-        .map_err(|_|UtilsError::InvalidSignature)?;
+        .map_err(|_| InvalidSignature)?;
 
     // 构造验证签名Key和签名对象
     let public_key=VerifyingKey::from_bytes(
         &pubkey_bytes[..32].try_into()?
-    ).map_err(|_|UtilsError::PubkeyError)?;
+    ).map_err(|_| PubkeyError)?;
 
     let signature=Signature::from_slice(&sig_bytes)
-        .map_err(|_|UtilsError::InvalidSignature)?;
+        .map_err(|_| InvalidSignature)?;
 
     //执行验证
     Ok(Verifier::verify(&public_key, msg.as_bytes(), &signature).is_ok())
@@ -85,7 +86,7 @@ pub fn verify_wallet_signature(
 pub fn create_jwt(address:&str,secret:&str)->Result<String>{
     let expiration=Utc::now()
         .checked_add_signed(chrono::Duration::hours(48))
-        .ok_or_else(||UtilsError::TimeError)?
+        .ok_or_else(|| TimeError)?
         .timestamp() as usize;
 
     let claim=Claims{
@@ -97,12 +98,12 @@ pub fn create_jwt(address:&str,secret:&str)->Result<String>{
         &Header::default(),
         &claim,
         &EncodingKey::from_secret(secret.as_bytes()),
-    ).map_err(|e| UtilsError::JWTCrateFailed(e.to_string()))?;
+    ).map_err(|e|  JWTCrateFailed(e.to_string()))?;
 
     Ok(token)
 }
 
-pub fn decode_jwt(token:&str,secret:&str)->Result<TokenData<Claims>, UtilsError> {
+pub fn decode_jwt(token:&str,secret:&str)->Result<TokenData<Claims>, AuthError> {
     //校验
     let validation = Validation::new(Algorithm::HS256);
     //解码并验证,自动校验时间
@@ -112,7 +113,7 @@ pub fn decode_jwt(token:&str,secret:&str)->Result<TokenData<Claims>, UtilsError>
         &validation,
     ).map_err(|e| {
         // 这里的错误会直接触发中间件的 401
-        UtilsError::JwtVerifyFailed(e.to_string())
+         JwtVerifyFailed(e.to_string())
     })?;
 
     Ok(token_data)
