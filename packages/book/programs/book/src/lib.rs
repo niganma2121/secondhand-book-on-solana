@@ -15,7 +15,5 @@ declare_id!("B6FGFq5WVExospwD6XE4RiPdtjLp6R5wFRMYQeVPQsfz");
 pub mod book {
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        initialize::handler(ctx)
-    }
+    
 }

@@ -28,7 +28,6 @@ pub async fn start_write_task(
                         }
                     }else{
                         error!("序列化失败");
-
                     }
                 }
                 _=ticker.tick()=>{

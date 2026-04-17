@@ -72,8 +72,6 @@ impl ChatService{
         }else{
             info!("用户{}不在线,已经离线存储",target_pubkey);
         }
-
-
         Ok(())
     }
 

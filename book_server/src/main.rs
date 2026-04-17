@@ -25,13 +25,9 @@ async fn main() {
     let addr:SocketAddr=format!("0.0.0.0:{}",port).parse().expect("无效的地址");
 
     let cors = CorsLayer::new()
-        // ✅ 关键改动 1：必须指定明确的 Origin，不能用 .allow_origin(Any)
         .allow_origin("http://localhost:3001".parse::<HeaderValue>().unwrap())
-
-        // ✅ 关键改动 2：必须允许凭证
+        //必须允许凭证
         .allow_credentials(true)
-
-        // 允许的方法和头
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
         .allow_headers([CONTENT_TYPE, AUTHORIZATION, COOKIE]);
     let state=Arc::new(AppState::new().await);
