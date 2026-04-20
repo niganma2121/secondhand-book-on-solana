@@ -13,6 +13,7 @@ cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "cargo test"
 post_build = "mkdir -p ../shared/idls && cp target/idl/book.json ../shared/idls/"
+test = "cargo test"
+
 [hooks]

@@ -1,0 +1,1480 @@
+{
+  "address": "B6FGFq5WVExospwD6XE4RiPdtjLp6R5wFRMYQeVPQsfz",
+  "metadata": {
+    "name": "book",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "cancel_escrow",
+      "discriminator": [
+        156,
+        203,
+        54,
+        179,
+        38,
+        72,
+        33,
+        21
+      ],
+      "accounts": [
+        {
+          "name": "signer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "buyer",
+          "relations": [
+            "escrow"
+          ]
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "buyer"
+              },
+              {
+                "kind": "account",
+                "path": "escrow.book",
+                "account": "Escrow"
+              }
+            ]
+          }
+        },
+        {
+          "name": "book",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  111,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "escrow.seller",
+                "account": "Escrow"
+              },
+              {
+                "kind": "account",
+                "path": "escrow.asset",
+                "account": "Escrow"
+              }
+            ]
+          }
+        },
+        {
+          "name": "asset",
+          "writable": true
+        },
+        {
+          "name": "collection",
+          "writable": true
+        },
+        {
+          "name": "mpl_core_program",
+          "address": "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "confirm_escrow",
+      "discriminator": [
+        41,
+        111,
+        185,
+        122,
+        102,
+        76,
+        38,
+        1
+      ],
+      "accounts": [
+        {
+          "name": "buyer",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "escrow"
+          ]
+        },
+        {
+          "name": "seller",
+          "writable": true,
+          "relations": [
+            "escrow"
+          ]
+        },
+        {
+          "name": "book",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  111,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "escrow.seller",
+                "account": "Escrow"
+              },
+              {
+                "kind": "account",
+                "path": "escrow.asset",
+                "account": "Escrow"
+              }
+            ]
+          },
+          "relations": [
+            "escrow"
+          ]
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "buyer"
+              },
+              {
+                "kind": "account",
+                "path": "escrow.book",
+                "account": "Escrow"
+              }
+            ]
+          }
+        },
+        {
+          "name": "asset",
+          "writable": true
+        },
+        {
+          "name": "collection",
+          "writable": true
+        },
+        {
+          "name": "mpl_core_program",
+          "address": "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_book",
+      "discriminator": [
+        175,
+        218,
+        251,
+        18,
+        91,
+        19,
+        194,
+        103
+      ],
+      "accounts": [
+        {
+          "name": "seller",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "book",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  111,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "seller"
+              },
+              {
+                "kind": "account",
+                "path": "asset"
+              }
+            ]
+          }
+        },
+        {
+          "name": "asset"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "price",
+          "type": "u64"
+        },
+        {
+          "name": "metadata_id",
+          "type": "string"
+        },
+        {
+          "name": "metadata_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "create_escrow",
+      "discriminator": [
+        253,
+        215,
+        165,
+        116,
+        36,
+        108,
+        68,
+        80
+      ],
+      "accounts": [
+        {
+          "name": "buyer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "seller",
+          "relations": [
+            "book"
+          ]
+        },
+        {
+          "name": "book",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  111,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "seller"
+              },
+              {
+                "kind": "account",
+                "path": "book.asset",
+                "account": "Book"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "buyer"
+              },
+              {
+                "kind": "account",
+                "path": "book"
+              }
+            ]
+          }
+        },
+        {
+          "name": "asset",
+          "writable": true
+        },
+        {
+          "name": "collection",
+          "writable": true
+        },
+        {
+          "name": "mpl_core_program",
+          "address": "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "delist_book",
+      "discriminator": [
+        103,
+        151,
+        201,
+        204,
+        136,
+        136,
+        16,
+        243
+      ],
+      "accounts": [
+        {
+          "name": "seller",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "book"
+          ]
+        },
+        {
+          "name": "book",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  111,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "seller"
+              },
+              {
+                "kind": "account",
+                "path": "book.asset",
+                "account": "Book"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "open_dispute",
+      "discriminator": [
+        137,
+        25,
+        99,
+        119,
+        23,
+        223,
+        161,
+        42
+      ],
+      "accounts": [
+        {
+          "name": "signer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "escrow.buyer",
+                "account": "Escrow"
+              },
+              {
+                "kind": "account",
+                "path": "escrow.book",
+                "account": "Escrow"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "resolve_dispute",
+      "discriminator": [
+        231,
+        6,
+        202,
+        6,
+        96,
+        103,
+        12,
+        230
+      ],
+      "accounts": [
+        {
+          "name": "arbitrator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "escrow.buyer",
+                "account": "Escrow"
+              },
+              {
+                "kind": "account",
+                "path": "escrow.book",
+                "account": "Escrow"
+              }
+            ]
+          }
+        },
+        {
+          "name": "book",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  111,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "escrow.seller",
+                "account": "Escrow"
+              },
+              {
+                "kind": "account",
+                "path": "escrow.asset",
+                "account": "Escrow"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buyer",
+          "writable": true
+        },
+        {
+          "name": "seller",
+          "writable": true
+        },
+        {
+          "name": "asset",
+          "writable": true
+        },
+        {
+          "name": "collection",
+          "writable": true
+        },
+        {
+          "name": "mpl_core_program",
+          "address": "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "choice",
+          "type": {
+            "defined": {
+              "name": "VoteChoice"
+            }
+          }
+        },
+        {
+          "name": "refund_amount",
+          "type": "u64"
+        },
+        {
+          "name": "return_book",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "ship_escrow",
+      "discriminator": [
+        214,
+        173,
+        88,
+        215,
+        127,
+        222,
+        91,
+        250
+      ],
+      "accounts": [
+        {
+          "name": "seller",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "escrow"
+          ]
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "escrow.buyer",
+                "account": "Escrow"
+              },
+              {
+                "kind": "account",
+                "path": "escrow.book",
+                "account": "Escrow"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "shipping_commitment",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "update_book_price",
+      "discriminator": [
+        32,
+        101,
+        156,
+        102,
+        31,
+        123,
+        0,
+        44
+      ],
+      "accounts": [
+        {
+          "name": "seller",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "book"
+          ]
+        },
+        {
+          "name": "book",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  111,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "seller"
+              },
+              {
+                "kind": "account",
+                "path": "book.asset",
+                "account": "Book"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "new_price",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Book",
+      "discriminator": [
+        121,
+        34,
+        121,
+        35,
+        91,
+        62,
+        85,
+        222
+      ]
+    },
+    {
+      "name": "Escrow",
+      "discriminator": [
+        31,
+        213,
+        123,
+        187,
+        186,
+        22,
+        218,
+        155
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "BookShippedEvent",
+      "discriminator": [
+        168,
+        151,
+        199,
+        220,
+        132,
+        92,
+        174,
+        234
+      ]
+    },
+    {
+      "name": "CreateEvent",
+      "discriminator": [
+        27,
+        114,
+        169,
+        77,
+        222,
+        235,
+        99,
+        118
+      ]
+    },
+    {
+      "name": "DelistBookEvent",
+      "discriminator": [
+        196,
+        10,
+        0,
+        4,
+        171,
+        118,
+        139,
+        141
+      ]
+    },
+    {
+      "name": "DisputeOpenedEvent",
+      "discriminator": [
+        91,
+        164,
+        118,
+        191,
+        199,
+        195,
+        118,
+        21
+      ]
+    },
+    {
+      "name": "DisputeResolvedEvent",
+      "discriminator": [
+        152,
+        37,
+        98,
+        245,
+        229,
+        39,
+        150,
+        78
+      ]
+    },
+    {
+      "name": "EscrowCancelledEvent",
+      "discriminator": [
+        185,
+        105,
+        9,
+        145,
+        0,
+        228,
+        166,
+        60
+      ]
+    },
+    {
+      "name": "EscrowCreateEvent",
+      "discriminator": [
+        146,
+        242,
+        13,
+        243,
+        147,
+        80,
+        60,
+        99
+      ]
+    },
+    {
+      "name": "ReceiptConfirmedEvent",
+      "discriminator": [
+        243,
+        191,
+        170,
+        131,
+        170,
+        7,
+        21,
+        98
+      ]
+    },
+    {
+      "name": "UpdatePriceEvent",
+      "discriminator": [
+        40,
+        189,
+        128,
+        187,
+        31,
+        28,
+        47,
+        17
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidPrice",
+      "msg": "价格必须>0"
+    },
+    {
+      "code": 6001,
+      "name": "UnauthorizedSeller",
+      "msg": "只有本书卖家才能操作"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidStatus",
+      "msg": "书籍状态不允许此操作"
+    },
+    {
+      "code": 6003,
+      "name": "MetadataHashMismatch",
+      "msg": "元数据哈希验证失败,数据可能已被篡改"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidAsset",
+      "msg": "书籍的元信息匹配"
+    },
+    {
+      "code": 6005,
+      "name": "BuyerUnmatched",
+      "msg": "买家地址不匹配"
+    },
+    {
+      "code": 6006,
+      "name": "SellerUnmatched",
+      "msg": "卖家地址不匹配"
+    },
+    {
+      "code": 6007,
+      "name": "BookUnmatched",
+      "msg": "传入的书和托管的书不匹配"
+    },
+    {
+      "code": 6008,
+      "name": "UnauthorizedBuyerOrSeller",
+      "msg": "非交易双方不能进行此交易操作"
+    },
+    {
+      "code": 6009,
+      "name": "UnmatchedBuyer",
+      "msg": "托管订单和上传的买家不匹配"
+    },
+    {
+      "code": 6010,
+      "name": "InvalidEscrowState",
+      "msg": "托管状态不满足,不能进行此操作"
+    },
+    {
+      "code": 6011,
+      "name": "InvalidVoteChoice",
+      "msg": "无效的投票选项,请选择有效的选项"
+    },
+    {
+      "code": 6012,
+      "name": "InvalidRefund",
+      "msg": "提交的返回金额不能大于商品的价格"
+    },
+    {
+      "code": 6013,
+      "name": "UnauthorizedArbitrator",
+      "msg": "未授权的仲裁员"
+    },
+    {
+      "code": 6014,
+      "name": "AlreadyVoted",
+      "msg": "不能重复投票"
+    }
+  ],
+  "types": [
+    {
+      "name": "ArbVote",
+      "docs": [
+        "每个评委投票"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "arbitrator",
+            "type": "pubkey"
+          },
+          {
+            "name": "vote",
+            "type": {
+              "defined": {
+                "name": "VoteChoice"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ArbitrationResult",
+      "docs": [
+        "最终仲裁结果"
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Voting"
+          },
+          {
+            "name": "SellerWin"
+          },
+          {
+            "name": "BuyerWin"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Book",
+      "docs": [
+        "表示一本书的交易结构"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "BookStatus"
+              }
+            }
+          },
+          {
+            "name": "metadata_cid",
+            "type": "string"
+          },
+          {
+            "name": "metadata_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BookShippedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "shipped_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BookStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Listed"
+          },
+          {
+            "name": "InEscrow"
+          },
+          {
+            "name": "Sold"
+          },
+          {
+            "name": "DeListed"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreateEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "book",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset",
+            "type": "pubkey"
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DelistBookEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "book",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Dispute",
+      "docs": [
+        "仲裁"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "dispute_initiator",
+            "type": "pubkey"
+          },
+          {
+            "name": "votes",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "ArbVote"
+                  }
+                },
+                3
+              ]
+            }
+          },
+          {
+            "name": "arb_res",
+            "type": {
+              "defined": {
+                "name": "ArbitrationResult"
+              }
+            }
+          },
+          {
+            "name": "refund_amount",
+            "type": "u64"
+          },
+          {
+            "name": "return_book",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DisputeOpenedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "initiator",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DisputeResolvedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "result",
+            "type": {
+              "defined": {
+                "name": "ArbitrationResult"
+              }
+            }
+          },
+          {
+            "name": "refund_amount",
+            "type": "u64"
+          },
+          {
+            "name": "return_book",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Escrow",
+      "docs": [
+        "托管结构"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset",
+            "type": "pubkey"
+          },
+          {
+            "name": "book",
+            "type": "pubkey"
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          },
+          {
+            "name": "state",
+            "type": {
+              "defined": {
+                "name": "EscrowState"
+              }
+            }
+          },
+          {
+            "name": "ship",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "Ship"
+                }
+              }
+            }
+          },
+          {
+            "name": "dispute",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "Dispute"
+                }
+              }
+            }
+          },
+          {
+            "name": "create_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EscrowCancelledEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "cancelled_by",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EscrowCreateEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "book",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EscrowState",
+      "docs": [
+        "托管状态"
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Paid"
+          },
+          {
+            "name": "Shipped"
+          },
+          {
+            "name": "Released"
+          },
+          {
+            "name": "Cancelled"
+          },
+          {
+            "name": "Disputed"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ReceiptConfirmedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Ship",
+      "docs": [
+        "卖家发货"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "shipping_commitment",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "shipped_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdatePriceEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "book",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_price",
+            "type": "u64"
+          },
+          {
+            "name": "new_price",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoteChoice",
+      "docs": [
+        "投票选项"
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "NotVoted"
+          },
+          {
+            "name": "Buyer"
+          },
+          {
+            "name": "Seller"
+          }
+        ]
+      }
+    }
+  ],
+  "constants": [
+    {
+      "name": "ARBITRATORS",
+      "type": {
+        "array": [
+          "pubkey",
+          3
+        ]
+      },
+      "value": "[A5JSJ3J184YKqB71dFG47XrmmxmZqTZRUah9udC4dsnZ, A5JSJ3J184YKqB71dFG47XrmmxmZqTZRUah9udC4dsnZ, A5JSJ3J184YKqB71dFG47XrmmxmZqTZRUah9udC4dsnZ]"
+    },
+    {
+      "name": "BOOK_SEED",
+      "docs": [
+        "书的种子"
+      ],
+      "type": "bytes",
+      "value": "[98, 111, 111, 107]"
+    },
+    {
+      "name": "ESCROW_SEED",
+      "docs": [
+        "托管种子"
+      ],
+      "type": "bytes",
+      "value": "[101, 115, 99, 114, 111, 119]"
+    },
+    {
+      "name": "SEED",
+      "type": "string",
+      "value": "\"anchor\""
+    }
+  ]
+}

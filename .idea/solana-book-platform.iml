@@ -5,6 +5,7 @@
       <sourceFolder url="file://$MODULE_DIR$/packages/book/programs/book/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/serve/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/book_server/src" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/packages/book/programs/book/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

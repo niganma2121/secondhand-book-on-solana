@@ -2,8 +2,9 @@ use anchor_lang::prelude::*;
 use crate::{Book, BookStatus};
 use crate::constants::BOOK_SEED;
 use crate::event::CreateEvent;
-
+use crate::error::AppError;
 #[derive(Accounts)]
+#[instruction(price:u64)]
 pub struct CreateBook<'info> {
     #[account(mut)]
     pub seller: Signer<'info>,
@@ -14,6 +15,7 @@ pub struct CreateBook<'info> {
         space=8+Book::INIT_SPACE,
         seeds=[BOOK_SEED,seller.key().as_ref(),asset.key().as_ref()],
         bump,
+        constraint=price>0 @ AppError::InvalidPrice
     )]
     pub book: Account<'info, Book>,
     ///CHECK:MPL-Core NFT地址
@@ -39,6 +41,11 @@ pub fn create_book(
 
     book.bump=ctx.bumps.book;
 
-    emit!(CreateEvent{});
+    emit!(CreateEvent{
+        book:ctx.accounts.book.key(),
+        seller:ctx.accounts.seller.key(),
+        asset:ctx.accounts.asset.key(),
+        price
+    });
     Ok(())
 }

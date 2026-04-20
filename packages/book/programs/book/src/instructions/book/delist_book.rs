@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use crate::{Book, BookStatus};
 use crate::constants::BOOK_SEED;
 use crate::event::DelistBookEvent;
-
+use crate::AppError;
 #[derive(Accounts)]
 pub struct DelistBook<'info>{
     #[account(mut)]
@@ -12,6 +12,7 @@ pub struct DelistBook<'info>{
         mut,
         has_one=seller,
         close=seller,//退还租金
+        constraint=book.status==BookStatus::Listed @ AppError::InvalidStatus ,
         seeds=[BOOK_SEED,seller.key().as_ref(),book.asset.key().as_ref()],
         bump=book.bump
     )]
@@ -24,6 +25,9 @@ pub fn delist_book(
     let book=&mut ctx.accounts.book;
     book.status=BookStatus::DeListed;
 
-    emit!(DelistBookEvent{});
+    emit!(DelistBookEvent{
+        book:ctx.accounts.book.key(),
+        seller:ctx.accounts.seller.key()
+    });
     Ok(())
 }
