@@ -4,7 +4,12 @@ use crate::event::DisputeOpenedEvent;
 
 #[derive(Accounts)]
 pub struct OpenDispute<'info>{
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint=(
+            signer.key()==escrow.buyer||signer.key()==escrow.seller
+        )@ AppError::UnauthorizedBuyerOrSeller
+    )]
     pub signer:Signer<'info>,//仲裁发起者
 
     #[account(

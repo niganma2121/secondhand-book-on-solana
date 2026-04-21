@@ -30,20 +30,20 @@ jsonwebtoken ={version = "10.3.0",features = ["rust_crypto"]}#指定采用的加
 chrono = "0.4.44"
 ed25519-dalek = "2.2.0"
 bs58 = "0.5.1"
+base64 = "0.22.1"
 #验证生成和验证HMAC
 hmac = "0.13.0"
 sha2 = "0.11.0"
+deadpool-redis = "0.23.0"
 
-
-
+redis={version = "1.2.0",features = ["tokio-comp"]}
 tower-http = { version = "0.6.8", features = ["cors"] }
 #链上程序
 anchor-lang = { version = "0.31.1" }
 #共享
-solana-sdk = "4.0.1"
+solana-sdk = "3.0.0"
 mpl-core = { version = "0.11.2",features = ["anchor"],default-features = false }
 
-#borsh = { version = "1.6.1", features = ["derive"] }
 [profile.release]
 overflow-checks = true
 lto = "fat"

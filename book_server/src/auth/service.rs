@@ -1,32 +1,56 @@
-use anyhow::{Error, Result};
 use crate::auth::error::AuthError;
-use crate::auth::types::LoginRequest;
-use crate::auth::util::{create_jwt, verify_stateless_nonce, verify_wallet_signature};
+use crate::auth::types::{AuthService, LoginRequest};
+use crate::auth::util::{
+    blacklist_jwt, consume_nonce, create_jwt, decode_jwt, verify_stateless_nonce,
+    verify_wallet_signature,
+};
+use anyhow::{Error, Result};
+use chrono::Utc;
 
-pub fn sign_in(payload:LoginRequest,nonce_secret:&str,jwt_secret:&str)->Result<String>{
-    //验证Nonce
-    let is_nonce_valid=verify_stateless_nonce(
-        &payload.address,
-        &payload.nonce,
-        nonce_secret
-    ).map_err(|t|AuthError::BadRequest(t.to_string()))?;
+impl AuthService {
+    pub async fn sign_in(&self, payload: LoginRequest) -> Result<String> {
+        //验证Nonce
+        let is_nonce_valid =
+            verify_stateless_nonce(&payload.address, &payload.nonce, &self.nonce_secret)
+                .map_err(|t| AuthError::BadRequest(t.to_string()))?;
 
-    if !is_nonce_valid{
-        return Err(Error::from(AuthError::Unauthorized("Nonce 失效".into())))
+        if !is_nonce_valid {
+            return Err(Error::from(AuthError::Unauthorized("Nonce 失效".into())));
+        }
+
+        //消费nonce,避免重放
+        let consumed = consume_nonce(&self.redis_pool, &payload.address, &payload.nonce).await?;
+        if !consumed {
+            return Err(Error::from(AuthError::Unauthorized(
+                "Nonce已被使用或不存在".into(),
+            )));
+        }
+
+        //验证钱包签名
+        let is_sig_valid =
+            verify_wallet_signature(&payload.address, &payload.signature, &payload.nonce)
+                .map_err(|e| AuthError::BadRequest(e.to_string()))?;
+
+        if !is_sig_valid {
+            return Err(Error::from(AuthError::Unauthorized("签名无效".into())));
+        }
+        //构建token
+        let token = create_jwt(&payload.address, &self.jwt_secret)
+            .map_err(|e1| AuthError::Internal(e1.to_string()))?;
+        Ok(token)
     }
 
-    //验证钱包签名
-    let is_sig_valid=verify_wallet_signature(
-        &payload.address,
-        &payload.signature,
-        &payload.nonce
-    ).map_err(|e|AuthError::BadRequest(e.to_string()))?;
+    pub async fn sign_out(&self, token: &str) -> Result<()> {
+        let token_data = decode_jwt(token, &self.jwt_secret)?;
 
-    if !is_sig_valid{
-        return Err(Error::from(AuthError::Unauthorized("签名无效".into())))
+        let now = Utc::now().timestamp() as u64;
+        let exp = token_data.claims.exp as u64;
+        let ttl = exp.saturating_sub(now);
+
+        if ttl > 0 {
+            let jti = format!("{}:{}", token_data.claims.sub, exp);
+            blacklist_jwt(&self.redis_pool, &jti, ttl).await?
+        }
+        Ok(())
     }
-    //构建token
-    let token=create_jwt(&payload.address,jwt_secret)
-        .map_err(|e1| AuthError::Internal(e1.to_string()))?;
-    Ok(token)
 }

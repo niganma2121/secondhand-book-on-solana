@@ -6,5 +6,4 @@ pub mod middler;
 pub mod error;
 
 pub use handler::*;
-pub use service::*;
 pub use middler::*;

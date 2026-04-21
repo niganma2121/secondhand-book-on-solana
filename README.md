@@ -21,7 +21,7 @@
 
 ### 前端功能(待完成)
 
-- [ ] 钱包连接与 SIWS 登录（Sign In With Solana）
+- [x] 钱包连接与 SIWS 登录（Sign In With Solana）
 - [ ] 书籍浏览列表与搜索功能
 - [ ] 书籍详情页（展示 NFT 元数据、书况、价格）
 - [ ] 上架书籍页面（填写信息并铸造 NFT）
@@ -35,20 +35,20 @@
 
 #### 基础设施
 
-- [ ] AppState 资源池管理（PgPool、Anchor Client、DashMap）
+- [x] AppState 资源池管理（PgPool、Anchor Client、DashMap）
 - [ ] 配置加载（.env + config.rs）
 - [ ] 基础错误处理与统一响应格式
 
 #### 实时通信(进行中)
 
-- [ ] WebSocket 握手与连接建立
-- [ ] 基于 Solana Pubkey 的 JWT 认证
-- [ ] 一对一聊天核心逻辑（Text、Image、BookOffer）
-- [ ] 系统推送（System 消息）
+- [x] WebSocket 握手与连接建立
+- [x] 基于 Solana Pubkey 的 JWT 认证
+- [x] 一对一聊天核心逻辑（Text、Image、BookOffer）
+- [x] 系统推送（System 消息）
 - [x] 消息已读回执与 Delivered 状态
 - [ ] 聊天记录持久化存储（PostgreSQL）
 - [ ] 离线消息支持
-- [ ] 心跳机制与连接管理
+- [x] 心跳机制与连接管理
 
 #### 交易与 NFT
 
@@ -66,12 +66,11 @@
 
 ### 链上程序功能
 
-- [ ] 书籍 NFT 铸造指令（Metaplex Core）
-- [ ] Escrow 托管程序（NFT 锁定 + SOL 托管）
-- [ ] 转移指令（二手交易核心）
-- [ ] 去中心化仲裁机制（纠纷提交、证据上链、多签裁决）
-- [ ] 版税 / 手续费逻辑
-- [ ] 链上事件发射（供后端监听）
+- [x] 书籍 NFT 铸造指令（Metaplex Core）
+- [x] Escrow 托管程序（NFT 锁定 + SOL 托管）
+- [x] 转移指令（二手交易核心）
+- [x] 去中心化仲裁机制（纠纷提交、证据上链、多签裁决）
+- [x] 链上事件发射（供后端监听）
 
 ### 部署与优化
 

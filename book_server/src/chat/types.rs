@@ -12,8 +12,6 @@ use solana_sdk::signature::{Keypair, Signer};
 use sqlx::postgres::PgPoolOptions;
 
 pub type ConnectionRegistry = Arc<DashMap<Pubkey, UserConnection>>;
-
-
 #[derive(Clone)]
 pub struct ChatService{
     pub dash_map: ConnectionRegistry,//聊天路由映射表

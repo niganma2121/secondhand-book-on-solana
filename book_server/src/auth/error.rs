@@ -30,6 +30,7 @@ pub enum AuthError {
 
     #[error("公钥转换失败")]
     PubkeyError,
+
     #[error("时间溢出")]
     TimeError,
 

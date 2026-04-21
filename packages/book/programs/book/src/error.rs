@@ -47,5 +47,8 @@ pub enum AppError {
     UnauthorizedArbitrator,
 
     #[msg("不能重复投票")]
-    AlreadyVoted
+    AlreadyVoted,
+    
+    #[msg("管理员不匹配")]
+    AdminUnmatch
 }

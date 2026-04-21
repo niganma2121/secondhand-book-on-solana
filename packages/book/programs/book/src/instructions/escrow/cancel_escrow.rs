@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer};
 use crate::{nft_to_seller, BookStatus, Escrow};
 use crate::Book;
-use crate::{AppError,EscrowState,ESCROW_SEED,BOOK_SEED};
+use crate::{ADMIN_SIGNER,AppError,EscrowState,ESCROW_SEED,BOOK_SEED};
 use crate::event::EscrowCancelledEvent;
 
 #[derive(Accounts)]
@@ -10,6 +10,10 @@ pub struct CancelEscrow<'info>{
     #[account(mut)]
     pub signer:Signer<'info>,
     pub buyer:SystemAccount<'info>,
+    #[account(
+        constraint=admin_signer.key()==ADMIN_SIGNER @ AppError::AdminUnmatch
+    )]
+    pub admin_signer:Signer<'info>,
     #[account(
         mut,
         has_one=buyer @ AppError::UnmatchedBuyer,

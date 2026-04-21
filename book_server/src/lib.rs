@@ -10,3 +10,4 @@ pub mod chat;
 pub mod config;
 pub mod db;
 pub mod middlewares;
+pub mod client;

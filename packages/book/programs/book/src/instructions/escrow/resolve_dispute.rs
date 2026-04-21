@@ -1,15 +1,21 @@
 use crate::event::DisputeResolvedEvent;
 use crate::{nft_to_buyer, nft_to_seller, ArbitrationResult, BookStatus, Escrow, VoteChoice};
-use crate::{Book, AppError, EscrowState, BOOK_SEED, ESCROW_SEED};
+use crate::{ADMIN_SIGNER,ARBITRATORS,Book, AppError, EscrowState, BOOK_SEED, ESCROW_SEED};
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer};
 
 #[derive(Accounts)]
 #[instruction(choice:VoteChoice,refund_amount:u64)]
 pub struct ResolveDispute<'info> {
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint=ARBITRATORS.contains(&arbitrator.key()) @ AppError::UnauthorizedArbitrator
+    )]
     pub arbitrator: Signer<'info>, //仲裁员
-
+    #[account(
+        constraint=admin_signer.key()==ADMIN_SIGNER @ AppError::AdminUnmatch
+    )]
+    pub admin_signer:Signer<'info>,//后端签名
     #[account(
         mut,
         constraint=escrow.state==EscrowState::Disputed @ AppError::InvalidEscrowState,
