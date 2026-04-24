@@ -1,8 +1,8 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer};
-use crate::{Escrow, AppError, EscrowState, BOOK_SEED, ESCROW_SEED, Book, BookStatus, nft_to_buyer};
+use crate::{Escrow, AppError, EscrowState, BOOK_SEED, ESCROW_SEED, Book, BookStatus, nft_to_buyer, PLATFORM_FEE_BPS};
 use crate::event::ReceiptConfirmedEvent;
-
+use crate::PLATFORM_FEE_ACCOUNT;
 #[derive(Accounts)]
 pub struct ConfirmReceipt<'info>{
     #[account(mut)]
@@ -17,6 +17,13 @@ pub struct ConfirmReceipt<'info>{
         bump
     )]
     pub book:Account<'info,Book>,
+    //平台公钥
+    #[account(
+        mut,
+        constraint = platform_fee_account.key() == PLATFORM_FEE_ACCOUNT @ AppError::AdminUnmatch
+    )]
+    ///CHECK:平台公钥作为抽成
+    pub platform_fee_account:UncheckedAccount<'info>,
     #[account(
         mut,
         has_one=buyer @ AppError::BuyerUnmatched,
@@ -50,9 +57,14 @@ pub fn confirm_receipt(ctx:Context<ConfirmReceipt>)->Result<()>{
     let buyer_key = ctx.accounts.escrow.buyer;
     let book_key = ctx.accounts.escrow.book;
     //卖家确定收货,转移资金给卖家
-    let cpi_accounts=Transfer{
+    let seller_cpi_accounts=Transfer{
         from:ctx.accounts.escrow.to_account_info(),
         to:ctx.accounts.seller.to_account_info()
+    };
+    //平台抽成
+    let platform_cpi_accounts=Transfer{
+        from:ctx.accounts.escrow.to_account_info(),
+        to:ctx.accounts.platform_fee_account.to_account_info()
     };
     let seeds:&[&[u8]]=&[
         ESCROW_SEED,
@@ -61,13 +73,22 @@ pub fn confirm_receipt(ctx:Context<ConfirmReceipt>)->Result<()>{
         &[bump]
     ];
     let signer_seeds=&[seeds];
-    let cpi_ctx=CpiContext::new_with_signer(
+    let seller_cpi_ctx=CpiContext::new_with_signer(
         ctx.accounts.system_program.to_account_info(),
-        cpi_accounts,
+        seller_cpi_accounts,
         signer_seeds
     );
-    transfer(cpi_ctx,price)?;
-
+    let platform_cpi_ctx=CpiContext::new_with_signer(
+        ctx.accounts.system_program.to_account_info(),
+        platform_cpi_accounts,
+        signer_seeds
+    );
+    let fee=price*PLATFORM_FEE_BPS/10000;
+    let seller_amount=price-fee;
+    // 转给卖家
+    transfer(seller_cpi_ctx,seller_amount)?;
+    //平台抽成
+    transfer(platform_cpi_ctx,fee)?;
 
     //转移NFT
     let signer=ctx.accounts.buyer.to_account_info();

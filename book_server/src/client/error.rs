@@ -15,5 +15,14 @@ pub enum ClientError{
     TxVerifyFailed(String),
 
     #[error("获取哈希区块使用:{0}")]
-    BlockError(String)
+    BlockError(String),
+
+    #[error("无效的投票选项请选择合理的投票")]
+    BadChoice,
+
+    #[error("广播失败:{0}")]
+    BroadcastFailed(String),
+
+    #[error("Ipfs出问题{0}")]
+    IpfsError(String)
 }

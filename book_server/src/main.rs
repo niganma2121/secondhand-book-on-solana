@@ -1,18 +1,17 @@
 use std::net::SocketAddr;
-use std::sync::Arc;
 use axum::{serve, Router};
 use axum::http::{HeaderValue, Method};
 use axum::http::header::{AUTHORIZATION, CONTENT_TYPE, COOKIE};
-use axum::routing::get;
 use axum::serve::ListenerExt;
 use dotenvy::{dotenv, var};
-use log::info;
 use book_server::routers::public::{ page_home};
 use tokio::net::TcpListener;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use book_server::state::AppState;
 use tower_http::cors::{ CorsLayer};
+use tracing::info;
+use axum::routing::get;
 use book_server::routers::api;
 
 #[tokio::main]
@@ -30,7 +29,7 @@ async fn main() {
         .allow_credentials(true)
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
         .allow_headers([CONTENT_TYPE, AUTHORIZATION, COOKIE]);
-    let state=Arc::new(AppState::new().await);
+    let state=AppState::new().await;
     let app=Router::new()
         .route("/",get(page_home))
         .merge(api(state.clone()))

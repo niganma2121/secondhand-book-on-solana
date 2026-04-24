@@ -7,10 +7,9 @@ use crate::auth::error::AuthError;
 use crate::auth::util::{decode_jwt, is_jwt_blacklist};
 use crate::state::AppState;
 use axum_extra::extract::CookieJar;
-use log::info;
-
+use tracing::info;
 pub async fn auth_middleware(
-    State(state):State<Arc<AppState>>,
+    State(state):State<AppState>,
     jar:CookieJar,
     mut req:Request,
     next:Next

@@ -8,7 +8,7 @@ use sonyflake::Sonyflake;
 use sqlx::PgPool;
 use tokio::sync::mpsc::Sender;
 use crate::chat::util;
-use solana_sdk::signature::{Keypair, Signer};
+use anchor_client::solana_sdk::signature::{Keypair, Signer};
 use sqlx::postgres::PgPoolOptions;
 
 pub type ConnectionRegistry = Arc<DashMap<Pubkey, UserConnection>>;

@@ -32,7 +32,7 @@ pub mod book {
     pub fn create_escrow(ctx:Context<CreateEscrow>)->Result<()>{
         instructions::create_escrow(ctx)
     }
-    pub fn ship_escrow(ctx:Context<ShipBook>,shipping_commitment:[u8;32])->Result<()>{
+    pub fn ship_book(ctx:Context<ShipBook>,shipping_commitment:[u8;32])->Result<()>{
         instructions::ship_book(ctx,shipping_commitment)
     }
     pub fn confirm_escrow(ctx:Context<ConfirmReceipt>)->Result<()>{

@@ -10,13 +10,13 @@ use axum_extra::extract::CookieJar;
 use axum_extra::extract::cookie::{Cookie, SameSite};
 use serde_json::json;
 use std::collections::HashMap;
-use std::sync::Arc;
-use log::{info, warn};
+use tracing::info;
+use tracing::log::warn;
 
 //处理获取nonce请求
 pub async fn get_nonce_handler(
     Query(params): Query<HashMap<String, String>>,
-    State(state): State<Arc<AppState>>,
+    State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AuthError> {
     let address = params
         .get("address")
@@ -34,7 +34,7 @@ pub async fn get_nonce_handler(
 
 //登录处理
 pub async fn login_handler(
-    State(state): State<Arc<AppState>>,
+    State(state): State<AppState>,
     jar: CookieJar,
     Json(payload): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, AuthError> {
@@ -53,7 +53,7 @@ pub async fn login_handler(
 
 //登出处理
 pub async fn logout_handler(
-    State(state):State<Arc<AppState>>,
+    State(state):State<AppState>,
     jar:CookieJar
 )->Result<impl IntoResponse,AuthError>{
     info!("收到登出请求");

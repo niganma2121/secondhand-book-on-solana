@@ -9,7 +9,7 @@ pub mod protected;
 pub mod public;
 
 
-pub fn api(state:Arc<AppState>)->Router<Arc<AppState>>{
+pub fn api(state:AppState)->Router<AppState>{
     let sub_api=Router::merge(
         api_protected_router(state.clone()),
         api_public_router(state.clone())

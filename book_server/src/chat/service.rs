@@ -1,7 +1,7 @@
 use std::time::{ SystemTime, UNIX_EPOCH};
 use anchor_client::anchor_lang::prelude::Pubkey;
-use log::{error, info};
 use anyhow::Result;
+use tracing::{error, info};
 use crate::chat::error::ChatError;
 use crate::chat::types::{ChatMessage, ChatService, ClientCommand, MessageContent, SyncRequest};
 use crate::chat::types::MessageContent::Delivered;

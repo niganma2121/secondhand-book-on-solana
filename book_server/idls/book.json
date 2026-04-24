@@ -168,6 +168,10 @@
           ]
         },
         {
+          "name": "platform_fee_account",
+          "writable": true
+        },
+        {
           "name": "escrow",
           "writable": true,
           "pda": {
@@ -230,6 +234,10 @@
         {
           "name": "seller",
           "writable": true,
+          "signer": true
+        },
+        {
+          "name": "admin",
           "signer": true
         },
         {
@@ -604,16 +612,16 @@
       ]
     },
     {
-      "name": "ship_escrow",
+      "name": "ship_book",
       "discriminator": [
-        214,
-        173,
-        88,
-        215,
+        103,
+        60,
+        83,
+        77,
+        22,
         127,
-        222,
-        91,
-        250
+        20,
+        93
       ],
       "accounts": [
         {

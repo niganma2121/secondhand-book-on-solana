@@ -8,7 +8,7 @@ use crate::error::AppError;
 pub struct CreateBook<'info> {
     #[account(mut)]
     pub seller: Signer<'info>,
-
+    pub admin:Signer<'info>,
     #[account(
         init,
         payer=seller,

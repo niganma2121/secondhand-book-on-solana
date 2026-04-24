@@ -168,6 +168,10 @@
           ]
         },
         {
+          "name": "platform_fee_account",
+          "writable": true
+        },
+        {
           "name": "escrow",
           "writable": true,
           "pda": {

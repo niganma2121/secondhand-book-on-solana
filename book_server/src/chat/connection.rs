@@ -5,9 +5,9 @@ use anchor_client::anchor_lang::prelude::Pubkey;
 use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
 use futures::stream::{SplitSink, SplitStream};
-use log::{error, warn};
 use tokio::select;
 use tokio::sync::mpsc::Receiver;
+use tracing::{error, warn};
 use crate::chat::error::ChatError;
 use crate::chat::types::{ChatMessage, ChatService, ClientCommand, MessageContent};
 

@@ -5,20 +5,20 @@ use axum::extract::ws::{ WebSocket};
 use axum::extract::{Query, State, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use futures::{ StreamExt};
-use log::{ info};
-use solana_sdk::pubkey::Pubkey;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64,};
 use std::time::{SystemTime, UNIX_EPOCH};
+use anchor_client::solana_sdk::pubkey::Pubkey;
 use tokio::select;
 use tokio::sync::mpsc::{channel, };
+use tracing::info;
 use crate::chat::types::{ChatService, UserConnection, UserInfo};
 use crate::chat::connection::{start_read_task, start_write_task};
 ///处理ws升级
 pub async fn chat_handler(
     ws: WebSocketUpgrade,
     Query(params):Query<HashMap<String,String>>,
-    State(state): State<Arc<AppState>>,
+    State(state): State<AppState>,
 ) -> impl IntoResponse {
     // 从 url 取 ?pubkey=...
     let pubkey_str = params.get("pubkey").map(|s| s.as_str()).unwrap_or("11111111111111111111111111111111");

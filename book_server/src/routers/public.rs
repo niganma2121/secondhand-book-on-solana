@@ -12,7 +12,7 @@ pub async fn page_home() ->&'static str{
     "欢迎来到主页"
 }
 
-pub fn auth_router(state:Arc<AppState>)->Router<Arc<AppState>>{
+pub fn auth_router(state:AppState)->Router<AppState>{
     Router::new()
         .route("/me", get(get_me).layer(from_fn_with_state(state.clone(), auth_middleware)))
         .route("/nonce",get(get_nonce_handler))
@@ -20,7 +20,7 @@ pub fn auth_router(state:Arc<AppState>)->Router<Arc<AppState>>{
         .route("/logout",get(logout_handler))
 }
 
-pub fn api_public_router(state:Arc<AppState>)->Router<Arc<AppState>>{
+pub fn api_public_router(state:AppState)->Router<AppState>{
     Router::new()
         .nest("/auth",auth_router(state))
 }
