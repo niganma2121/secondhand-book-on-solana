@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT escrow_pda,asset,seller,buyer,price,state,\n                    shipping_commitment,created_at,updated_at\n             FROM escrows WHERE escrow_pda=$1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "escrow_pda",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "asset",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "seller",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "buyer",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "price",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "state",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "shipping_commitment",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_at",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "32cd6448a3e435872519ad4634b366e0ddd386f756a20fd218313b8908130af4"
+}

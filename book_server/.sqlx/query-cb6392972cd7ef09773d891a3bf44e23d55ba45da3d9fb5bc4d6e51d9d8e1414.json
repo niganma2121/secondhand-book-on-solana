@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE books SET price=$2, updated_at=$3 WHERE asset=$1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cb6392972cd7ef09773d891a3bf44e23d55ba45da3d9fb5bc4d6e51d9d8e1414"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE users SET sell_count=sell_count+1, trade_count=trade_count+1\n             WHERE pubkey=$1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a436ca02fb6e6ae0841ce15d6ea3cb8a3f5ecc52921a6fc4da642693f3361b64"
+}

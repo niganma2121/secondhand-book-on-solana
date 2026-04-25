@@ -1,0 +1,113 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT asset,book_pda,seller,collection,price,status,metadata_url,\n                   metadata_hash,name,cover_url,author,series,category,condition,\n                   created_at,updated_at\n            FROM books\n            WHERE status='Listed' AND name LIKE $1\n            ORDER BY name\n            LIMIT $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "asset",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "book_pda",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "seller",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "collection",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "price",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "status",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "metadata_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "metadata_hash",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 8,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "cover_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "author",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 11,
+        "name": "series",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 12,
+        "name": "category",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 13,
+        "name": "condition",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 14,
+        "name": "created_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 15,
+        "name": "updated_at",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "73eeeddf9a536ad1f0bee17b3e04959b497ac2809197981041f62372819102e7"
+}

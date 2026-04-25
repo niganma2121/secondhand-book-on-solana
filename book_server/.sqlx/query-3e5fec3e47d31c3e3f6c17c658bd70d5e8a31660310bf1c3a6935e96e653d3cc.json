@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO reviews (id, escrow_pda, reviewer, reviewee, score, comment, created_at)\n            VALUES ($1,$2,$3,$4,$5,$6,$7)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Int2",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3e5fec3e47d31c3e3f6c17c658bd70d5e8a31660310bf1c3a6935e96e653d3cc"
+}

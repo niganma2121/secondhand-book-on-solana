@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT pubkey,username,avatar,trade_count,sell_count,buy_count,created_at\n             FROM users WHERE username=$1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pubkey",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "avatar",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "trade_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "sell_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "buy_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "855c0dfd7d3ef1fce44c5e369982966e1c51181b321593ca41c89c20786a870c"
+}

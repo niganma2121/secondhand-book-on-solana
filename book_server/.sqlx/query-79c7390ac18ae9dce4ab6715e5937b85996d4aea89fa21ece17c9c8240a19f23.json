@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE escrows SET state='Shipped', shipping_commitment=$2, updated_at=$3\n             WHERE escrow_pda=$1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bytea",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "79c7390ac18ae9dce4ab6715e5937b85996d4aea89fa21ece17c9c8240a19f23"
+}

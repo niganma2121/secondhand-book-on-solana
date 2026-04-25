@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO escrows\n                (escrow_pda, asset, seller, buyer, price, state, created_at, updated_at)\n            VALUES ($1,$2,$3,$4,$5,'Paid',$6,$6)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "09ee6ff4f92a88fefadd4a39b029c6374eda78b8adc1d8d6b82a24faef6878cb"
+}

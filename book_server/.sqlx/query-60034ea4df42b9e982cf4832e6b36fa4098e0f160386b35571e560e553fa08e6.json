@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE escrows SET state='Cancelled', updated_at=$2 WHERE escrow_pda=$1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "60034ea4df42b9e982cf4832e6b36fa4098e0f160386b35571e560e553fa08e6"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE books SET status='InEscrow', updated_at=$2 WHERE asset=$1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "55366977b101b68f312195e3af528ae0e4240dae75339e8272075b219cd30302"
+}

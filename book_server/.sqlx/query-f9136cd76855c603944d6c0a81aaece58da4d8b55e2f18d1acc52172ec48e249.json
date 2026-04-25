@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO books\n            (asset,book_pda,seller,collection,price,status,\n             metadata_url,metadata_hash,name,author,series,\n             category,condition,created_at,updated_at)\n        VALUES ($1,$2,$3,$4,$5,'Listed',$6,$7,$8,$9,$10,$11,$12,$13,$13)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "Text",
+        "Bytea",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f9136cd76855c603944d6c0a81aaece58da4d8b55e2f18d1acc52172ec48e249"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE books SET status='DeListed', updated_at=$2 WHERE asset=$1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1b0dea76f967b8e8bf1e33de23380fe494e432abe3a7e11a588f403dac5f57d0"
+}

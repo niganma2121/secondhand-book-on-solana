@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use axum::Router;
 use crate::routers::protected::{ api_protected_router};
 use crate::routers::public::{api_public_router,};

@@ -19,7 +19,7 @@ pub struct AnchorService{
 }
 impl AnchorService{
     pub fn new()->Self{
-        let keypair_url=var("ADMIN_URL").expect("环境变量中不存在密钥对");
+        let keypair_url=var("ADMIN_KEYPAIR_URL").expect("环境变量中不存在密钥对");
         let keypair=Keypair::read_from_file(keypair_url).expect("密钥对文件读取失败");
         let admin_keypair=Arc::new(keypair);
 

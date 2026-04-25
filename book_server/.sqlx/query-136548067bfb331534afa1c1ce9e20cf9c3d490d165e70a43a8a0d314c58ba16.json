@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE users SET username=$2, avatar=$3 WHERE pubkey=$1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "136548067bfb331534afa1c1ce9e20cf9c3d490d165e70a43a8a0d314c58ba16"
+}

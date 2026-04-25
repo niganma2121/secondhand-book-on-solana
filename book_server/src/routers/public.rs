@@ -2,16 +2,17 @@
 
 use std::sync::Arc;
 use axum::middleware::from_fn_with_state;
-use axum::Router;
+use axum::{Extension, Json, Router};
+use axum::response::IntoResponse;
 use axum::routing::{get, post};
+use serde_json::json;
 use crate::auth::{auth_middleware, get_nonce_handler, login_handler, logout_handler};
-use crate::handlers::get_me;
 use crate::state::AppState;
-
-pub async fn page_home() ->&'static str{
-    "欢迎来到主页"
+pub async fn get_me(
+    Extension(address): Extension<String>,
+) -> impl IntoResponse {
+    Json(json!({ "address": address, "status": "ok" }))
 }
-
 pub fn auth_router(state:AppState)->Router<AppState>{
     Router::new()
         .route("/me", get(get_me).layer(from_fn_with_state(state.clone(), auth_middleware)))

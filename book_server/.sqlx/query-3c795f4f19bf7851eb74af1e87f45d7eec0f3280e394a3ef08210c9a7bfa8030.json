@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT 1 AS exists FROM reviews WHERE escrow_pda=$1 AND reviewer=$2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3c795f4f19bf7851eb74af1e87f45d7eec0f3280e394a3ef08210c9a7bfa8030"
+}

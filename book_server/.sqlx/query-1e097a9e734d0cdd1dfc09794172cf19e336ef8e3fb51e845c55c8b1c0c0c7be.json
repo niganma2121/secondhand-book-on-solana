@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE books SET status='Listed', updated_at=$2 WHERE asset=$1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1e097a9e734d0cdd1dfc09794172cf19e336ef8e3fb51e845c55c8b1c0c0c7be"
+}
