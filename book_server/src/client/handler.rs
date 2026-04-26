@@ -1,46 +1,48 @@
-
+use crate::client::error::ClientError;
+use crate::client::types::{
+    CancelEscrowRequest, ConfirmReceiptRequest, CreateBookRequest, CreateEscrowRequest,
+    DelistBookRequest, OpenDisputeRequest, ResolveDisputeRequest, ShipBookRequest, SignedTxRequest,
+    UpdatePriceRequest,
+};
+use crate::state::AppState;
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::Json;
 use axum::response::{IntoResponse, Response};
-use crate::client::error::ClientError;
-use crate::client::types::{CancelEscrowRequest, ConfirmReceiptRequest, CreateBookRequest, CreateEscrowRequest, DelistBookRequest, OpenDisputeRequest, ResolveDisputeRequest, ShipBookRequest, SignedTxRequest, UpdatePriceRequest};
-use crate::state::AppState;
 
-impl IntoResponse for ClientError{
+impl IntoResponse for ClientError {
     fn into_response(self) -> Response {
         let (status, msg) = match &self {
-            ClientError::InvalidAddress(_)  => (StatusCode::BAD_REQUEST, self.to_string()),
-            ClientError::BadChoice          => (StatusCode::BAD_REQUEST, self.to_string()),
-            ClientError::TxBuildError(_)    => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
-            ClientError::TxVerifyFailed(_)  => (StatusCode::BAD_REQUEST, self.to_string()),
-            ClientError::BlockError(_)      => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
+            ClientError::InvalidAddress(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            ClientError::BadChoice => (StatusCode::BAD_REQUEST, self.to_string()),
+            ClientError::TxBuildError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            ClientError::TxVerifyFailed(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            ClientError::BlockError(_) => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
             ClientError::BroadcastFailed(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
-            ClientError::IpfsError(_)       => (StatusCode::BAD_GATEWAY, self.to_string()),
-            ClientError::ProgramError(_)    => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            ClientError::IpfsError(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
+            ClientError::ProgramError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            ClientError::DbError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
         };
         (status, Json(serde_json::json!({ "error": msg }))).into_response()
     }
 }
 
-
-
 ///构建NFT以及上架书的交易,后端部分签名返回前端签名
 pub async fn create_book_handler(
-    State(state):State<AppState>,
-    Json(req):Json<CreateBookRequest>
-) ->Result<impl IntoResponse,ClientError>{
-    let res=state.anchor_service.build_create_book(req).await?;
-    Ok((StatusCode::OK,Json(res)))
+    State(state): State<AppState>,
+    Json(req): Json<CreateBookRequest>,
+) -> Result<impl IntoResponse, ClientError> {
+    let res = state.anchor_service.build_create_book(req).await?;
+    Ok((StatusCode::OK, Json(res)))
 }
 
 ///下架书以及销毁NFT,前端签名确认
 pub async fn delist_book_handler(
-    State(state):State<AppState>,
-    Json(req):Json<DelistBookRequest>
-)->Result<impl IntoResponse,ClientError>{
-    let res=state.anchor_service.build_delist_book(req).await?;
-    Ok((StatusCode::OK,Json(res)))
+    State(state): State<AppState>,
+    Json(req): Json<DelistBookRequest>,
+) -> Result<impl IntoResponse, ClientError> {
+    let res = state.anchor_service.build_delist_book(req).await?;
+    Ok((StatusCode::OK, Json(res)))
 }
 
 ///构建更新书的价格的交易

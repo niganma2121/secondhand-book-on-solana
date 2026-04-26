@@ -1,7 +1,7 @@
 use thiserror::Error;
 
-#[derive(Error,Debug)]
-pub enum ClientError{
+#[derive(Error, Debug)]
+pub enum ClientError {
     #[error("程序句柄获取失败{0}")]
     ProgramError(#[from] anchor_client::ClientError),
 
@@ -24,5 +24,8 @@ pub enum ClientError{
     BroadcastFailed(String),
 
     #[error("Ipfs出问题{0}")]
-    IpfsError(String)
+    IpfsError(String),
+
+    #[error("数据库操作失败:{0}")]
+    DbError(String),
 }

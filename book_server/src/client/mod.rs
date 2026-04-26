@@ -15,7 +15,7 @@ pub use book::{
         accounts,
         args
     },
-    types::{VoteChoice},
+    types::{VoteChoice,BookStatus,EscrowState},
     ID as BOOK_PROGRAM_ID
 };
 const MPL_CORE:Pubkey=Pubkey::from_str_const("CoRE9aCUEv7WzZ6EUt2C9pcz7moCCWf999fMey9vR7T");

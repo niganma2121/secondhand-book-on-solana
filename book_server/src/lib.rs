@@ -11,5 +11,4 @@ pub mod config;
 pub mod db;
 pub mod middlewares;
 pub mod client;
-pub mod query;
 pub use config::*;
