@@ -12,9 +12,7 @@ use anchor_client::solana_sdk::signature::{Keypair, Signer};
 use anchor_client::solana_sdk::transaction::Transaction;
 use mpl_core::instructions::{BurnV1Builder, CreateV1Builder};
 use solana_system_interface::program::ID as SYSTEM_PROGRAM_ID;
-use tokio::sync::futures::OwnedNotified;
 use tracing::{info, warn};
-use crate::routers::protected::tx_router;
 
 ///工具部分
 impl AnchorService {
@@ -740,7 +738,6 @@ impl AnchorService {
     pub async fn broadcast_resolve_dispute(
         &self,
         req:BroadcastResolveDisputeRequest,
-        db:&DBService,
         now:i64
     )->Result<BroadcastResponse,ClientError>{
         let tx=deserialize_signed_tx(&req.signed_tx)?;
@@ -750,7 +747,7 @@ impl AnchorService {
             .await
             .map_err(|e|ClientError::BroadcastFailed(e.to_string()))?;
 
-        info!("仲裁投票已广播 escrow={} sig={}", req.escrow_pda, sig);
+        info!("仲裁投票已广播 escrow={} sig={},time:{}", req.escrow_pda, sig,now);
         Ok(BroadcastResponse{
             signature:sig.to_string(),
             msg:"投票成功".into()

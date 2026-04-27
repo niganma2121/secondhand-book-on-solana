@@ -1,31 +1,10 @@
 use crate::client::error::ClientError;
-use crate::client::types::{
-    CancelEscrowRequest, ConfirmReceiptRequest, CreateBookRequest, CreateEscrowRequest,
-    DelistBookRequest, OpenDisputeRequest, ResolveDisputeRequest, ShipBookRequest, SignedTxRequest,
-    UpdatePriceRequest,
-};
+use crate::client::types::{BroadcastCancelEscrowRequest, BroadcastConfirmReceiptRequest, BroadcastCreateBookRequest, BroadcastCreateEscrowRequest, BroadcastDelistRequest, BroadcastOpenDisputeRequest, BroadcastResolveDisputeRequest, BroadcastShipRequest, BroadcastUpdatePriceRequest, CancelEscrowRequest, ConfirmReceiptRequest, CreateBookRequest, CreateEscrowRequest, DelistBookRequest, OpenDisputeRequest, ResolveDisputeRequest, ShipBookRequest, SignedTxRequest, UpdatePriceRequest};
 use crate::state::AppState;
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
-
-impl IntoResponse for ClientError {
-    fn into_response(self) -> Response {
-        let (status, msg) = match &self {
-            ClientError::InvalidAddress(_) => (StatusCode::BAD_REQUEST, self.to_string()),
-            ClientError::BadChoice => (StatusCode::BAD_REQUEST, self.to_string()),
-            ClientError::TxBuildError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
-            ClientError::TxVerifyFailed(_) => (StatusCode::BAD_REQUEST, self.to_string()),
-            ClientError::BlockError(_) => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
-            ClientError::BroadcastFailed(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
-            ClientError::IpfsError(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
-            ClientError::ProgramError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
-            ClientError::DbError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
-        };
-        (status, Json(serde_json::json!({ "error": msg }))).into_response()
-    }
-}
+use axum::response::{IntoResponse};
 
 ///构建NFT以及上架书的交易,后端部分签名返回前端签名
 pub async fn create_book_handler(
@@ -107,11 +86,107 @@ pub async fn resolve_dispute_handler(
     Ok((StatusCode::OK, Json(res)))
 }
 
-/// 接收前端签名完毕的交易，广播上链
-pub async fn broadcast_handler(
+///处理前端签名后的交易请求
+pub async fn broadcast_create_book_handler(
+    State(state):State<AppState>,
+    Json(req):Json<BroadcastCreateBookRequest>
+)->Result<impl IntoResponse,ClientError>{
+    let now=chrono::Utc::now().timestamp();
+    let res=state.anchor_service.broadcast_create_book(
+        req,
+        &state.db_service,
+        now
+    ).await?;
+    Ok((StatusCode::OK,Json(res)))
+}
+
+pub async fn broadcast_delist_handler(
     State(state): State<AppState>,
-    Json(req): Json<SignedTxRequest>,
+    Json(req): Json<BroadcastDelistRequest>,
 ) -> Result<impl IntoResponse, ClientError> {
-    let res = state.anchor_service.broadcast_signed(req).await?;
+    let now = chrono::Utc::now().timestamp();
+    let res = state.anchor_service
+        .broadcast_delist_book(req, &state.db_service, now)
+        .await?;
     Ok((StatusCode::OK, Json(res)))
 }
+
+pub async fn broadcast_update_price_handler(
+    State(state): State<AppState>,
+    Json(req): Json<BroadcastUpdatePriceRequest>,
+) -> Result<impl IntoResponse, ClientError> {
+    let now = chrono::Utc::now().timestamp();
+    let res = state.anchor_service
+        .broadcast_update_price(req, &state.db_service, now)
+        .await?;
+    Ok((StatusCode::OK, Json(res)))
+}
+
+pub async fn broadcast_create_escrow_handler(
+    State(state): State<AppState>,
+    Json(req): Json<BroadcastCreateEscrowRequest>,
+) -> Result<impl IntoResponse, ClientError> {
+    let now = chrono::Utc::now().timestamp();
+    let res = state.anchor_service
+        .broadcast_create_escrow(req, &state.db_service, now)
+        .await?;
+    Ok((StatusCode::OK, Json(res)))
+}
+
+pub async fn broadcast_ship_handler(
+    State(state): State<AppState>,
+    Json(req): Json<BroadcastShipRequest>,
+) -> Result<impl IntoResponse, ClientError> {
+    let now = chrono::Utc::now().timestamp();
+    let res = state.anchor_service
+        .broadcast_ship_book(req, &state.db_service, now)
+        .await?;
+    Ok((StatusCode::OK, Json(res)))
+}
+
+pub async fn broadcast_confirm_receipt_handler(
+    State(state): State<AppState>,
+    Json(req): Json<BroadcastConfirmReceiptRequest>,
+) -> Result<impl IntoResponse, ClientError> {
+    let now = chrono::Utc::now().timestamp();
+    let res = state.anchor_service
+        .broadcast_confirm_receipt(req, &state.db_service, now)
+        .await?;
+    Ok((StatusCode::OK, Json(res)))
+}
+
+pub async fn broadcast_cancel_escrow_handler(
+    State(state): State<AppState>,
+    Json(req): Json<BroadcastCancelEscrowRequest>,
+) -> Result<impl IntoResponse, ClientError> {
+    let now = chrono::Utc::now().timestamp();
+    let res = state.anchor_service
+        .broadcast_cancel_escrow(req, &state.db_service, now)
+        .await?;
+    Ok((StatusCode::OK, Json(res)))
+}
+
+pub async fn broadcast_open_dispute_handler(
+    State(state): State<AppState>,
+    Json(req): Json<BroadcastOpenDisputeRequest>,
+) -> Result<impl IntoResponse, ClientError> {
+    let now = chrono::Utc::now().timestamp();
+    let res = state.anchor_service
+        .broadcast_open_dispute(req, &state.db_service, now)
+        .await?;
+    Ok((StatusCode::OK, Json(res)))
+}
+
+pub async fn broadcast_resolve_dispute_handler(
+    State(state): State<AppState>,
+    Json(req): Json<BroadcastResolveDisputeRequest>,
+) -> Result<impl IntoResponse, ClientError> {
+    let now = chrono::Utc::now().timestamp();
+    let res = state.anchor_service
+        .broadcast_resolve_dispute(req, now)
+        .await?;
+    Ok((StatusCode::OK, Json(res)))
+}
+
+
+

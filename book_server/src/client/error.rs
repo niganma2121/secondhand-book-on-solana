@@ -1,5 +1,7 @@
+use axum::http::StatusCode;
+use axum::Json;
+use axum::response::{IntoResponse, Response};
 use thiserror::Error;
-
 #[derive(Error, Debug)]
 pub enum ClientError {
     #[error("程序句柄获取失败{0}")]
@@ -28,4 +30,20 @@ pub enum ClientError {
 
     #[error("数据库操作失败:{0}")]
     DbError(String),
+}
+impl IntoResponse for ClientError {
+    fn into_response(self) -> Response {
+        let (status, msg) = match &self {
+            ClientError::InvalidAddress(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            ClientError::BadChoice => (StatusCode::BAD_REQUEST, self.to_string()),
+            ClientError::TxBuildError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            ClientError::TxVerifyFailed(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            ClientError::BlockError(_) => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
+            ClientError::BroadcastFailed(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
+            ClientError::IpfsError(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
+            ClientError::ProgramError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            ClientError::DbError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+        };
+        (status, Json(serde_json::json!({ "error": msg }))).into_response()
+    }
 }

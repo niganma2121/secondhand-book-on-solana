@@ -10,6 +10,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use book_server::state::AppState;
 use tower_http::cors::{ CorsLayer};
 use tracing::info;
+use book_server::event_listener::listen_dispute_resolved;
 use book_server::routers::api;
 
 #[tokio::main]
@@ -23,11 +24,18 @@ async fn main() {
 
     let cors = CorsLayer::new()
         .allow_origin("http://localhost:3001".parse::<HeaderValue>().unwrap())
-        //必须允许凭证
         .allow_credentials(true)
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
         .allow_headers([CONTENT_TYPE, AUTHORIZATION, COOKIE]);
     let state=AppState::new().await;
+    let ws_url=var("SOLANA_WS_URL").expect("缺少Solana的ws url");
+
+    //后台运行监听
+    tokio::spawn(listen_dispute_resolved(
+        state.db_service.clone(),
+        ws_url
+    ));
+
     let app=Router::new()
         .merge(api(state.clone()))
         .layer(cors)
@@ -40,3 +48,5 @@ async fn main() {
     info!("服务器启动,开始监听端口:3000");
     serve(listener,app).await.expect("服务器创建失败");
 }
+
+

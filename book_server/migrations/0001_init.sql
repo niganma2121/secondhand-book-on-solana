@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS books
     collection    VARCHAR(44)  NOT NULL,
     price         BIGINT       NOT NULL,
     status        VARCHAR(20)  NOT NULL DEFAULT 'Listed'
-        CHECK (status IN ('Listed', 'Locked', 'Sold', 'Delisted')),
+        CHECK (status IN ('Listed', 'InEscrow', 'Sold', 'DeListed')),
     metadata_url  TEXT         NOT NULL,
     metadata_hash BYTEA        NOT NULL,
     name          VARCHAR(200) NOT NULL,
@@ -104,8 +104,7 @@ CREATE TABLE IF NOT EXISTS escrows
     buyer               VARCHAR(44) NOT NULL REFERENCES users (pubkey),
     price               BIGINT      NOT NULL,
     state               VARCHAR(20) NOT NULL DEFAULT 'Paid'
-        CHECK (state IN ('Paid', 'Shipped', 'Completed', 'Cancelled', 'Disputed')),
-    shipping_commitment BYTEA,
+        CHECK (state IN ('Paid', 'Shipped', 'Released', 'Cancelled', 'Disputed')),    shipping_commitment BYTEA,
     created_at          BIGINT      NOT NULL,
     updated_at          BIGINT      NOT NULL
 );
