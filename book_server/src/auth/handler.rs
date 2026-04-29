@@ -19,7 +19,7 @@ pub async fn get_nonce_handler(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AuthError> {
     let address = params
-        .get("address")
+        .get("pubkey")
         .ok_or_else(|| AuthError::BadRequest("缺少地址".into()))?;
 
     bs58::decode(address)
@@ -44,7 +44,7 @@ pub async fn login_handler(
         .path("/")
         .http_only(true)
         .secure(false) //本地为false,HTTPs为true
-        .same_site(SameSite::Lax) // ✅ 本地跨端口调试建议用 Lax
+        .same_site(SameSite::Lax) 
         .max_age(time::Duration::hours(48))
         .build();
 

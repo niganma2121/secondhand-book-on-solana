@@ -9,10 +9,18 @@ pub mod book;
 pub mod escrow;
 pub mod favorite;
 pub mod review;
+pub mod message;
 
+pub use types::*;
+pub use message::*;
+pub use book::*;
+pub use escrow::*;
+pub use user::*;
+pub use review::*;
+pub use favorite::*;
 #[derive(Clone)]
 pub struct DBService{
-    pub db_pool:PgPool
+    db_pool:PgPool
 }
 
 impl DBService{

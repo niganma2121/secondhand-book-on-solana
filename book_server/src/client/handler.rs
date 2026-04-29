@@ -95,6 +95,7 @@ pub async fn broadcast_create_book_handler(
     let res=state.anchor_service.broadcast_create_book(
         req,
         &state.db_service,
+        &state.id_generator,
         now
     ).await?;
     Ok((StatusCode::OK,Json(res)))

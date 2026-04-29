@@ -8,6 +8,7 @@ use anyhow::Result;
 use ed25519_dalek::{VerifyingKey, Signature, Verifier};
 use jsonwebtoken::{decode, Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation};
 use redis::{AsyncCommands};
+use tracing::warn;
 use crate::auth::error::AuthError;
 use crate::auth::types::{Claims};
 
@@ -172,7 +173,7 @@ pub async fn blacklist_jwt(pool:&deadpool_redis::Pool,jti:&str,ttl_secs:u64)->Re
         .query_async(&mut connection)
         .await
         .map_err(|e|AuthError::Internal(format!("拉黑JWT失败,{e}")))?;
-
+    warn!("黑名单:");
     Ok(())
 }
 

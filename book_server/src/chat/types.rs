@@ -11,15 +11,12 @@ pub type ConnectionRegistry = Arc<DashMap<Pubkey, UserConnection>>;
 #[derive(Clone)]
 pub struct ChatService{
     pub dash_map: ConnectionRegistry,//聊天路由映射表
-    pub id_generator:Arc<Sonyflake>,//雪花id生成
     admin_keypair:Arc<Keypair>
 }
 impl ChatService{
     pub async fn new(admin_keypair:Arc<Keypair>)->Arc<Self>{
         let dash_map=Arc::new(DashMap::new());
-        let id_generator=Arc::new(Sonyflake::new().expect("id生成器生成器构建失败"));
-
-        let s=Self{dash_map,id_generator,admin_keypair};
+        let s=Self{dash_map,admin_keypair};
         Arc::new(s)
     }
     pub fn get_admin_key(&self)->Pubkey{

@@ -18,6 +18,7 @@ async fn main() {
     dotenv().ok();
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::EnvFilter::from_default_env())
         .init();
     let port=var("PORT").unwrap_or_else(|_|"3000".to_string());
     let addr:SocketAddr=format!("0.0.0.0:{}",port).parse().expect("无效的地址");
@@ -30,7 +31,7 @@ async fn main() {
     let state=AppState::new().await;
     let ws_url=var("SOLANA_WS_URL").expect("缺少Solana的ws url");
 
-    //后台运行监听
+    //仲裁结果监听
     tokio::spawn(listen_dispute_resolved(
         state.db_service.clone(),
         ws_url
@@ -43,7 +44,7 @@ async fn main() {
 
     let tcp_listener=TcpListener::bind(addr).await.expect("监听器创建失败");
     let listener=tcp_listener.tap_io(|x| {
-        info!("新的连接接入:{:?}",x.peer_addr())
+        info!("新的客户端接入:{:?}",x.peer_addr())
     });
     info!("服务器启动,开始监听端口:3000");
     serve(listener,app).await.expect("服务器创建失败");

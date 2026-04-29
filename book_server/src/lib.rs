@@ -8,6 +8,8 @@ pub mod config;
 pub mod db;
 pub mod event_listener;
 pub mod client;
+pub mod error;
+pub use error::*;
 pub use config::*;
 
 pub use handlers::*;

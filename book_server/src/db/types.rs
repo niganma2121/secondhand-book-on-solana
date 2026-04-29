@@ -106,3 +106,22 @@ pub enum BookSortBy {
     PriceAsc,
     PriceDesc,
 }
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct MessageRow {
+    pub id: i64,
+    pub from_pubkey: String,
+    pub to_pubkey: String,
+    pub content: serde_json::Value,
+    pub timestamp: i64,
+    pub is_read: bool,
+}
+
+// 会话列表中每个会话的最新一条消息
+#[derive(Debug, sqlx::FromRow, Serialize)]
+pub struct ConversationRow {
+    pub peer_pubkey: Option<String>,
+    pub last_content: Option<serde_json::Value>,
+    pub last_timestamp: Option<i64>,
+    pub unread_count: Option<i64>,
+}

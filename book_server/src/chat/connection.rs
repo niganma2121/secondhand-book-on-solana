@@ -5,11 +5,13 @@ use anchor_client::anchor_lang::prelude::Pubkey;
 use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
 use futures::stream::{SplitSink, SplitStream};
+use sonyflake::Sonyflake;
 use tokio::select;
 use tokio::sync::mpsc::Receiver;
 use tracing::{error, warn};
 use crate::chat::error::ChatError;
 use crate::chat::types::{ChatMessage, ChatService, ClientCommand, MessageContent};
+use crate::db::DBService;
 
 ///发送任务,处理别人发送给"我"的
 
@@ -46,6 +48,8 @@ pub async fn start_write_task(
 pub async fn start_read_task(
     mut stream:SplitStream<WebSocket>,
     chat_service:Arc<ChatService>,
+    db:DBService,
+    id_generator:Arc<Sonyflake>,
     user_pubkey:Pubkey,
     last_active:Arc<AtomicU64>
 ){
@@ -59,11 +63,10 @@ pub async fn start_read_task(
         if let Message::Text(text) = msg {
             match serde_json::from_str::<ClientCommand>(&text){
                 Ok(cmd)=>{
-                    let _ =chat_service.handle_command(&user_pubkey, cmd).await;
+                    let _ =chat_service.handle_command(&user_pubkey, cmd,&db.clone(),&id_generator).await;
                 }
                 Err(e)=>{
                     error!("反序列化 JSON 失败: {:?}. 原始消息: {}", e, text);
-                    //TODO:这里反馈给用户(已做)
                     handle_protocol_error(chat_service_e,&user_pubkey,e).await;
                 }
             }

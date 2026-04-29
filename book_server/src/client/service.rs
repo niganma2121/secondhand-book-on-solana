@@ -12,6 +12,7 @@ use anchor_client::solana_sdk::signature::{Keypair, Signer};
 use anchor_client::solana_sdk::transaction::Transaction;
 use mpl_core::instructions::{BurnV1Builder, CreateV1Builder};
 use solana_system_interface::program::ID as SYSTEM_PROGRAM_ID;
+use sonyflake::Sonyflake;
 use tracing::{info, warn};
 
 ///工具部分
@@ -220,6 +221,7 @@ impl AnchorService {
         &self,
         req: BroadcastCreateBookRequest,
         db: &DBService,
+        id_generator:&Sonyflake,
         now: i64,
     ) -> Result<BroadcastResponse, ClientError> {
         let tx = deserialize_signed_tx(&req.signed_tx)?;
@@ -255,26 +257,17 @@ impl AnchorService {
 
         // 写图片表，sort 按顺序编号
         if !req.detail_urls.is_empty() {
-            // TODO: sonyflake 生成 id，这里先用时间戳占位
-            let images: Vec<(i64, &str, &str, i16, i64)> = req
-                .detail_urls
-                .iter()
-                .enumerate()
-                .map(|(i, url)| {
-                    (
-                        now + i as i64,
-                        req.asset.as_str(),
-                        url.as_str(),
-                        i as i16,
-                        now,
-                    )
-                })
-                .collect();
-            db.insert_book_images(&images)
-                .await
-                .map_err(|e| ClientError::DbError(e.to_string()))?;
+            let mut images: Vec<(i64, &str, &str, i16, i64)> = Vec::new();
+            for (i, url) in req.detail_urls.iter().enumerate() {
+                let id = id_generator
+                    .next_id()
+                    .map_err(|e| ClientError::DbError(e.to_string()))? as i64;
+                images.push((id, req.asset.as_str(), url.as_str(), i as i16, now));
+            }
+            if let Err(e) = db.insert_book_images(&images).await {
+                warn!("图片入库失败: {e}");
+            }
         }
-
         Ok(BroadcastResponse {
             signature: sig.to_string(),
             msg: "书籍已上链并入库".into(),

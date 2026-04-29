@@ -47,7 +47,7 @@ impl IntoResponse for AuthError{
             AuthError::Internal(ref s) =>(StatusCode::INTERNAL_SERVER_ERROR,s),
             AuthError::Unauthorized(ref s) =>(StatusCode::UNAUTHORIZED,s),
             AuthError::BadRequest(ref s) =>(StatusCode::BAD_REQUEST,s),
-            //暂时先这样,后面再改
+            //TODO:暂时先这样,后面再改
             _=>(StatusCode::BAD_REQUEST,&"请重试".to_string())
         };
         let body=Json(json!({

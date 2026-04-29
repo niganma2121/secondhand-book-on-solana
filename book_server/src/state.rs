@@ -4,6 +4,7 @@ use crate::auth::types::AuthService;
 use crate::chat::types::ChatService;
 use crate::client::types::AnchorService;
 use anchor_client::solana_sdk::signature::read_keypair_file;
+use sonyflake::Sonyflake;
 use crate::db::DBService;
 
 #[derive(Clone)]
@@ -12,6 +13,7 @@ pub struct AppState{
     pub auth_service: Arc<AuthService>,
     pub anchor_service: Arc<AnchorService>,
     pub db_service:DBService,//连接池
+    pub id_generator:Arc<Sonyflake>,//雪花id生成
 }
 
 impl AppState{
@@ -25,7 +27,8 @@ impl AppState{
         let anchor_service=Arc::new(AnchorService::new());
         let auth_service=Arc::new(AuthService::new());
         let db_service=DBService::new().await;
+        let id_generator=Arc::new(Sonyflake::new().expect("id生成器生成器构建失败"));
 
-        Self{chat_service,auth_service,anchor_service,db_service}
+        Self{chat_service,auth_service,anchor_service,db_service,id_generator}
     }
 }

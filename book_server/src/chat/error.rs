@@ -1,4 +1,6 @@
-
+use axum::http::StatusCode;
+use axum::Json;
+use axum::response::{IntoResponse, Response};
 use thiserror::Error;
 
 #[derive(Error,Debug)]
@@ -19,7 +21,18 @@ pub enum ChatError{
     SystemError(#[from] std::time::SystemTimeError),
 
     #[error("发送失败:{0}")]
-    SendError(String)
+    SendError(String),
+
+    #[error("公钥解析失败:{0}")]
+    PubkeyParseError(String)
 }
 
-
+impl IntoResponse for ChatError {
+    fn into_response(self) -> Response {
+        let (status, msg) = match &self {
+            ChatError::PubkeyParseError(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            _ => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+        };
+        (status, Json(serde_json::json!({ "error": msg }))).into_response()
+    }
+}

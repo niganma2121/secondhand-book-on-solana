@@ -32,7 +32,7 @@ impl AuthService{
 }
 #[derive(Debug,Serialize,Deserialize)]
 pub struct Claims{
-    pub sub:String,//存放钱包地址
+    pub sub:String,//钱包地址
     pub exp:usize,//存放时间戳
 }
 

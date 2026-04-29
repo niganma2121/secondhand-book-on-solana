@@ -13,6 +13,7 @@ use crate::handlers::me::{
     list_bought_books_handler, list_buyer_escrows_handler, list_favorites_handler,
     list_seller_escrows_handler, toggle_favorite_handler,
 };
+use crate::me::submit_review_handler;
 use crate::state::AppState;
 use axum::Router;
 use axum::middleware::from_fn_with_state;
@@ -24,6 +25,7 @@ pub fn api_protected_router(state: AppState) -> Router<AppState> {
         .nest("/chat", ws_router())
         .nest("/book", book_router())
         .nest("/escrow", escrow_router())
+        .nest("/me", me_router())
         .layer(from_fn_with_state(state.clone(), auth_middleware))
 }
 
@@ -68,9 +70,10 @@ pub fn escrow_router() -> Router<AppState> {
 
 pub fn me_router() -> Router<AppState> {
     Router::new()
-        .route("/favorites", get(list_favorites_handler))
-        .route("/favorites/:asset", post(toggle_favorite_handler))
+        .route("/favorites/", get(list_favorites_handler))
+        .route("/favorites/{asset}", post(toggle_favorite_handler))
         .route("/orders/buying", get(list_buyer_escrows_handler))
         .route("/orders/selling", get(list_seller_escrows_handler))
         .route("/bought", get(list_bought_books_handler))
+        .route("/reviews", post(submit_review_handler)) // 加这行
 }
