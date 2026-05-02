@@ -43,7 +43,7 @@ pub async fn login_handler(
     let cookie = Cookie::build(("jwt-token", token))
         .path("/")
         .http_only(true)
-        .secure(false) //本地为false,HTTPs为true
+        .secure(false) //本地为false,HTTPS为true
         .same_site(SameSite::Lax) 
         .max_age(time::Duration::hours(48))
         .build();

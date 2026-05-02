@@ -1,1 +1,167 @@
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600&display=swap');
+
+@plugin "tailwindcss-animate";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+    /* ===== 颜色系统 ===== */
+    --color-background: hsl(160 20% 6%);
+    --color-foreground: hsl(150 15% 88%);
+
+    --color-card: hsl(160 18% 9%);
+    --color-card-foreground: hsl(150 15% 88%);
+
+    --color-popover: hsl(160 20% 8%);
+    --color-popover-foreground: hsl(150 15% 88%);
+
+    --color-primary: hsl(152 60% 42%);
+    --color-primary-foreground: hsl(160 20% 6%);
+
+    --color-secondary: hsl(160 15% 14%);
+    --color-secondary-foreground: hsl(150 12% 70%);
+
+    --color-muted: hsl(160 15% 12%);
+    --color-muted-foreground: hsl(150 10% 48%);
+
+    --color-accent: hsl(152 45% 18%);
+    --color-accent-foreground: hsl(152 60% 65%);
+
+    --color-destructive: hsl(0 62% 50%);
+    --color-destructive-foreground: hsl(0 0% 98%);
+
+    --color-border: hsl(160 15% 16%);
+    --color-input: hsl(160 15% 14%);
+    --color-ring: hsl(152 60% 42%);
+
+    /* ===== 字体 ===== */
+    --font-sans: 'Noto Serif SC', 'PingFang SC', 'Hiragino Sans GB', serif;
+    --font-mono: 'Geist Mono Variable', 'Courier New', monospace;
+
+    /* ===== 圆角 ===== */
+    --radius: 0.75rem;
+    --radius-sm: calc(var(--radius) - 2px);
+    --radius-md: var(--radius);
+    --radius-lg: calc(var(--radius) + 2px);
+    --radius-xl: calc(var(--radius) + 4px);
+
+    /* ===== 自定义 glow 颜色 ===== */
+    --color-glow: hsl(152 60% 42%);
+}
+
+/* ===== 全局基础样式 ===== */
+@layer base {
+    * {
+        border-color: var(--color-border);
+        outline-color: var(--color-ring);
+    }
+
+    body {
+        background-color: var(--color-background);
+        color: var(--color-foreground);
+        font-family: var(--font-sans);
+        font-size: 15px;
+        line-height: 1.7;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+    }
+}
+
+/* ===== 工具类 ===== */
+@layer utilities {
+    /* 呼吸光晕 */
+    .breathe {
+        animation: breathe 3.5s ease-in-out infinite;
+    }
+    .breathe-slow {
+        animation: breathe 5s ease-in-out infinite;
+    }
+    .breathe-delay {
+        animation: breathe 3.5s ease-in-out 1.2s infinite;
+    }
+
+    @keyframes breathe {
+        0%, 100% {
+            box-shadow: 0 0 0 0 hsl(152 60% 42% / 0);
+            opacity: 0.85;
+        }
+        50% {
+            box-shadow: 0 0 24px 4px hsl(152 60% 42% / 0.18);
+            opacity: 1;
+        }
+    }
+
+    /* 文字呼吸 */
+    .text-breathe {
+        animation: text-breathe 4s ease-in-out infinite;
+    }
+    @keyframes text-breathe {
+        0%, 100% { opacity: 0.7; }
+        50% { opacity: 1; }
+    }
+
+    /* 绿点脉冲 */
+    .pulse-dot {
+        animation: pulse-dot 2.5s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+        0%, 100% {
+            box-shadow: 0 0 0 0 hsl(152 60% 42% / 0.5);
+            transform: scale(1);
+        }
+        50% {
+            box-shadow: 0 0 0 5px hsl(152 60% 42% / 0);
+            transform: scale(1.1);
+        }
+    }
+
+    /* 入场动画 */
+    .fade-up {
+        animation: fade-up 0.5s ease-out both;
+    }
+    @keyframes fade-up {
+        from { opacity: 0; transform: translateY(10px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* 卡片悬浮绿光 */
+    .card-glow {
+        transition: box-shadow 0.3s ease, border-color 0.3s ease;
+    }
+    .card-glow:hover {
+        box-shadow: 0 0 20px hsl(152 60% 42% / 0.12), 0 8px 32px hsl(0 0% 0% / 0.4);
+        border-color: hsl(152 60% 42% / 0.4);
+    }
+
+    /* 扫光骨架屏 */
+    .shimmer {
+        background: linear-gradient(
+                90deg,
+                hsl(160 18% 9%) 25%,
+                hsl(152 20% 13%) 50%,
+                hsl(160 18% 9%) 75%
+        );
+        background-size: 200% 100%;
+        animation: shimmer 1.6s infinite;
+    }
+    @keyframes shimmer {
+        0%   { background-position: -200% 0; }
+        100% { background-position:  200% 0; }
+    }
+
+    /* 隐藏滚动条但保留滚动 */
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+    /* 全局滚动条 */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb {
+        background: hsl(160 15% 16%);
+        border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background: hsl(152 60% 42% / 0.5);
+    }
+}

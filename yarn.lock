@@ -642,6 +642,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@fontsource-variable/geist-mono@npm:^5.2.7":
+  version: 5.2.7
+  resolution: "@fontsource-variable/geist-mono@npm:5.2.7"
+  checksum: 10c0/f401fe26e9edeadbef79ab32afb03393d03908d16efa355b94cc7f0a68f5ea96adacd4a2b0724f11eff4cc0b7484693d10f3098cda769692e6497c05af274ad6
+  languageName: node
+  linkType: hard
+
 "@fontsource-variable/geist@npm:^5.2.8":
   version: 5.2.8
   resolution: "@fontsource-variable/geist@npm:5.2.8"
@@ -5184,7 +5191,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/node@npm:*, @types/node@npm:>=13.7.0":
+"@types/node@npm:*, @types/node@npm:>=13.7.0, @types/node@npm:^25.6.0":
   version: 25.6.0
   resolution: "@types/node@npm:25.6.0"
   dependencies:
@@ -5197,15 +5204,6 @@ __metadata:
   version: 12.20.55
   resolution: "@types/node@npm:12.20.55"
   checksum: 10c0/3b190bb0410047d489c49bbaab592d2e6630de6a50f00ba3d7d513d59401d279972a8f5a598b5bb8ddc1702f8a2f4ec57a65d93852f9c329639738e7053637d1
-  languageName: node
-  linkType: hard
-
-"@types/node@npm:^24.12.2":
-  version: 24.12.2
-  resolution: "@types/node@npm:24.12.2"
-  dependencies:
-    undici-types: "npm:~7.16.0"
-  checksum: 10c0/710050c42f89075c4479e4e1e4c2532486b0c41b1e2a8a13ad88641c88b88cdaea87414e19224f30028719737bd70e327edcaa184d50e86b9418941edd7eb02b
   languageName: node
   linkType: hard
 
@@ -9867,12 +9865,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"lucide-react@npm:^1.8.0":
-  version: 1.8.0
-  resolution: "lucide-react@npm:1.8.0"
+"lucide-react@npm:0.383.0":
+  version: 0.383.0
+  resolution: "lucide-react@npm:0.383.0"
   peerDependencies:
-    react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
-  checksum: 10c0/f7398f89a0f5b2cbfd1b7a7f6b2f00b0abd05d4b21d948bbd281ab141c42cdff9f1d2aed4e32b78b4bbdfa78308b6577705698af8bf9945bad23ed7d56e255b4
+    react: ^16.5.1 || ^17.0.0 || ^18.0.0
+  checksum: 10c0/241814c4a12b7f1e946a18d60fff4d35ab25ece77dcd6eb99dd7cf3a31d1578b2263aa5339a67c0a84646fdcd16cee47f9f53f0c5aff8cfc6601f2e001052cde
   languageName: node
   linkType: hard
 
@@ -12524,6 +12522,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"tailwindcss-animate@npm:^1.0.7":
+  version: 1.0.7
+  resolution: "tailwindcss-animate@npm:1.0.7"
+  peerDependencies:
+    tailwindcss: "*"
+  checksum: 10c0/ec7dbd1631076b97d66a1fbaaa06e0725fccfa63119221e8d87a997b02dcede98ad88bb1ef6665b968f5d260fcefb10592e0299ca70208d365b37761edf5e19a
+  languageName: node
+  linkType: hard
+
 "tailwindcss@npm:4.2.2, tailwindcss@npm:^4.2.2":
   version: 4.2.2
   resolution: "tailwindcss@npm:4.2.2"
@@ -12959,13 +12966,6 @@ __metadata:
   version: 7.24.8
   resolution: "undici-types@npm:7.24.8"
   checksum: 10c0/90256a037f428e49b18efdfc558130f5a157507ddd42c46bf39978c70d58a62ab6dc1926ba0b9ef632ad626c6cbf0e2413a7f4c7cc92cdf2943e49230c579fee
-  languageName: node
-  linkType: hard
-
-"undici-types@npm:~7.16.0":
-  version: 7.16.0
-  resolution: "undici-types@npm:7.16.0"
-  checksum: 10c0/3033e2f2b5c9f1504bdc5934646cb54e37ecaca0f9249c983f7b1fc2e87c6d18399ebb05dc7fd5419e02b2e915f734d872a65da2e3eeed1813951c427d33cc9a
   languageName: node
   linkType: hard
 
@@ -13445,30 +13445,36 @@ __metadata:
   dependencies:
     "@eslint/js": "npm:^9.39.4"
     "@fontsource-variable/geist": "npm:^5.2.8"
+    "@fontsource-variable/geist-mono": "npm:^5.2.7"
     "@solana/wallet-adapter-base": "npm:^0.9.27"
     "@solana/wallet-adapter-react": "npm:^0.15.39"
     "@solana/wallet-adapter-react-ui": "npm:^0.9.39"
     "@solana/wallet-adapter-wallets": "npm:^0.19.38"
     "@solana/web3.js": "npm:^1.98.4"
     "@tailwindcss/vite": "npm:^4.2.2"
-    "@types/node": "npm:^24.12.2"
+    "@types/node": "npm:^25.6.0"
     "@types/react": "npm:^19.2.14"
     "@types/react-dom": "npm:^19.2.3"
     "@vitejs/plugin-react": "npm:^6.0.1"
+    bs58: "npm:^6.0.0"
+    buffer: "npm:^6.0.3"
     class-variance-authority: "npm:^0.7.1"
     clsx: "npm:^2.1.1"
     eslint: "npm:^9.39.4"
     eslint-plugin-react-hooks: "npm:^7.0.1"
     eslint-plugin-react-refresh: "npm:^0.5.2"
     globals: "npm:^17.4.0"
-    lucide-react: "npm:^1.8.0"
+    lucide-react: "npm:0.383.0"
+    process: "npm:^0.11.10"
     radix-ui: "npm:^1.4.3"
     react: "npm:^19.2.4"
     react-dom: "npm:^19.2.4"
     react-router-dom: "npm:^7.14.0"
     shadcn: "npm:^4.2.0"
+    stream-browserify: "npm:^3.0.0"
     tailwind-merge: "npm:^3.5.0"
     tailwindcss: "npm:^4.2.2"
+    tailwindcss-animate: "npm:^1.0.7"
     tw-animate-css: "npm:^1.4.0"
     typescript: "npm:~6.0.2"
     typescript-eslint: "npm:^8.58.0"
