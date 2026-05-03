@@ -8,8 +8,8 @@
   "scripts": {
     "anchor:build": "yarn workspace @my-project/book run build",
     "anchor:test": "yarn workspace @my-project/book run test",
-    "web": "yarn workspace web dev",
-    "build:web": "yarn workspace web build"
+    "web": "yarn workspace bookchain-web dev",
+    "build:web": "yarn workspace bookchain-web build"
   },
   "devDependencies": {
     "vite-plugin-node-polyfills": "^0.26.0"

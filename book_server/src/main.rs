@@ -8,7 +8,7 @@ use tokio::net::TcpListener;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use book_server::state::AppState;
-use tower_http::cors::{ CorsLayer};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tracing::info;
 use book_server::event_listener::listen_dispute_resolved;
 use book_server::routers::api;
@@ -20,13 +20,34 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .with(tracing_subscriber::EnvFilter::from_default_env())
         .init();
-    let port=var("PORT").unwrap_or_else(|_|"3000".to_string());
+    let port=var("PORT").unwrap_or_else(|_|"3005".to_string());
     let addr:SocketAddr=format!("0.0.0.0:{}",port).parse().expect("无效的地址");
 
+    let cors_origins_raw = var("CORS_ORIGINS").unwrap_or_else(|_| {
+        "http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001"
+            .to_string()
+    });
+    let origin_list: Vec<HeaderValue> = cors_origins_raw
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            s.parse::<HeaderValue>()
+                .unwrap_or_else(|_| panic!("无效的 CORS_ORIGINS 项: {s}"))
+        })
+        .collect();
+
     let cors = CorsLayer::new()
-        .allow_origin("http://localhost:3001".parse::<HeaderValue>().unwrap())
+        .allow_origin(AllowOrigin::list(origin_list))
         .allow_credentials(true)
-        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
         .allow_headers([CONTENT_TYPE, AUTHORIZATION, COOKIE]);
     let state=AppState::new().await;
     let ws_url=var("SOLANA_WS_URL").expect("缺少Solana的ws url");
@@ -46,7 +67,7 @@ async fn main() {
     let listener=tcp_listener.tap_io(|x| {
         info!("新的客户端接入:{:?}",x.peer_addr())
     });
-    info!("服务器启动,开始监听端口:3000");
+    info!("服务器启动,开始监听端口:{}", port);
     serve(listener,app).await.expect("服务器创建失败");
 }
 

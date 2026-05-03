@@ -4,7 +4,10 @@ use crate::auth::util::{generate_stateless_nonce, store_nonce};
 use crate::state::AppState;
 use anyhow::Result;
 use axum::Json;
+use dotenvy::var;
 use axum::extract::{Query, State};
+use axum::http::header::AUTHORIZATION;
+use axum::http::HeaderMap;
 use axum::response::IntoResponse;
 use axum_extra::extract::CookieJar;
 use axum_extra::extract::cookie::{Cookie, SameSite};
@@ -40,29 +43,48 @@ pub async fn login_handler(
 ) -> Result<impl IntoResponse, AuthError> {
     let token = state.auth_service.sign_in(payload).await
         .map_err(|e| AuthError::Unauthorized(e.to_string()))?;
-    let cookie = Cookie::build(("jwt-token", token))
+    let cookie_secure = var("COOKIE_SECURE")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+    let cookie = Cookie::build(("jwt-token", token.clone()))
         .path("/")
         .http_only(true)
-        .secure(false) //本地为false,HTTPS为true
-        .same_site(SameSite::Lax) 
+        .secure(cookie_secure)
+        .same_site(SameSite::Lax)
         .max_age(time::Duration::hours(48))
         .build();
 
-    Ok((jar.add(cookie), Json(json!({"status":"success"}))))
+    Ok((
+        jar.add(cookie),
+        Json(json!({"status":"success","token": token})),
+    ))
 }
 
-//登出处理
+//登出处理（Cookie 或 `Authorization: Bearer`）
 pub async fn logout_handler(
     State(state):State<AppState>,
-    jar:CookieJar
+    jar:CookieJar,
+    headers:HeaderMap
 )->Result<impl IntoResponse,AuthError>{
     info!("收到登出请求");
-    if let Some(token_cookie)=jar.get("jwt-token"){
-        state.auth_service.sign_out(token_cookie.value()).await
+    let token_opt = jar
+        .get("jwt-token")
+        .map(|c| c.value().to_string())
+        .or_else(|| {
+            headers
+                .get(AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.strip_prefix("Bearer "))
+                .map(str::trim)
+                .map(String::from)
+        });
+
+    if let Some(ref t) = token_opt {
+        state.auth_service.sign_out(t).await
             .map_err(|e|AuthError::Internal(e.to_string()))?;
         info!("登出成功，已写入黑名单");
-    }else {
-        warn!("登出请求没有携带 jwt-token cookie");
+    } else {
+        warn!("登出请求未携带 jwt（Cookie 或 Bearer）");
     }
     let removed=jar.remove(Cookie::build("jwt-token").path("/").build());
     Ok((removed,Json(json!({"status":"logged out"}))))
