@@ -4,7 +4,11 @@ use axum::{Router};
 use axum::routing::{get, post};
 use crate::auth::{auth_middleware, get_nonce_handler, login_handler, logout_handler};
 use crate::get_me;
-use crate::handlers::book::{get_book_detail_handler, list_market_books_handler};
+use crate::handlers::book::{
+    get_book_detail_handler, list_book_categories_handler, list_book_conditions_handler,
+    list_market_books_handler,
+};
+use crate::handlers::google_books::google_books_search_handler;
 use crate::handlers::user::{get_user_handler, list_seller_books_handler, list_user_reviews_handler};
 use crate::state::AppState;
 
@@ -21,11 +25,18 @@ pub fn api_public_router(state: AppState) -> Router<AppState> {
         .nest("/auth",  auth_router(state))
         .nest("/books", books_public_router())
         .nest("/users", users_public_router())
+        .nest("/google-books", google_books_public_router())
+}
+
+fn google_books_public_router() -> Router<AppState> {
+    Router::new().route("/search", get(google_books_search_handler))
 }
 
 pub fn books_public_router() -> Router<AppState> {
     Router::new()
-        .route("/",       get(list_market_books_handler))
+        .route("/categories", get(list_book_categories_handler))
+        .route("/conditions", get(list_book_conditions_handler))
+        .route("/", get(list_market_books_handler))
         .route("/{asset}", get(get_book_detail_handler))
 }
 

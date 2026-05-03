@@ -1,5 +1,8 @@
 use crate::db::DBService;
-use crate::db::types::{BookCardRow, BookDetailRow, BookFilter, BookImageRow, BookSortBy, Page};
+use crate::db::types::{
+    BookCardRow, BookCategoryRow, BookConditionRow, BookDetailRow, BookFilter, BookImageRow,
+    BookSortBy, Page,
+};
 use sqlx::QueryBuilder;
 
 impl DBService {
@@ -106,17 +109,20 @@ impl DBService {
     // 读操作
     // ================================
 
-    // 单本书完整详情
+    // 单本书完整详情（category 为字典中文名，便于展示）
     pub async fn get_book_detail(&self, asset: &str) -> Result<Option<BookDetailRow>, sqlx::Error> {
-        sqlx::query_as!(
-            BookDetailRow,
-            "SELECT asset, book_pda, seller, collection, price, status,
-                    metadata_url, metadata_hash, name, cover_url, author,
-                    series, category, condition, created_at, updated_at
-             FROM books
-             WHERE asset = $1",
-            asset
+        sqlx::query_as::<_, BookDetailRow>(
+            r#"SELECT b.asset, b.book_pda, b.seller, b.collection, b.price, b.status,
+                      b.metadata_url, b.metadata_hash, b.name, b.cover_url, b.author, b.series,
+                      COALESCE(bc.label_zh, b.category) AS category,
+                      COALESCE(bcond.label_zh, b.condition) AS condition,
+                      b.created_at, b.updated_at
+               FROM books b
+               LEFT JOIN book_categories bc ON b.category = bc.key
+               LEFT JOIN book_conditions bcond ON b.condition = bcond.key
+               WHERE b.asset = $1"#,
         )
+        .bind(asset)
         .fetch_optional(&self.db_pool)
         .await
     }
@@ -143,37 +149,40 @@ impl DBService {
         page: &Page,
     ) -> Result<Vec<BookCardRow>, sqlx::Error> {
         let mut qb: QueryBuilder<sqlx::Postgres> = QueryBuilder::new(
-            "SELECT asset, seller, price, status, name, cover_url,
-                    author, category, condition, created_at
-             FROM books
-             WHERE status = 'Listed'",
+            "SELECT b.asset, b.seller, b.price, b.status, b.name, b.cover_url,
+                    b.author, COALESCE(bc.label_zh, b.category) AS category,
+                    COALESCE(bcond.label_zh, b.condition) AS condition, b.created_at
+             FROM books b
+             LEFT JOIN book_categories bc ON b.category = bc.key
+             LEFT JOIN book_conditions bcond ON b.condition = bcond.key
+             WHERE b.status = 'Listed'",
         );
 
         if let Some(ref kw) = filter.keyword {
             // 优先全文搜索，兜底用 trgm 模糊
-            qb.push(" AND (search_vec @@ to_tsquery('simple', ")
+            qb.push(" AND (b.search_vec @@ to_tsquery('simple', ")
                 .push_bind(format!("{}:*", kw))
-                .push(") OR name % ")
+                .push(") OR b.name % ")
                 .push_bind(kw.as_str())
                 .push(")");
         }
         if let Some(ref cat) = filter.category {
-            qb.push(" AND category = ").push_bind(cat.as_str());
+            qb.push(" AND b.category = ").push_bind(cat.as_str());
         }
         if let Some(ref cond) = filter.condition {
-            qb.push(" AND condition = ").push_bind(cond.as_str());
+            qb.push(" AND b.condition = ").push_bind(cond.as_str());
         }
         if let Some(min) = filter.min_price {
-            qb.push(" AND price >= ").push_bind(min);
+            qb.push(" AND b.price >= ").push_bind(min);
         }
         if let Some(max) = filter.max_price {
-            qb.push(" AND price <= ").push_bind(max);
+            qb.push(" AND b.price <= ").push_bind(max);
         }
 
         match filter.sort_by {
-            BookSortBy::PriceAsc => qb.push(" ORDER BY price ASC,  created_at DESC"),
-            BookSortBy::PriceDesc => qb.push(" ORDER BY price DESC, created_at DESC"),
-            BookSortBy::Newest => qb.push(" ORDER BY created_at DESC"),
+            BookSortBy::PriceAsc => qb.push(" ORDER BY b.price ASC,  b.created_at DESC"),
+            BookSortBy::PriceDesc => qb.push(" ORDER BY b.price DESC, b.created_at DESC"),
+            BookSortBy::Newest => qb.push(" ORDER BY b.created_at DESC"),
         };
 
         qb.push(" LIMIT ").push_bind(page.limit);
@@ -184,24 +193,44 @@ impl DBService {
             .await
     }
 
+    /// 上架页 / 筛选项：从数据库读取分类（`books.category` 存 `key`）
+    pub async fn list_book_categories(&self) -> Result<Vec<BookCategoryRow>, sqlx::Error> {
+        sqlx::query_as::<_, BookCategoryRow>(
+            "SELECT key, label_zh, sort_order FROM book_categories ORDER BY sort_order ASC",
+        )
+        .fetch_all(&self.db_pool)
+        .await
+    }
+
+    /// 上架页 / 筛选项：从数据库读取品相（`books.condition` 存 `key`）
+    pub async fn list_book_conditions(&self) -> Result<Vec<BookConditionRow>, sqlx::Error> {
+        sqlx::query_as::<_, BookConditionRow>(
+            "SELECT key, label_zh, description_zh, sort_order FROM book_conditions ORDER BY sort_order ASC",
+        )
+        .fetch_all(&self.db_pool)
+        .await
+    }
+
     // 某个卖家上架的书（个人主页用）
     pub async fn list_seller_books(
         &self,
         seller: &str,
         page: &Page,
     ) -> Result<Vec<BookCardRow>, sqlx::Error> {
-        sqlx::query_as!(
-            BookCardRow,
-            "SELECT asset, seller, price, status, name, cover_url,
-                    author, category, condition, created_at
-             FROM books
-             WHERE seller = $1
-             ORDER BY created_at DESC
-             LIMIT $2 OFFSET $3",
-            seller,
-            page.limit,
-            page.offset
+        sqlx::query_as::<_, BookCardRow>(
+            r#"SELECT b.asset, b.seller, b.price, b.status, b.name, b.cover_url,
+                      b.author, COALESCE(bc.label_zh, b.category) AS category,
+                      COALESCE(bcond.label_zh, b.condition) AS condition, b.created_at
+               FROM books b
+               LEFT JOIN book_categories bc ON b.category = bc.key
+               LEFT JOIN book_conditions bcond ON b.condition = bcond.key
+               WHERE b.seller = $1
+               ORDER BY b.created_at DESC
+               LIMIT $2 OFFSET $3"#,
         )
+        .bind(seller)
+        .bind(page.limit)
+        .bind(page.offset)
         .fetch_all(&self.db_pool)
         .await
     }
@@ -212,20 +241,24 @@ impl DBService {
         buyer: &str,
         page: &Page,
     ) -> Result<Vec<BookCardRow>, sqlx::Error> {
-        sqlx::query_as!(
-            BookCardRow,
-            "SELECT b.asset, b.seller, b.price, b.status, b.name,
-                    b.cover_url, b.author, b.category, b.condition, b.created_at
-             FROM books b
-             INNER JOIN escrows e ON e.asset = b.asset
-             WHERE e.buyer = $1
-               AND e.state = 'Completed'
-             ORDER BY e.created_at DESC
-             LIMIT $2 OFFSET $3",
-            buyer,
-            page.limit,
-            page.offset
+        sqlx::query_as::<_, BookCardRow>(
+            r#"SELECT b.asset, b.seller, b.price, b.status, b.name,
+                      b.cover_url, b.author,
+                      COALESCE(bc.label_zh, b.category) AS category,
+                      COALESCE(bcond.label_zh, b.condition) AS condition,
+                      b.created_at
+               FROM books b
+               INNER JOIN escrows e ON e.asset = b.asset
+               LEFT JOIN book_categories bc ON b.category = bc.key
+               LEFT JOIN book_conditions bcond ON b.condition = bcond.key
+               WHERE e.buyer = $1
+                 AND e.state = 'Completed'
+               ORDER BY e.created_at DESC
+               LIMIT $2 OFFSET $3"#,
         )
+        .bind(buyer)
+        .bind(page.limit)
+        .bind(page.offset)
         .fetch_all(&self.db_pool)
         .await
     }

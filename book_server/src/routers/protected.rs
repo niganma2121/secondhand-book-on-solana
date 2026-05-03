@@ -9,6 +9,9 @@ use crate::client::{
     create_book_handler, create_escrow_handler, delist_book_handler, open_dispute_handler,
     resolve_dispute_handler, ship_book_handler, update_price_handler,
 };
+use crate::handlers::chat::{
+    issue_ws_ticket_handler, list_chat_conversations_handler, list_chat_messages_handler,
+};
 use crate::handlers::me::{
     list_bought_books_handler, list_buyer_escrows_handler, list_favorites_handler,
     list_seller_escrows_handler, toggle_favorite_handler,
@@ -22,15 +25,17 @@ use axum::routing::{get, post};
 ///访问需要登陆的路由
 pub fn api_protected_router(state: AppState) -> Router<AppState> {
     Router::new()
-        .nest("/chat", ws_router())
+        .nest("/chat", chat_router())
         .nest("/book", book_router())
         .nest("/escrow", escrow_router())
         .nest("/me", me_router())
         .layer(from_fn_with_state(state.clone(), auth_middleware))
 }
 
-pub fn ws_router() -> Router<AppState> {
-    Router::new().route("/ws", get(chat_handler))
+pub fn chat_router() -> Router<AppState> {
+    Router::new()
+        .route("/ws", get(chat_handler))
+        .route("/ws-ticket", post(issue_ws_ticket_handler))
 }
 
 pub fn book_router() -> Router<AppState> {
@@ -76,4 +81,6 @@ pub fn me_router() -> Router<AppState> {
         .route("/orders/selling", get(list_seller_escrows_handler))
         .route("/bought", get(list_bought_books_handler))
         .route("/reviews", post(submit_review_handler)) // 加这行
+        .route("/chat/conversations", get(list_chat_conversations_handler))
+        .route("/chat/{peer}/messages", get(list_chat_messages_handler))
 }

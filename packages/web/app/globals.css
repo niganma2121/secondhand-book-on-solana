@@ -171,6 +171,115 @@ html.dark.theme-dev {
   }
 }
 
+/* ── 首页 Hero：背景光晕 / 网格 / 徽章 呼吸感（避免单调） ── */
+@keyframes home-hero-breathe {
+  0%,
+  100% {
+    transform: scale(1) translate(0, 0);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.14) translate(1.5%, -1%);
+    opacity: 0.58;
+  }
+}
+
+@keyframes home-hero-breathe-alt {
+  0%,
+  100% {
+    transform: scale(1) translate(0, 0);
+    opacity: 0.72;
+  }
+  50% {
+    transform: scale(1.22) translate(-2%, 1.5%);
+    opacity: 1;
+  }
+}
+
+@keyframes home-hero-breathe-center {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.45;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.08);
+    opacity: 0.75;
+  }
+}
+
+@keyframes home-hero-grid-breathe {
+  0%,
+  100% {
+    opacity: 0.02;
+  }
+  50% {
+    opacity: 0.055;
+  }
+}
+
+@keyframes home-hero-vignette-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@keyframes home-hero-badge-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 oklch(0.72 0.19 145 / 0.08);
+  }
+  50% {
+    box-shadow:
+      0 0 28px 0 oklch(0.72 0.19 145 / 0.18),
+      0 0 0 1px oklch(0.72 0.19 145 / 0.2);
+  }
+}
+
+@keyframes home-hero-books-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@layer utilities {
+  .animate-home-hero-blob-a {
+    animation: home-hero-breathe 7s ease-in-out infinite;
+    will-change: transform, opacity;
+  }
+  .animate-home-hero-blob-b {
+    animation: home-hero-breathe-alt 9s ease-in-out infinite;
+    animation-delay: -2.5s;
+    will-change: transform, opacity;
+  }
+  .animate-home-hero-blob-c {
+    animation: home-hero-breathe-center 11s ease-in-out infinite;
+    animation-delay: -4s;
+    will-change: transform, opacity;
+  }
+  .animate-home-hero-grid {
+    animation: home-hero-grid-breathe 10s ease-in-out infinite;
+  }
+  .animate-home-hero-vignette {
+    animation: home-hero-vignette-breathe 12s ease-in-out infinite;
+  }
+  .animate-home-hero-badge {
+    animation: home-hero-badge-glow 5s ease-in-out infinite;
+  }
+  .animate-home-hero-books {
+    animation: home-hero-books-float 9s ease-in-out infinite;
+    will-change: transform;
+  }
+}
+
 /* Solana 官方钱包弹窗默认 z-index ~1040，低于部分全屏/导航层时像「点了没反应」；提到最前 */
 .wallet-adapter-modal {
   z-index: 99990 !important;

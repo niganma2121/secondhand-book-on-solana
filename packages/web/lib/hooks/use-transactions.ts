@@ -4,11 +4,10 @@ import { useEffect, useState } from 'react'
 import type { ChainTransaction } from '@/lib/types'
 import { env } from '@/lib/env'
 import { apiFetch } from '@/lib/api/client'
-import { transactionsFixture } from '@/mocks/fixtures/transactions'
 
 async function loadTransactions(): Promise<ChainTransaction[]> {
   if (env.useMockData || !env.apiBaseUrl) {
-    return transactionsFixture
+    return []
   }
   return apiFetch<ChainTransaction[]>('/transactions')
 }

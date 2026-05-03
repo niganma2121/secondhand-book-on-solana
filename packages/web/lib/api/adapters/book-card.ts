@@ -1,4 +1,5 @@
 import type { Book, BookCategory, BookCondition } from '@/lib/types'
+import { CONDITION_DB_TO_ZH } from '@/lib/book-taxonomy'
 
 /** 与 book_server 市场列表 `BookCardRow` 序列化字段对齐 */
 export type BookCardDto = {
@@ -15,13 +16,15 @@ export type BookCardDto = {
 }
 
 export function bookCardDtoToBook(row: BookCardDto): Book {
+  const conditionZh =
+    CONDITION_DB_TO_ZH[row.condition] ?? (row.condition as BookCondition)
   return {
     id: row.asset,
     title: row.name,
     author: row.author ?? '',
     cover: row.cover_url ?? '/placeholder.jpg',
     price: row.price / 1_000_000_000,
-    condition: row.condition as BookCondition,
+    condition: conditionZh,
     category: row.category as BookCategory,
     seller: row.seller,
     tokenId: row.asset,

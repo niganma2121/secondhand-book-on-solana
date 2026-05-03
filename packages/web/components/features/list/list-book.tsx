@@ -20,14 +20,7 @@ export function ListBook() {
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const handleImageUpload = () => {
-    // Mock image upload
-    const mockImages = [
-      "https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=200&h=300&fit=crop",
-      "https://images.unsplash.com/photo-1532012197267-da84d127e765?w=200&h=300&fit=crop",
-    ]
-    if (images.length < 4) {
-      setImages([...images, mockImages[images.length % 2]])
-    }
+    // 待接入真实文件选择 / 上传；已移除占位图注入
   }
 
   const removeImage = (index: number) => {

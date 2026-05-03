@@ -1,6 +1,6 @@
 [package]
 name = "book_server"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "Apache-2.0"
 
@@ -36,3 +36,4 @@ base64 = {workspace = true}
 mpl-core = {workspace = true}
 anchor-lang = {workspace = true,features = ["derive"]}
 reqwest={workspace = true}
+uuid = { workspace = true }

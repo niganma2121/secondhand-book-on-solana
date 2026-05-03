@@ -49,6 +49,23 @@ pub struct BookDetailRow {
     pub updated_at: i64,
 }
 
+/// 上架表单 / 筛选用分类字典（表 `book_categories`）
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct BookCategoryRow {
+    pub key: String,
+    pub label_zh: String,
+    pub sort_order: i32,
+}
+
+/// 上架表单 / 筛选用品相字典（表 `book_conditions`）
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct BookConditionRow {
+    pub key: String,
+    pub label_zh: String,
+    pub description_zh: Option<String>,
+    pub sort_order: i32,
+}
+
 // 书籍图片
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct BookImageRow {

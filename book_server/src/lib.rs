@@ -5,6 +5,7 @@ pub mod config;
 pub mod db;
 pub mod error;
 pub mod event_listener;
+pub mod google_books;
 pub mod handlers;
 pub mod routers;
 pub mod state;

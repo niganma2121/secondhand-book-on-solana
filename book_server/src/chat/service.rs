@@ -22,7 +22,7 @@ impl ChatService {
             ClientCommand::SendMessage(msg) => {
                 let msg_id = id_generator.next_id()
                     .map_err(|e| ChatError::IdGeneratorError(e.to_string()))?;
-                self.send_message(sender_pubkey, msg, db, msg_id).await?
+                self.send_message(sender_pubkey, msg, db, msg_id).await?;
             }
         }
         Ok(())
@@ -30,6 +30,9 @@ impl ChatService {
 
     ///处理消息发送问题
     async fn send_message(&self, sender_pubkey: &Pubkey, mut msg: ChatMessage,db:&DBService,msg_id:u64) -> Result<()> {
+        if msg.to == *sender_pubkey {
+            anyhow::bail!("不能向自己的地址发消息");
+        }
         msg.from = *sender_pubkey;
         msg.id = msg_id;
         msg.timestamp = SystemTime::now()

@@ -1,44 +1,4 @@
 import type { MyBook } from '@/lib/types'
 
-export const myBooksFixture: MyBook[] = [
-  {
-    id: 'm1',
-    title: '活着',
-    author: '余华',
-    cover: '/images/book-2.jpg',
-    price: 0.08,
-    condition: '良好',
-    category: '文学小说',
-    tokenId: 'BCK-002',
-    status: 'listed',
-    listedAt: '2024-01-14',
-  },
-  {
-    id: 'm2',
-    title: '三体',
-    author: '刘慈欣',
-    cover: '/images/book-1.jpg',
-    price: 0.12,
-    condition: '近全新',
-    category: '科幻奇幻',
-    tokenId: 'BCK-001',
-    status: 'sold',
-    listedAt: '2024-01-10',
-    purchasedAt: '2024-01-15',
-    purchasePrice: 0.12,
-  },
-  {
-    id: 'm3',
-    title: '百年孤独',
-    author: '加西亚·马尔克斯',
-    cover: '/images/book-6.jpg',
-    price: 0.22,
-    condition: '近全新',
-    category: '文学小说',
-    tokenId: 'BCK-088',
-    status: 'owned',
-    listedAt: '',
-    purchasedAt: '2024-01-12',
-    purchasePrice: 0.22,
-  },
-]
+/** 占位数据已清空 */
+export const myBooksFixture: MyBook[] = []

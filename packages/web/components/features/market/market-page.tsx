@@ -1,32 +1,23 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useMemo, useState } from 'react'
+import Link from 'next/link'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useOpenWalletConnect } from '@/lib/hooks/use-open-wallet-connect'
-import { Book, BookCategory, BookCondition } from '@/lib/types'
-import { useBooks } from '@/lib/hooks/use-books'
+import type { Book } from '@/lib/types'
+import { useBookCategories } from '@/lib/hooks/use-book-categories'
+import { useBookConditions } from '@/lib/hooks/use-book-conditions'
+import { useMarketBooks } from '@/lib/hooks/use-market-books'
 import { Button } from '@/components/ui/button'
+import { Loader2 } from 'lucide-react'
 import Image from 'next/image'
-
-const CATEGORIES: (BookCategory | '全部')[] = [
-  '全部',
-  '文学小说',
-  '科幻奇幻',
-  '科学技术',
-  '商业经济',
-  '历史文化',
-  '艺术设计',
-  '教育学习',
-  '其他',
-]
-
-const CONDITIONS: (BookCondition | '不限')[] = ['不限', '全新', '近全新', '良好', '一般', '较差']
+import { chatWithPeer } from '@/config/routes'
 
 const SORT_OPTIONS = [
-  { label: '最新上架', value: 'newest' },
-  { label: '价格从低到高', value: 'price_asc' },
-  { label: '价格从高到低', value: 'price_desc' },
-  { label: '收藏最多', value: 'favorites' },
+  { label: '最新上架', value: 'newest' as const },
+  { label: '价格从低到高', value: 'price_asc' as const },
+  { label: '价格从高到低', value: 'price_desc' as const },
+  { label: '收藏最多', value: 'favorites' as const },
 ]
 
 interface BuyModalProps {
@@ -171,12 +162,18 @@ function BookCard({ book, onBuy }: { book: Book; onBuy: (book: Book) => void }) 
           <p className="text-xs text-muted-foreground truncate">{book.author}</p>
         </div>
         <p className="text-[11px] text-muted-foreground font-mono truncate">#{book.tokenId}</p>
-        <div className="flex items-center justify-between mt-auto pt-1">
+        <Link
+          href={chatWithPeer(book.seller)}
+          className="text-[10px] text-primary hover:underline truncate block"
+        >
+          联系卖家
+        </Link>
+        <div className="flex items-center justify-between mt-auto pt-1 gap-2">
           <span className="text-primary font-mono font-bold text-sm">{book.price} SOL</span>
           <Button
             size="sm"
             onClick={() => onBuy(book)}
-            className="h-7 px-3 text-xs bg-primary text-primary-foreground rounded-lg hover:opacity-90"
+            className="h-7 px-3 text-xs bg-primary text-primary-foreground rounded-lg hover:opacity-90 shrink-0"
           >
             购买
           </Button>
@@ -187,23 +184,43 @@ function BookCard({ book, onBuy }: { book: Book; onBuy: (book: Book) => void }) 
 }
 
 export function MarketPage() {
-  const { books: sourceBooks, loading } = useBooks()
+  const {
+    categories: apiCategories,
+    loading: categoriesLoading,
+    error: categoriesError,
+  } = useBookCategories()
+  const {
+    conditions: apiConditions,
+    loading: conditionsLoading,
+    error: conditionsError,
+  } = useBookConditions()
+
+  const categoryOptions = useMemo(
+    () =>
+      apiCategories
+        .slice()
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((c) => ({ key: c.key, label: c.label })),
+    [apiCategories],
+  )
+
+  const filtersLoading = categoriesLoading || conditionsLoading
+
   const [search, setSearch] = useState('')
-  const [category, setCategory] = useState<BookCategory | '全部'>('全部')
-  const [condition, setCondition] = useState<BookCondition | '不限'>('不限')
-  const [sort, setSort] = useState('newest')
+  /** 与 `books.category` 一致：null = 全部分类 */
+  const [categoryKey, setCategoryKey] = useState<string | null>(null)
+  /** 数据库品相字段；null = 不限 */
+  const [conditionDb, setConditionDb] = useState<string | null>(null)
+  const [sort, setSort] =
+    useState<(typeof SORT_OPTIONS)[number]['value']>('newest')
   const [buyingBook, setBuyingBook] = useState<Book | null>(null)
 
-  const filtered = useMemo(() => {
-    let books = [...sourceBooks]
-    if (search) books = books.filter((b) => b.title.includes(search) || b.author.includes(search))
-    if (category !== '全部') books = books.filter((b) => b.category === category)
-    if (condition !== '不限') books = books.filter((b) => b.condition === condition)
-    if (sort === 'price_asc') books.sort((a, b) => a.price - b.price)
-    else if (sort === 'price_desc') books.sort((a, b) => b.price - a.price)
-    else if (sort === 'favorites') books.sort((a, b) => b.favorites - a.favorites)
-    return books
-  }, [sourceBooks, search, category, condition, sort])
+  const { books: filtered, loading } = useMarketBooks({
+    keyword: search,
+    categoryKey,
+    conditionDb,
+    sortBy: sort,
+  })
 
   return (
     <div className="pb-24 md:pb-10">
@@ -232,39 +249,91 @@ export function MarketPage() {
           />
         </div>
 
-        {/* 分类横向滚动（移动端友好） */}
-        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none mb-4 -mx-4 px-4 sm:mx-0 sm:px-0">
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setCategory(cat)}
-              className={[
-                'shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors',
-                category === cat
-                  ? 'bg-primary text-primary-foreground border-primary'
-                  : 'bg-card border-border text-muted-foreground hover:text-foreground hover:border-primary/40',
-              ].join(' ')}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
+        {(categoriesError || conditionsError) && (
+          <div className="text-xs text-destructive mb-3 space-y-1">
+            {categoriesError && <p>{categoriesError}</p>}
+            {conditionsError && <p>{conditionsError}</p>}
+          </div>
+        )}
+
+        {/* 分类 / 品相选项来自 `GET /books/categories`、`GET /books/conditions` */}
+        {filtersLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            加载筛选项…
+          </div>
+        ) : (
+          <>
+            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none mb-4 -mx-4 px-4 sm:mx-0 sm:px-0">
+              <button
+                type="button"
+                onClick={() => setCategoryKey(null)}
+                className={[
+                  'shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors',
+                  categoryKey === null
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-card border-border text-muted-foreground hover:text-foreground hover:border-primary/40',
+                ].join(' ')}
+              >
+                全部
+              </button>
+              {categoryOptions.map((cat) => (
+                <button
+                  type="button"
+                  key={cat.key}
+                  onClick={() => setCategoryKey(cat.key)}
+                  className={[
+                    'shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors',
+                    categoryKey === cat.key
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-card border-border text-muted-foreground hover:text-foreground hover:border-primary/40',
+                  ].join(' ')}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+            {categoryOptions.length === 0 && (
+              <p className="text-xs text-muted-foreground mb-4">
+                暂无分类数据。请确认已执行数据库迁移且 `book_categories` 表有记录。
+              </p>
+            )}
+          </>
+        )}
 
         {/* 品相 + 排序筛选 */}
         <div className="flex gap-2 mb-5 flex-wrap">
           <select
-            value={condition}
-            onChange={(e) => setCondition(e.target.value as BookCondition | '不限')}
-            className="h-8 px-2 rounded-lg bg-input border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring/50"
+            value={conditionDb ?? ''}
+            onChange={(e) => {
+              const v = e.target.value
+              setConditionDb(v === '' ? null : v)
+            }}
+            disabled={filtersLoading || apiConditions.length === 0}
+            className="h-8 px-2 rounded-lg bg-input border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring/50 disabled:opacity-50"
           >
-            {CONDITIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+            <option value="">不限</option>
+            {apiConditions
+              .slice()
+              .sort((a, b) => a.sort_order - b.sort_order)
+              .map((c) => (
+                <option key={c.key} value={c.key}>
+                  {c.label}
+                </option>
+              ))}
           </select>
           <select
             value={sort}
-            onChange={(e) => setSort(e.target.value)}
+            onChange={(e) =>
+              setSort(e.target.value as (typeof SORT_OPTIONS)[number]['value'])
+            }
             className="h-8 px-2 rounded-lg bg-input border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring/50"
           >
-            {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
           </select>
         </div>
 

@@ -8,11 +8,10 @@ import {
   bookCardDtoToBook,
 } from '@/lib/api/adapters/book-card'
 import { apiFetch } from '@/lib/api/client'
-import { booksFixture } from '@/mocks/fixtures/books'
 
 async function loadBooks(): Promise<Book[]> {
   if (env.useMockData || !env.apiBaseUrl) {
-    return booksFixture
+    return []
   }
   // 与 Axum `nest("/books").route("/", …)` 一致，末尾勿加 /（否则会 404）
   const json = await apiFetch<{ books: BookCardDto[] }>('/books')

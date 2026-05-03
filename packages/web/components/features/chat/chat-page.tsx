@@ -6,11 +6,41 @@ import { routes } from '@/config/routes'
 import type { ChatConversation, ChatMessage } from '@/lib/types'
 import { useChatConversations } from '@/lib/hooks/use-chat-conversations'
 import { Button } from '@/components/ui/button'
+import { useAuth } from '@/components/providers/auth-provider'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { tryNormalizeSolanaPubkey } from '@/lib/solana-pubkey'
 
-export function ChatPage() {
+type ChatPageProps = {
+  /** 从 `/chat?peer=...` 进入时自动打开与该地址的会话 */
+  initialPeerQuery?: string
+}
+
+export function ChatPage({ initialPeerQuery }: ChatPageProps) {
   const [selected, setSelected] = useState<ChatConversation | null>(null)
   const [inputVal, setInputVal] = useState('')
-  const { conversations, setConversations } = useChatConversations()
+  const [newChatOpen, setNewChatOpen] = useState(false)
+  const [newPeerInput, setNewPeerInput] = useState('')
+  const [newPeerError, setNewPeerError] = useState<string | null>(null)
+  const peerFromUrlHandled = useRef<string | undefined>(undefined)
+  const { isAuthenticated, user } = useAuth()
+  const {
+    conversations,
+    setConversations,
+    usingBackend,
+    sendChatText,
+    ensurePeerMessagesLoaded,
+    openConversationWithPeer,
+    wsConnected,
+    wsError,
+    loadingList,
+  } = useChatConversations()
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const imgInputRef = useRef<HTMLInputElement>(null)
@@ -18,6 +48,52 @@ export function ChatPage() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [selected?.id, selected?.messages.length])
+
+  useEffect(() => {
+    if (selected && usingBackend && isAuthenticated) {
+      void ensurePeerMessagesLoaded(selected.sellerAddr)
+    }
+  }, [selected?.sellerAddr, usingBackend, isAuthenticated, ensurePeerMessagesLoaded])
+
+  useEffect(() => {
+    if (!initialPeerQuery) {
+      peerFromUrlHandled.current = undefined
+      return
+    }
+    if (!usingBackend || !isAuthenticated || !user) return
+    if (peerFromUrlHandled.current === initialPeerQuery) return
+    const conv = openConversationWithPeer(initialPeerQuery)
+    if (conv) {
+      setSelected(conv)
+      peerFromUrlHandled.current = initialPeerQuery
+    }
+  }, [
+    initialPeerQuery,
+    usingBackend,
+    isAuthenticated,
+    user,
+    openConversationWithPeer,
+  ])
+
+  function submitNewPeer() {
+    setNewPeerError(null)
+    if (!user) return
+    const pk = tryNormalizeSolanaPubkey(newPeerInput)
+    if (!pk) {
+      setNewPeerError('请输入有效的 Solana 地址（Base58）')
+      return
+    }
+    if (pk === user.pubkey) {
+      setNewPeerError('不能与自己发起会话')
+      return
+    }
+    const conv = openConversationWithPeer(pk)
+    if (conv) {
+      setSelected(conv)
+      setNewChatOpen(false)
+      setNewPeerInput('')
+    }
+  }
 
   // 自动调整 textarea 高度
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
@@ -27,7 +103,7 @@ export function ChatPage() {
     setInputVal(el.value)
   }
 
-  function sendMessage(text?: string, imageUrl?: string) {
+  function sendMessageLocal(text?: string, imageUrl?: string) {
     if ((!text?.trim() && !imageUrl) || !selected) return
     const newMsg: ChatMessage = {
       id: `m${Date.now()}`,
@@ -50,10 +126,19 @@ export function ChatPage() {
   }
 
   function handleSend() {
+    if (!selected) return
+    if (usingBackend) {
+      if (imagePreview) return
+      const t = inputVal.trim()
+      if (!t) return
+      sendChatText(selected.sellerAddr, t)
+      setInputVal('')
+      return
+    }
     if (imagePreview) {
-      sendMessage(inputVal || undefined, imagePreview)
+      sendMessageLocal(inputVal || undefined, imagePreview)
     } else {
-      sendMessage(inputVal)
+      sendMessageLocal(inputVal)
     }
   }
 
@@ -79,7 +164,7 @@ export function ChatPage() {
 
     return (
       // 关键：外层固定高度，内部 flex-col，消息区 flex-1 min-h-0 overflow-y-auto，输入区 shrink-0
-      <div className="fixed inset-0 z-40 bg-background flex flex-col md:relative md:inset-auto md:z-auto md:h-[calc(100vh-64px)]">
+      <div className="fixed inset-0 z-[60] bg-background flex flex-col md:relative md:inset-auto md:z-auto md:h-[calc(100vh-64px)]">
 
         {/* 顶栏 */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-border/60 bg-card/80 backdrop-blur-md shrink-0">
@@ -226,7 +311,9 @@ export function ChatPage() {
           {/* 发送按钮 */}
           <button
             onClick={handleSend}
-            disabled={!inputVal.trim() && !imagePreview}
+            disabled={
+              (!inputVal.trim() && !imagePreview) || (Boolean(usingBackend) && Boolean(imagePreview))
+            }
             className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shrink-0 disabled:opacity-40 transition-all duration-150 active:scale-95 mb-0.5"
             aria-label="发送"
           >
@@ -243,12 +330,72 @@ export function ChatPage() {
   return (
     <div className="pb-28 md:pb-12">
       <div className="max-w-2xl mx-auto px-4 sm:px-6 pt-5">
-        <div className="flex items-center justify-between mb-4">
+        {usingBackend && (
+          <div className="mb-3 space-y-1">
+            {loadingList && (
+              <p className="text-xs text-muted-foreground">正在加载会话…</p>
+            )}
+            {wsError && (
+              <p className="text-xs text-destructive">{wsError}</p>
+            )}
+            {!wsError && isAuthenticated && !wsConnected && (
+              <p className="text-xs text-muted-foreground">正在连接实时聊天…</p>
+            )}
+            {!isAuthenticated && (
+              <p className="text-xs text-muted-foreground">登录后可与后端实时同步消息（WebSocket + 短期握手票据）。</p>
+            )}
+          </div>
+        )}
+        <div className="flex items-center justify-between mb-4 gap-3">
           <h1 className="text-xl font-bold text-foreground">消息</h1>
-          <span className="text-xs text-muted-foreground">
-            {conversations.reduce((n, c) => n + c.unread, 0)} 条未读
-          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            {isAuthenticated && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-xl text-xs h-8"
+                onClick={() => {
+                  setNewPeerError(null)
+                  setNewChatOpen(true)
+                }}
+              >
+                新对话
+              </Button>
+            )}
+            <span className="text-xs text-muted-foreground whitespace-nowrap">
+              {conversations.reduce((n, c) => n + c.unread, 0)} 条未读
+            </span>
+          </div>
         </div>
+
+        <Dialog open={newChatOpen} onOpenChange={setNewChatOpen}>
+          <DialogContent className="sm:max-w-md rounded-2xl">
+            <DialogHeader>
+              <DialogTitle>发起会话</DialogTitle>
+            </DialogHeader>
+            <p className="text-xs text-muted-foreground">
+              输入对方的 Solana 钱包地址（完整 Base58），双方在线且已登录后即可实时收发。
+            </p>
+            <Input
+              placeholder="例如 7xKX…"
+              value={newPeerInput}
+              onChange={(e) => setNewPeerInput(e.target.value)}
+              className="font-mono text-sm"
+            />
+            {newPeerError && (
+              <p className="text-xs text-destructive">{newPeerError}</p>
+            )}
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" type="button" onClick={() => setNewChatOpen(false)}>
+                取消
+              </Button>
+              <Button type="button" onClick={() => void submitNewPeer()}>
+                开始聊天
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <div className="relative mb-4">
           <svg
@@ -305,10 +452,24 @@ export function ChatPage() {
                 stroke="currentColor" strokeWidth="1.8" fill="currentColor" fillOpacity="0.06"
               />
             </svg>
-            <p className="text-sm">暂无会话，去市场找本好书聊聊吧</p>
-            <Button asChild variant="outline" className="rounded-xl border-border/60 text-sm">
-              <Link href={routes.market}>逛书市</Link>
-            </Button>
+            <p className="text-sm">暂无会话：可输入对方钱包发起聊天，或从市场联系卖家</p>
+            <div className="flex flex-wrap gap-2 justify-center">
+              {isAuthenticated && (
+                <Button
+                  variant="default"
+                  className="rounded-xl text-sm"
+                  onClick={() => {
+                    setNewPeerError(null)
+                    setNewChatOpen(true)
+                  }}
+                >
+                  发起会话
+                </Button>
+              )}
+              <Button asChild variant="outline" className="rounded-xl border-border/60 text-sm">
+                <Link href={routes.market}>逛书市</Link>
+              </Button>
+            </div>
           </div>
         )}
       </div>

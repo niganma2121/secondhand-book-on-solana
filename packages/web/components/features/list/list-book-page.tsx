@@ -1,36 +1,46 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useOpenWalletConnect } from '@/lib/hooks/use-open-wallet-connect'
-import { BookCategory, BookCondition } from '@/lib/types'
+import { useBookCategories } from '@/lib/hooks/use-book-categories'
+import { useBookConditions } from '@/lib/hooks/use-book-conditions'
+import { useSolCnyRate } from '@/lib/hooks/use-sol-cny-rate'
 import { Button } from '@/components/ui/button'
 import { useIsMobile } from '@/hooks/use-mobile'
-
-const CATEGORIES: BookCategory[] = [
-  '文学小说', '科学技术', '历史文化', '艺术设计',
-  '教育学习', '商业经济', '科幻奇幻', '其他',
-]
-
-const CONDITIONS: BookCondition[] = ['全新', '近全新', '良好', '一般', '较差']
-
-const CONDITION_DESCS: Record<BookCondition, string> = {
-  '全新': '未使用，无任何痕迹',
-  '近全新': '轻微使用，几乎无痕迹',
-  '良好': '正常翻阅痕迹，无破损',
-  '一般': '有笔记或折角，不影响阅读',
-  '较差': '明显破损，仍可阅读',
-}
+import {
+  resolveGoogleBooksCoverUrl,
+  searchGoogleBooks,
+  type GoogleBooksHit,
+} from '@/lib/api/google-books'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Loader2, RefreshCw, ZoomIn } from 'lucide-react'
 
 interface FormState {
   title: string
   author: string
   isbn: string
-  category: BookCategory | ''
-  condition: BookCondition | ''
+  /** `book_categories.key`，提交上架接口时使用 */
+  category: string
+  /** `book_conditions.key`，提交上架接口时使用 */
+  condition: string
   price: string
   description: string
   coverPreview: string | null
+}
+
+type DetailImageItem = { id: string; file: File; preview: string }
+
+const MAX_DETAIL_IMAGES = 5
+
+function newDetailId() {
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
 const INITIAL_FORM: FormState = {
@@ -40,14 +50,94 @@ const INITIAL_FORM: FormState = {
 
 const PLATFORM_FEE_RATE = 0.025
 
+function LookupResultCard({
+  hit,
+  onPick,
+  onCoverZoom,
+}: {
+  hit: GoogleBooksHit
+  onPick: () => void
+  onCoverZoom: (url: string) => void
+}) {
+  const displayUrl = resolveGoogleBooksCoverUrl(hit)
+  const [imgFailed, setImgFailed] = useState(false)
+  const canShowImg = Boolean(displayUrl && !imgFailed)
+
+  return (
+    <div className="flex flex-col rounded-xl border border-border/50 bg-card/80 overflow-hidden shadow-sm hover:border-primary/30 transition-colors">
+      <div className="relative aspect-[3/4] w-full max-h-[220px] bg-muted border-b border-border/40">
+        {canShowImg ? (
+          <button
+            type="button"
+            className="group absolute inset-0 flex items-center justify-center outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => displayUrl && onCoverZoom(displayUrl)}
+            aria-label="放大查看封面"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={displayUrl!}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+              referrerPolicy="no-referrer"
+              loading="eager"
+              decoding="async"
+              onError={() => setImgFailed(true)}
+            />
+            <span className="relative z-10 flex items-center gap-1.5 rounded-full bg-background/85 px-2.5 py-1 text-[11px] font-medium text-foreground opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity shadow-sm pointer-events-none">
+              <ZoomIn className="h-3.5 w-3.5" aria-hidden />
+              放大
+            </span>
+          </button>
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center p-2 text-center">
+            <span className="text-[11px] text-muted-foreground leading-snug">
+              {imgFailed ? '暂无配图' : '无封面'}
+            </span>
+          </div>
+        )}
+      </div>
+      <div className="p-3 flex flex-col gap-2 flex-1 min-h-0">
+        <div className="min-h-0">
+          <p className="text-sm font-medium text-foreground line-clamp-3 leading-snug">{hit.title}</p>
+          <p className="text-xs text-muted-foreground mt-1.5 line-clamp-2">
+            {hit.authors.length ? hit.authors.join(' / ') : '作者不详'}
+            {hit.published_year != null ? ` · ${hit.published_year}` : ''}
+          </p>
+        </div>
+        <Button type="button" size="sm" className="w-full rounded-lg mt-auto shrink-0" onClick={onPick}>
+          选用此书
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 export function ListBookPage() {
   const { publicKey } = useWallet()
   const openWalletConnect = useOpenWalletConnect()
   const isMobile = useIsMobile()
+  const { categories: categoryOptions, loading: categoriesLoading, error: categoriesError } =
+    useBookCategories()
+  const {
+    conditions: conditionOptions,
+    loading: conditionsLoading,
+    error: conditionsError,
+  } = useBookConditions()
+  const {
+    cnyPerSol,
+    source: rateSource,
+    loading: rateLoading,
+    error: rateError,
+    updatedAt: rateUpdatedAt,
+    refresh: refreshRate,
+  } = useSolCnyRate()
+  const [priceMode, setPriceMode] = useState<'cny' | 'sol'>('cny')
+  const [cnyDraft, setCnyDraft] = useState('')
 
   // 封面相关 refs
   const coverFileRef = useRef<HTMLInputElement>(null)
   const coverCameraRef = useRef<HTMLInputElement>(null)
+  const detailFilesRef = useRef<HTMLInputElement>(null)
   // ISBN 相关 refs
   const isbnFileRef = useRef<HTMLInputElement>(null)
   const isbnCameraRef = useRef<HTMLInputElement>(null)
@@ -56,18 +146,49 @@ export function ListBookPage() {
   const [step, setStep] = useState<'form' | 'signing' | 'minting' | 'done'>('form')
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({})
 
+  const [lookupDialogOpen, setLookupDialogOpen] = useState(false)
+  const [coverLightboxUrl, setCoverLightboxUrl] = useState<string | null>(null)
+  const [detailZoomUrl, setDetailZoomUrl] = useState<string | null>(null)
+  const [lookupQuery, setLookupQuery] = useState('')
+  const [lookupLoading, setLookupLoading] = useState(false)
+  const [lookupError, setLookupError] = useState<string | null>(null)
+  const [lookupResults, setLookupResults] = useState<GoogleBooksHit[]>([])
+  const [detailImages, setDetailImages] = useState<DetailImageItem[]>([])
+
   const priceNum = parseFloat(form.price) || 0
   const platformFee = priceNum * PLATFORM_FEE_RATE
   const youReceive = priceNum - platformFee
+  const lamportsDisplay =
+    priceNum > 0 ? BigInt(Math.round(Math.min(100, priceNum) * 1_000_000_000)) : null
+
+  /** 人民币模式：根据汇率同步链上使用的 SOL 字符串 */
+  useEffect(() => {
+    if (priceMode !== 'cny' || !cnyPerSol) return
+    const t = cnyDraft.trim()
+    if (!t) {
+      setForm((f) => (f.price ? { ...f, price: '' } : f))
+      return
+    }
+    const v = Number.parseFloat(t)
+    if (!Number.isFinite(v) || v <= 0) {
+      setForm((f) => ({ ...f, price: '' }))
+      return
+    }
+    const sol = Math.min(100, Math.max(1e-9, v / cnyPerSol))
+    let p = sol.toFixed(9).replace(/\.?0+$/, '')
+    if (p === '') p = String(sol)
+    setForm((f) => (f.price === p ? f : { ...f, price: p }))
+  }, [cnyPerSol, cnyDraft, priceMode])
 
   function validate() {
     const e: typeof errors = {}
     if (!form.title.trim()) e.title = '请填写书名'
     if (!form.author.trim()) e.author = '请填写作者'
-    if (!form.category) e.category = '请选择分类'
+    if (!form.category.trim()) e.category = '请选择分类'
     if (!form.condition) e.condition = '请选择品相'
     if (!form.price || isNaN(priceNum) || priceNum <= 0) e.price = '请输入有效价格'
     if (priceNum > 100) e.price = '价格不能超过 100 SOL'
+    if (!form.description.trim()) e.description = '请填写书籍描述'
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -82,6 +203,36 @@ export function ListBookPage() {
     const file = e.target.files?.[0]
     if (file) readFile(file, (url) => setForm((f) => ({ ...f, coverPreview: url })))
     e.target.value = ''
+  }
+
+  function handleDetailFilesChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const list = e.target.files
+    if (!list?.length) return
+    const remaining = MAX_DETAIL_IMAGES - detailImages.length
+    if (remaining <= 0) {
+      e.target.value = ''
+      return
+    }
+    const next: DetailImageItem[] = []
+    for (let i = 0; i < list.length && next.length < remaining; i++) {
+      const file = list[i]
+      if (!file.type.startsWith('image/')) continue
+      next.push({
+        id: newDetailId(),
+        file,
+        preview: URL.createObjectURL(file),
+      })
+    }
+    if (next.length) setDetailImages((prev) => [...prev, ...next])
+    e.target.value = ''
+  }
+
+  function removeDetailImage(id: string) {
+    setDetailImages((prev) => {
+      const item = prev.find((x) => x.id === id)
+      if (item) URL.revokeObjectURL(item.preview)
+      return prev.filter((x) => x.id !== id)
+    })
   }
 
   function handleIsbnPhoto(e: React.ChangeEvent<HTMLInputElement>) {
@@ -104,9 +255,66 @@ export function ListBookPage() {
   }
 
   function handleReset() {
+    detailImages.forEach((d) => URL.revokeObjectURL(d.preview))
+    setDetailImages([])
     setForm(INITIAL_FORM)
     setErrors({})
     setStep('form')
+    setLookupResults([])
+    setLookupError(null)
+    setLookupQuery('')
+    setLookupDialogOpen(false)
+    setCoverLightboxUrl(null)
+    setDetailZoomUrl(null)
+    setCnyDraft('')
+    setPriceMode('cny')
+  }
+
+  function togglePriceMode(next: 'cny' | 'sol') {
+    if (next === priceMode) return
+    if (next === 'cny' && cnyPerSol) {
+      const s = Number.parseFloat(form.price)
+      if (Number.isFinite(s) && s > 0) setCnyDraft((s * cnyPerSol).toFixed(2))
+    }
+    setPriceMode(next)
+  }
+
+  const runGoogleBooksSearch = useCallback(async () => {
+    const q = lookupQuery.trim()
+    if (!q) {
+      setLookupError('请输入书名或关键词')
+      return
+    }
+    setLookupLoading(true)
+    setLookupError(null)
+    try {
+      const results = await searchGoogleBooks(q, 12)
+      setLookupResults(results)
+      if (results.length === 0) setLookupError('未找到匹配书目，可改关键词或直接上传封面')
+    } catch (e) {
+      setLookupResults([])
+      setLookupError(e instanceof Error ? e.message : '搜索失败')
+    } finally {
+      setLookupLoading(false)
+    }
+  }, [lookupQuery])
+
+  function applyGoogleBooksHit(hit: GoogleBooksHit) {
+    const cover = resolveGoogleBooksCoverUrl(hit)
+    setForm((f) => ({
+      ...f,
+      title: hit.title,
+      author: hit.authors.length ? hit.authors.join(' / ') : f.author,
+      isbn: hit.isbns[0] ?? f.isbn,
+      description:
+        f.description.trim().length > 0
+          ? f.description
+          : (hit.description?.slice(0, 2000) ?? ''),
+      coverPreview: cover ?? f.coverPreview,
+    }))
+    setLookupDialogOpen(false)
+    setCoverLightboxUrl(null)
+    setErrors((e) => ({ ...e, title: undefined, author: undefined }))
   }
 
   function set(key: keyof FormState, value: string) {
@@ -195,21 +403,162 @@ export function ListBookPage() {
           <p className="text-sm text-muted-foreground mt-0.5">填写信息后将铸造为 Solana NFT 上链出售</p>
         </div>
 
+        {/* Google Books：弹窗内搜索，封面可放大预览 */}
+        <div className="mb-5 rounded-2xl border border-border/60 bg-card/40 p-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground flex-1 min-w-[200px]">
+            使用 Google Books 搜索书目并填充表单（密钥仅在服务端）。冷门书若无结果请直接上传封面。
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0 rounded-xl"
+            onClick={() => setLookupDialogOpen(true)}
+          >
+            网上查找
+          </Button>
+        </div>
+
+        <Dialog
+          open={lookupDialogOpen}
+          onOpenChange={(open) => {
+            setLookupDialogOpen(open)
+            if (!open) {
+              setCoverLightboxUrl(null)
+              setDetailZoomUrl(null)
+            }
+          }}
+        >
+          <DialogContent
+            showCloseButton
+            className="max-h-[min(90vh,760px)] w-[min(96vw,640px)] sm:max-w-2xl flex flex-col gap-0 p-0 gap-y-0 overflow-hidden border-border/60"
+          >
+            <div className="p-5 pb-3 border-b border-border/50 shrink-0">
+              <DialogHeader className="space-y-1.5">
+                <DialogTitle>从 Google Books 搜索</DialogTitle>
+                <DialogDescription>
+                  由后端使用 Books API 查询；通常几秒内返回。封面来自 Google 书架缩略图，可点击放大预览。
+                </DialogDescription>
+              </DialogHeader>
+            </div>
+
+            <div className="px-5 pt-4 flex gap-2 shrink-0">
+              <input
+                type="text"
+                value={lookupQuery}
+                onChange={(e) => setLookupQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), runGoogleBooksSearch())}
+                placeholder="书名或关键词，例如：数学分析"
+                className="flex-1 h-10 px-3 rounded-xl bg-input border border-border/60 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
+              />
+              <Button
+                type="button"
+                className="h-10 rounded-xl px-4 shrink-0"
+                disabled={lookupLoading}
+                onClick={() => runGoogleBooksSearch()}
+              >
+                {lookupLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : '搜索'}
+              </Button>
+            </div>
+
+            <div className="flex-1 min-h-[200px] px-5 pb-5 pt-3 flex flex-col overflow-hidden">
+              {lookupLoading && (
+                <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+                  <Loader2 className="h-9 w-9 animate-spin text-primary" aria-hidden />
+                  <p className="text-sm text-muted-foreground max-w-xs">
+                    正在请求 Google Books…若失败请确认服务端已配置 GOOGLE_BOOKS_API_KEY。
+                  </p>
+                </div>
+              )}
+              {!lookupLoading && lookupError && (
+                <p className="text-sm text-destructive py-2">{lookupError}</p>
+              )}
+              {!lookupLoading && lookupResults.length > 0 && (
+                <div className="overflow-y-auto pr-1 -mr-1 max-h-[min(48vh,420px)]">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {lookupResults.map((hit, idx) => (
+                      <LookupResultCard
+                        key={`${hit.volume_id}-${idx}`}
+                        hit={hit}
+                        onPick={() => applyGoogleBooksHit(hit)}
+                        onCoverZoom={(url) => setCoverLightboxUrl(url)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+              {!lookupLoading && lookupResults.length === 0 && !lookupError && (
+                <p className="text-sm text-muted-foreground py-6 text-center">输入关键词后点击搜索。</p>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={coverLightboxUrl != null} onOpenChange={(o) => !o && setCoverLightboxUrl(null)}>
+          <DialogContent
+            className="max-w-[min(96vw,720px)] border-0 bg-transparent p-2 shadow-none sm:max-w-3xl [&>button]:text-white [&>button]:drop-shadow-md"
+            showCloseButton
+          >
+            {coverLightboxUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={coverLightboxUrl}
+                alt="封面大图"
+                className="w-full max-h-[min(85vh,640px)] object-contain rounded-lg mx-auto"
+                referrerPolicy="no-referrer"
+              />
+            ) : null}
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={detailZoomUrl != null} onOpenChange={(o) => !o && setDetailZoomUrl(null)}>
+          <DialogContent
+            className="max-w-[min(96vw,720px)] border-0 bg-transparent p-2 shadow-none sm:max-w-3xl [&>button]:text-white [&>button]:drop-shadow-md"
+            showCloseButton
+          >
+            {detailZoomUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={detailZoomUrl}
+                alt="详情大图"
+                className="w-full max-h-[min(85vh,640px)] object-contain rounded-lg mx-auto bg-black/20"
+              />
+            ) : null}
+          </DialogContent>
+        </Dialog>
+
         <div className="space-y-5">
           {/* ── 封面上传 ── */}
           <div>
             <label className="block text-sm font-medium text-foreground mb-2">书籍封面</label>
 
             {/* 预览区 */}
-            <div className="w-full h-44 rounded-2xl border-2 border-dashed border-border/60 bg-card overflow-hidden relative mb-2">
+            <div className="w-full h-44 rounded-2xl border-2 border-dashed border-border/60 bg-card overflow-hidden relative mb-2 group/cover">
               {form.coverPreview ? (
                 <>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={form.coverPreview} alt="封面预览" className="w-full h-full object-cover" />
                   <button
                     type="button"
-                    onClick={() => setForm((f) => ({ ...f, coverPreview: null }))}
-                    className="absolute top-2 right-2 w-7 h-7 rounded-full bg-background/80 backdrop-blur flex items-center justify-center hover:bg-background transition-colors"
+                    className="absolute inset-0 z-0 flex items-center justify-center overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => setCoverLightboxUrl(form.coverPreview)}
+                    aria-label="放大查看封面"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={form.coverPreview}
+                      alt="封面预览"
+                      className="h-full w-full object-cover pointer-events-none"
+                    />
+                    <span className="pointer-events-none absolute bottom-2 left-1/2 z-[1] -translate-x-1/2 rounded-full bg-background/85 px-2.5 py-1 text-[11px] font-medium text-foreground opacity-0 shadow-sm transition-opacity group-hover/cover:opacity-100">
+                      点击查看大图
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setForm((f) => ({ ...f, coverPreview: null }))
+                    }}
+                    className="absolute top-2 right-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-background/80 backdrop-blur transition-colors hover:bg-background"
                     aria-label="移除封面"
                   >
                     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true" className="text-foreground">
@@ -267,6 +616,61 @@ export function ListBookPage() {
             {/* 隐藏 input */}
             <input ref={coverFileRef} type="file" accept="image/*" className="sr-only" onChange={handleCoverFile} />
             <input ref={coverCameraRef} type="file" accept="image/*" capture="environment" className="sr-only" onChange={handleCoverFile} />
+          </div>
+
+          {/* ── 详情图（与后端 detail_images 对应，上架时一并提交） ── */}
+          <div>
+            <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+              <label className="block text-sm font-medium text-foreground">详情图片（选填）</label>
+              <span className="text-xs text-muted-foreground">
+                最多 {MAX_DETAIL_IMAGES} 张 · 已选 {detailImages.length}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground mb-2">展示品相、版权页、目录等，便于买家下单前核对。</p>
+            <div className="grid grid-cols-4 gap-2 sm:grid-cols-5 mb-2">
+              {detailImages.map((d) => (
+                <div key={d.id} className="relative aspect-square rounded-lg overflow-hidden border border-border/60 bg-muted">
+                  <button
+                    type="button"
+                    className="absolute inset-0 z-0 flex items-center justify-center overflow-hidden rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => setDetailZoomUrl(d.preview)}
+                    aria-label="放大查看详情图"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={d.preview} alt="" className="h-full w-full object-cover pointer-events-none" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      removeDetailImage(d.id)
+                    }}
+                    className="absolute top-1 right-1 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-background/90 text-xs text-foreground shadow-sm hover:bg-background"
+                    aria-label="移除"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="rounded-xl"
+              disabled={detailImages.length >= MAX_DETAIL_IMAGES}
+              onClick={() => detailFilesRef.current?.click()}
+            >
+              {detailImages.length >= MAX_DETAIL_IMAGES ? '已达上限' : '添加详情图'}
+            </Button>
+            <input
+              ref={detailFilesRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="sr-only"
+              onChange={handleDetailFilesChange}
+            />
           </div>
 
           {/* ── 书名 ── */}
@@ -338,77 +742,237 @@ export function ListBookPage() {
             <input ref={isbnCameraRef} type="file" accept="image/*" capture="environment" className="sr-only" onChange={handleIsbnPhoto} />
           </div>
 
-          {/* ── 分类 ── */}
+          {/* ── 分类（来自 book_categories 表） ── */}
           <div>
             <label className="block text-sm font-medium text-foreground mb-2">
               分类 <span className="text-destructive">*</span>
             </label>
-            <div className="grid grid-cols-4 gap-2">
-              {CATEGORIES.map((cat) => (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => set('category', cat)}
-                  className={[
-                    'py-2 rounded-xl text-xs font-medium border transition-colors',
-                    form.category === cat
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-card border-border/60 text-muted-foreground hover:text-foreground hover:border-primary/30',
-                  ].join(' ')}
-                >
-                  {cat}
-                </button>
-              ))}
-            </div>
+            {categoriesError && (
+              <p className="text-xs text-destructive mb-2">{categoriesError}</p>
+            )}
+            {categoriesLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                正在加载分类…
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {categoryOptions.map((c) => (
+                  <button
+                    key={c.key}
+                    type="button"
+                    onClick={() => set('category', c.key)}
+                    className={[
+                      'py-2.5 px-1 rounded-xl text-xs font-medium border transition-colors text-center leading-tight',
+                      form.category === c.key
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-card border-border/60 text-muted-foreground hover:text-foreground hover:border-primary/30',
+                    ].join(' ')}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            )}
             {errors.category && <p className="text-xs text-destructive mt-1">{errors.category}</p>}
           </div>
 
-          {/* ── 品相 ── */}
+          {/* ── 品相（来自 book_conditions 表） ── */}
           <div>
             <label className="block text-sm font-medium text-foreground mb-2">
               品相 <span className="text-destructive">*</span>
             </label>
-            <div className="flex flex-col gap-2">
-              {CONDITIONS.map((cond) => (
-                <button
-                  key={cond}
-                  type="button"
-                  onClick={() => set('condition', cond)}
-                  className={[
-                    'flex items-center justify-between px-3.5 py-3 rounded-xl border text-left transition-colors',
-                    form.condition === cond
-                      ? 'bg-primary/10 border-primary'
-                      : 'bg-card border-border/60 hover:border-border',
-                  ].join(' ')}
-                >
-                  <span className={['text-sm font-medium', form.condition === cond ? 'text-primary' : 'text-foreground'].join(' ')}>
-                    {cond}
-                  </span>
-                  <span className="text-xs text-muted-foreground">{CONDITION_DESCS[cond]}</span>
-                </button>
-              ))}
-            </div>
+            {conditionsError && (
+              <p className="text-xs text-destructive mb-2">{conditionsError}</p>
+            )}
+            {conditionsLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                正在加载品相…
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {conditionOptions.map((opt) => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => set('condition', opt.key)}
+                    className={[
+                      'flex items-center justify-between px-3.5 py-3 rounded-xl border text-left transition-colors',
+                      form.condition === opt.key
+                        ? 'bg-primary/10 border-primary'
+                        : 'bg-card border-border/60 hover:border-border',
+                    ].join(' ')}
+                  >
+                    <span
+                      className={[
+                        'text-sm font-medium',
+                        form.condition === opt.key ? 'text-primary' : 'text-foreground',
+                      ].join(' ')}
+                    >
+                      {opt.label}
+                    </span>
+                    <span className="text-xs text-muted-foreground text-right max-w-[58%]">
+                      {opt.description ?? ''}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
             {errors.condition && <p className="text-xs text-destructive mt-1">{errors.condition}</p>}
           </div>
 
-          {/* ── 定价 ── */}
+          {/* ── 书籍描述（必填） ── */}
           <div>
             <label className="block text-sm font-medium text-foreground mb-1.5">
-              定价 (SOL) <span className="text-destructive">*</span>
+              书籍描述 <span className="text-destructive">*</span>
             </label>
-            <div className="relative">
-              <input
-                type="number" min="0.001" max="100" step="0.001"
-                value={form.price}
-                onChange={(e) => set('price', e.target.value)}
-                placeholder="0.000"
-                className={[
-                  'w-full h-11 pl-3.5 pr-16 rounded-xl bg-input border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 font-mono transition-shadow',
-                  errors.price ? 'border-destructive' : 'border-border/60',
-                ].join(' ')}
-              />
-              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground font-mono">SOL</span>
+            <textarea
+              value={form.description}
+              onChange={(e) => set('description', e.target.value)}
+              placeholder="请描述版本、品相细节、缺页污渍、是否笔记、附件等，便于买家决策。"
+              rows={4}
+              className={[
+                'w-full px-3.5 py-3 rounded-xl bg-input border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 resize-y min-h-[100px] leading-relaxed transition-shadow',
+                errors.description ? 'border-destructive' : 'border-border/60',
+              ].join(' ')}
+            />
+            {errors.description && <p className="text-xs text-destructive mt-1">{errors.description}</p>}
+          </div>
+
+          {/* ── 定价：默认人民币，换算 SOL / lamports（链上仍以 SOL 为准） ── */}
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="block text-sm font-medium text-foreground">
+                定价 <span className="text-destructive">*</span>
+              </label>
+              <div className="flex rounded-lg border border-border/60 p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => togglePriceMode('cny')}
+                  className={[
+                    'rounded-md px-3 py-1.5 font-medium transition-colors',
+                    priceMode === 'cny'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground',
+                  ].join(' ')}
+                >
+                  人民币
+                </button>
+                <button
+                  type="button"
+                  onClick={() => togglePriceMode('sol')}
+                  className={[
+                    'rounded-md px-3 py-1.5 font-medium transition-colors',
+                    priceMode === 'sol'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground',
+                  ].join(' ')}
+                >
+                  SOL
+                </button>
+              </div>
             </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+              {rateLoading ? (
+                <span className="flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                  正在获取 SOL/人民币汇率…
+                </span>
+              ) : cnyPerSol != null ? (
+                <>
+                  <span>
+                    参考汇率：1 SOL ≈ ¥{cnyPerSol.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}
+                    {rateSource === 'coingecko' ? '（CoinGecko 现货）' : '（环境变量备用）'}
+                  </span>
+                  {rateUpdatedAt != null && (
+                    <span className="text-muted-foreground/80">
+                      更新 {new Date(rateUpdatedAt).toLocaleString('zh-CN')}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void refreshRate()}
+                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-foreground/90 hover:bg-muted"
+                  >
+                    <RefreshCw className="h-3 w-3" aria-hidden />
+                    刷新
+                  </button>
+                </>
+              ) : null}
+            </div>
+            {rateError && (
+              <p className="text-xs text-amber-600 dark:text-amber-500/90">{rateError}</p>
+            )}
+            <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+              汇率随时波动，页面所示换算<strong className="text-foreground/90">仅代表当前参考时刻</strong>
+              ，链上成交以 SOL（lamports）为准。
+            </div>
+
+            {priceMode === 'cny' ? (
+              <div className="relative">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  disabled={!cnyPerSol || rateLoading}
+                  value={cnyDraft}
+                  onChange={(e) => setCnyDraft(e.target.value)}
+                  placeholder={cnyPerSol ? '例如 88.00' : '等待汇率…'}
+                  className={[
+                    'w-full h-11 pl-3.5 pr-12 rounded-xl bg-input border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 transition-shadow',
+                    errors.price ? 'border-destructive' : 'border-border/60',
+                    (!cnyPerSol || rateLoading) && 'opacity-60',
+                  ].join(' ')}
+                />
+                <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                  CNY
+                </span>
+              </div>
+            ) : (
+              <div className="relative">
+                <input
+                  type="number"
+                  min="0.000001"
+                  max="100"
+                  step="0.000001"
+                  value={form.price}
+                  onChange={(e) => {
+                    const raw = e.target.value
+                    set('price', raw)
+                    const s = Number.parseFloat(raw)
+                    if (cnyPerSol && Number.isFinite(s) && s > 0) {
+                      setCnyDraft((s * cnyPerSol).toFixed(2))
+                    } else if (!raw.trim()) setCnyDraft('')
+                  }}
+                  placeholder="0.000000"
+                  className={[
+                    'w-full h-11 pl-3.5 pr-16 rounded-xl bg-input border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 font-mono transition-shadow',
+                    errors.price ? 'border-destructive' : 'border-border/60',
+                  ].join(' ')}
+                />
+                <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground font-mono">
+                  SOL
+                </span>
+              </div>
+            )}
+
+            {priceNum > 0 && cnyPerSol != null && (
+              <div className="rounded-xl border border-border/50 bg-card/60 px-3 py-2.5 text-xs space-y-1.5">
+                <div className="flex justify-between gap-2 text-muted-foreground">
+                  <span>约合 SOL（提交链上）</span>
+                  <span className="font-mono text-foreground">{priceNum.toFixed(6)} SOL</span>
+                </div>
+                <div className="flex justify-between gap-2 text-muted-foreground">
+                  <span>约合 lamports（整数）</span>
+                  <span className="font-mono text-foreground break-all text-right">
+                    {lamportsDisplay?.toLocaleString('zh-CN') ?? '—'}
+                  </span>
+                </div>
+              </div>
+            )}
+
             {errors.price && <p className="text-xs text-destructive mt-1">{errors.price}</p>}
             {priceNum > 0 && (
               <div className="mt-2.5 bg-secondary/50 rounded-xl p-3.5 text-xs space-y-1.5">
@@ -422,18 +986,6 @@ export function ListBookPage() {
                 </div>
               </div>
             )}
-          </div>
-
-          {/* ── 描述 ── */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1.5">书籍描述（选填）</label>
-            <textarea
-              value={form.description}
-              onChange={(e) => set('description', e.target.value)}
-              placeholder="描述书籍状态、版本、附赠内容等..."
-              rows={3}
-              className="w-full px-3.5 py-3 rounded-xl bg-input border border-border/60 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 resize-none leading-relaxed transition-shadow"
-            />
           </div>
 
           {/* ── Devnet 提示 ── */}

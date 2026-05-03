@@ -13,96 +13,18 @@ import {
 } from "@/components/ui/select"
 import { Search, SlidersHorizontal, Grid3X3, LayoutList } from "lucide-react"
 
-const mockBooks = [
-  {
-    id: "1",
-    title: "深入理解计算机系统",
-    author: "Randal E. Bryant",
-    cover: "https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=400&h=600&fit=crop",
-    price: "0.05",
-    priceUsd: "150",
-    condition: "九成新",
-    seller: "0xABC...123",
-    likes: 42,
-  },
-  {
-    id: "2",
-    title: "算法导论",
-    author: "Thomas H. Cormen",
-    cover: "https://images.unsplash.com/photo-1532012197267-da84d127e765?w=400&h=600&fit=crop",
-    price: "0.08",
-    priceUsd: "240",
-    condition: "全新",
-    seller: "0xDEF...456",
-    likes: 128,
-  },
-  {
-    id: "3",
-    title: "设计模式",
-    author: "Erich Gamma",
-    cover: "https://images.unsplash.com/photo-1589998059171-988d887df646?w=400&h=600&fit=crop",
-    price: "0.03",
-    priceUsd: "90",
-    condition: "八成新",
-    seller: "0xGHI...789",
-    likes: 67,
-  },
-  {
-    id: "4",
-    title: "JavaScript高级程序设计",
-    author: "Nicholas C. Zakas",
-    cover: "https://images.unsplash.com/photo-1543002588-bfa74002ed7e?w=400&h=600&fit=crop",
-    price: "0.04",
-    priceUsd: "120",
-    condition: "九成新",
-    seller: "0xJKL...012",
-    likes: 89,
-  },
-  {
-    id: "5",
-    title: "Python编程：从入门到实践",
-    author: "Eric Matthes",
-    cover: "https://images.unsplash.com/photo-1512820790803-83ca734da794?w=400&h=600&fit=crop",
-    price: "0.025",
-    priceUsd: "75",
-    condition: "七成新",
-    seller: "0xMNO...345",
-    likes: 156,
-  },
-  {
-    id: "6",
-    title: "数据结构与算法分析",
-    author: "Mark Allen Weiss",
-    cover: "https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=400&h=600&fit=crop",
-    price: "0.06",
-    priceUsd: "180",
-    condition: "全新",
-    seller: "0xPQR...678",
-    likes: 234,
-  },
-  {
-    id: "7",
-    title: "代码整洁之道",
-    author: "Robert C. Martin",
-    cover: "https://images.unsplash.com/photo-1550399105-c4db5fb85c18?w=400&h=600&fit=crop",
-    price: "0.035",
-    priceUsd: "105",
-    condition: "八成新",
-    seller: "0xSTU...901",
-    likes: 312,
-  },
-  {
-    id: "8",
-    title: "重构：改善既有代码的设计",
-    author: "Martin Fowler",
-    cover: "https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?w=400&h=600&fit=crop",
-    price: "0.045",
-    priceUsd: "135",
-    condition: "九成新",
-    seller: "0xVWX...234",
-    likes: 178,
-  },
-]
+/** 演示区块占位已清空；若再接展示组件请改为接口数据 */
+const mockBooks: {
+  id: string
+  title: string
+  author: string
+  cover: string
+  price: string
+  priceUsd: string
+  condition: string
+  seller: string
+  likes: number
+}[] = []
 
 const categories = [
   "全部分类",

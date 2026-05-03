@@ -6,8 +6,6 @@ import { useEffect, useRef, useState } from 'react'
 import { mobileNavItems } from '@/config/navigation'
 import { routes } from '@/config/routes'
 import { isNavActive } from '@/lib/match-route'
-import { unreadTotalFromFixture } from '@/mocks/fixtures/chat-conversations'
-
 function NavCenterIcon() {
   return (
     <span className="w-13 h-13 rounded-2xl bg-primary flex items-center justify-center shadow-lg shadow-primary/40 -mt-6">
@@ -102,7 +100,7 @@ export function MobileTabBar() {
 
   const showChatBubble = !onChatRoute && !onListRoute
   const canPeek = !onHomeRoute
-  const unreadCount = unreadTotalFromFixture()
+  const unreadCount = 0
 
   function handleTouchStart(e: React.TouchEvent) {
     touchStartX.current = e.touches[0].clientX

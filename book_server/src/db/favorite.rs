@@ -56,19 +56,25 @@ impl DBService {
         user_pubkey: &str,
         page:        &crate::db::types::Page,
     ) -> Result<Vec<BookCardRow>, sqlx::Error> {
-        sqlx::query_as!(
-            BookCardRow,
-            "SELECT b.asset, b.seller, b.price, b.status, b.name,
-                    b.cover_url, b.author, b.category, b.condition, b.created_at
-             FROM books b
-             INNER JOIN favorites f ON f.asset = b.asset
-             WHERE f.user_pubkey = $1
-             ORDER BY f.created_at DESC
-             LIMIT $2 OFFSET $3",
-            user_pubkey, page.limit, page.offset
+        sqlx::query_as::<_, BookCardRow>(
+            r#"SELECT b.asset, b.seller, b.price, b.status, b.name,
+                      b.cover_url, b.author,
+                      COALESCE(bc.label_zh, b.category) AS category,
+                      COALESCE(bcond.label_zh, b.condition) AS condition,
+                      b.created_at
+               FROM books b
+               INNER JOIN favorites f ON f.asset = b.asset
+               LEFT JOIN book_categories bc ON b.category = bc.key
+               LEFT JOIN book_conditions bcond ON b.condition = bcond.key
+               WHERE f.user_pubkey = $1
+               ORDER BY f.created_at DESC
+               LIMIT $2 OFFSET $3"#,
         )
-            .fetch_all(&self.db_pool)
-            .await
+        .bind(user_pubkey)
+        .bind(page.limit)
+        .bind(page.offset)
+        .fetch_all(&self.db_pool)
+        .await
     }
 
     // 查某本书被多少人收藏

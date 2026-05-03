@@ -13,58 +13,16 @@ import {
   Loader2,
 } from "lucide-react"
 
-const mockTransactions = [
-  {
-    id: "tx1",
-    type: "buy",
-    book: "深入理解计算机系统",
-    price: "0.05 ETH",
-    status: "completed",
-    timestamp: "2024-01-15 14:32",
-    txHash: "0xabc...def",
-    counterparty: "0x123...456",
-  },
-  {
-    id: "tx2",
-    type: "sell",
-    book: "JavaScript高级程序设计",
-    price: "0.04 ETH",
-    status: "pending",
-    timestamp: "2024-01-15 12:18",
-    txHash: "0xghi...jkl",
-    counterparty: "0x789...012",
-  },
-  {
-    id: "tx3",
-    type: "buy",
-    book: "算法导论",
-    price: "0.08 ETH",
-    status: "completed",
-    timestamp: "2024-01-14 09:45",
-    txHash: "0xmno...pqr",
-    counterparty: "0x345...678",
-  },
-  {
-    id: "tx4",
-    type: "sell",
-    book: "设计模式",
-    price: "0.03 ETH",
-    status: "failed",
-    timestamp: "2024-01-13 16:22",
-    txHash: "0xstu...vwx",
-    counterparty: "0x901...234",
-  },
-  {
-    id: "tx5",
-    type: "buy",
-    book: "代码整洁之道",
-    price: "0.035 ETH",
-    status: "completed",
-    timestamp: "2024-01-12 11:08",
-    txHash: "0xyz...abc",
-    counterparty: "0x567...890",
-  },
-]
+const mockTransactions: {
+  id: string
+  type: string
+  book: string
+  price: string
+  status: string
+  timestamp: string
+  txHash: string
+  counterparty: string
+}[] = []
 
 const statusConfig = {
   completed: {

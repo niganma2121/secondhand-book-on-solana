@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import { ChainTransaction } from '@/lib/types'
 import { useTransactions } from '@/lib/hooks/use-transactions'
 
@@ -49,87 +50,106 @@ function TxCard({ tx }: { tx: ChainTransaction }) {
     setTimeout(() => setCopied(false), 1500)
   }
 
+  const showCover = Boolean(tx.bookCover?.trim())
+
   return (
-    <div className="bg-card border border-border rounded-xl p-4 flex flex-col gap-3">
-      {/* 顶部行 */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className={['text-[11px] font-semibold px-2 py-0.5 rounded-md shrink-0', TYPE_COLORS[tx.type]].join(' ')}>
-            {TYPE_LABELS[tx.type]}
-          </span>
-          <span className="text-sm font-medium text-foreground truncate">{tx.bookTitle}</span>
-        </div>
-        {/* 状态 */}
-        <div className={['flex items-center gap-1.5 shrink-0', status.text].join(' ')}>
-          <span className={['w-1.5 h-1.5 rounded-full', status.dot].join(' ')} />
-          <span className="text-[11px] font-medium">{status.label}</span>
-        </div>
-      </div>
-
-      {/* 签名 + 复制 */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-muted-foreground font-mono">{shortenSig(tx.signature)}</span>
-        <button
-          onClick={handleCopy}
-          aria-label="复制交易签名"
-          className="text-muted-foreground hover:text-foreground transition-colors"
-        >
-          {copied ? (
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
-              <path d="M2 7l3 3 6-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-primary" />
-            </svg>
-          ) : (
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
-              <rect x="4" y="4" width="7.5" height="7.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-              <path d="M4 3V2a1 1 0 011-1h5.5a1 1 0 011 1v5.5a1 1 0 01-1 1H9" stroke="currentColor" strokeWidth="1.2" />
-            </svg>
-          )}
-        </button>
-        <a
-          href={`https://explorer.solana.com/tx/${tx.signature}?cluster=devnet`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-muted-foreground hover:text-primary transition-colors ml-auto"
-          aria-label="在 Solana Explorer 查看"
-        >
-          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
-            <path d="M7.5 1.5H11.5V5.5M11.5 1.5L6 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-            <path d="M5 3H2a1 1 0 00-1 1v7a1 1 0 001 1h7a1 1 0 001-1v-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-          </svg>
-        </a>
-      </div>
-
-      {/* 详细信息网格 */}
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
-        {tx.amount > 0 && (
-          <>
-            <span className="text-muted-foreground">金额</span>
-            <span className="text-foreground font-mono font-semibold text-primary">{tx.amount} SOL</span>
-          </>
+    <div className="bg-card border border-border rounded-xl p-4 flex gap-3">
+      {/* 封面：与右侧信息垂直居中对齐，避免压在卡片底部 */}
+      <div className="relative w-[76px] aspect-[3/4] shrink-0 self-center overflow-hidden rounded-lg bg-secondary ring-1 ring-border/60">
+        {showCover ? (
+          <Image
+            src={tx.bookCover!}
+            alt=""
+            fill
+            sizes="76px"
+            className="object-cover"
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center p-1 text-center">
+            <span className="text-[10px] leading-tight text-muted-foreground">暂无封面</span>
+          </div>
         )}
-        <span className="text-muted-foreground">区块槽</span>
-        <span className="text-foreground font-mono">{tx.slot.toLocaleString()}</span>
-        <span className="text-muted-foreground">Gas 费</span>
-        <span className="text-foreground font-mono">
-          {tx.fee === 0 ? '—' : `${tx.fee.toLocaleString()} lamports`}
-        </span>
-        <span className="text-muted-foreground">时间</span>
-        <span className="text-foreground">{tx.timestamp}</span>
       </div>
 
-      {/* 地址行（仅有 from/to 时显示） */}
-      {tx.type !== 'list' && tx.type !== 'delist' && (
-        <div className="border-t border-border pt-2.5 grid grid-cols-2 gap-2 text-xs">
-          <div>
-            <p className="text-muted-foreground mb-0.5">发送方</p>
-            <p className="font-mono text-foreground truncate">{tx.from}</p>
+      <div className="flex min-w-0 flex-1 flex-col gap-3">
+        {/* 顶部行 */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className={['shrink-0 rounded-md px-2 py-0.5 text-[11px] font-semibold', TYPE_COLORS[tx.type]].join(' ')}>
+              {TYPE_LABELS[tx.type]}
+            </span>
+            <span className="truncate text-sm font-medium text-foreground">{tx.bookTitle}</span>
           </div>
-          <div>
-            <p className="text-muted-foreground mb-0.5">接收方</p>
-            <p className="font-mono text-foreground truncate">{tx.to}</p>
+          <div className={['flex shrink-0 items-center gap-1.5', status.text].join(' ')}>
+            <span className={['h-1.5 w-1.5 rounded-full', status.dot].join(' ')} />
+            <span className="text-[11px] font-medium">{status.label}</span>
           </div>
         </div>
-      )}
+
+        {/* 签名 + 复制 */}
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-xs text-muted-foreground">{shortenSig(tx.signature)}</span>
+          <button
+            onClick={handleCopy}
+            aria-label="复制交易签名"
+            className="text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {copied ? (
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+                <path d="M2 7l3 3 6-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-primary" />
+              </svg>
+            ) : (
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+                <rect x="4" y="4" width="7.5" height="7.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
+                <path d="M4 3V2a1 1 0 011-1h5.5a1 1 0 011 1v5.5a1 1 0 01-1 1H9" stroke="currentColor" strokeWidth="1.2" />
+              </svg>
+            )}
+          </button>
+          <a
+            href={`https://explorer.solana.com/tx/${encodeURIComponent(tx.signature)}?cluster=devnet`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ml-auto text-muted-foreground transition-colors hover:text-primary"
+            aria-label="在 Solana Explorer 查看"
+          >
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+              <path d="M7.5 1.5H11.5V5.5M11.5 1.5L6 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+              <path d="M5 3H2a1 1 0 00-1 1v7a1 1 0 001 1h7a1 1 0 001-1v-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+            </svg>
+          </a>
+        </div>
+
+        {/* 详细信息网格 */}
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+          {tx.amount > 0 && (
+            <>
+              <span className="text-muted-foreground">金额</span>
+              <span className="font-mono font-semibold text-primary">{tx.amount} SOL</span>
+            </>
+          )}
+          <span className="text-muted-foreground">区块槽</span>
+          <span className="font-mono text-foreground">{tx.slot.toLocaleString()}</span>
+          <span className="text-muted-foreground">Gas 费</span>
+          <span className="font-mono text-foreground">
+            {tx.fee === 0 ? '—' : `${tx.fee.toLocaleString()} lamports`}
+          </span>
+          <span className="text-muted-foreground">时间</span>
+          <span className="text-foreground">{tx.timestamp}</span>
+        </div>
+
+        {tx.type !== 'list' && tx.type !== 'delist' && (
+          <div className="grid grid-cols-2 gap-2 border-t border-border pt-2.5 text-xs">
+            <div>
+              <p className="mb-0.5 text-muted-foreground">发送方</p>
+              <p className="truncate font-mono text-foreground">{tx.from}</p>
+            </div>
+            <div>
+              <p className="mb-0.5 text-muted-foreground">接收方</p>
+              <p className="truncate font-mono text-foreground">{tx.to}</p>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -193,11 +213,24 @@ export function TransactionsPage() {
           ))}
         </div>
 
+        {/* Devnet 提示：放在列表区域上方，避免短页面时整条贴在视口底部 */}
+        <div className="mb-4 flex items-start gap-2 rounded-lg bg-secondary/50 px-3 py-2.5 text-xs text-muted-foreground">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="mt-0.5 shrink-0">
+            <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.3" />
+            <path d="M7 6v4M7 4.5v.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+          </svg>
+          <span>
+            当前网络: Solana Devnet。点击右侧 Explorer 图标可在 Solana Explorer 查看完整链上数据（需完整交易签名）。
+          </span>
+        </div>
+
         {/* 交易列表 */}
         {loading ? (
-          <div className="text-center py-20 text-muted-foreground text-sm">加载中…</div>
+          <div className="py-20 text-center text-sm text-muted-foreground">加载中…</div>
         ) : displayed.length === 0 ? (
-          <div className="text-center py-20 text-muted-foreground text-sm">暂无交易记录</div>
+          <div className="flex min-h-[min(52vh,480px)] flex-col items-center justify-center px-4 py-16 text-center text-sm text-muted-foreground">
+            暂无交易记录
+          </div>
         ) : (
           <div className="flex flex-col gap-3">
             {displayed.map((tx) => (
@@ -205,15 +238,6 @@ export function TransactionsPage() {
             ))}
           </div>
         )}
-
-        {/* Devnet 提示 */}
-        <div className="mt-6 flex items-center gap-2 text-xs text-muted-foreground bg-secondary/50 rounded-lg px-3 py-2.5">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-            <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.3" />
-            <path d="M7 6v4M7 4.5v.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-          </svg>
-          当前网络: Solana Devnet。点击交易签名可在 Solana Explorer 查看完整链上数据。
-        </div>
       </div>
     </div>
   )

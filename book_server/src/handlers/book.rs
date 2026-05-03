@@ -19,7 +19,56 @@ pub struct MarketQuery {
     pub sort_by: Option<String>,
 }
 
-// GET /api/books?page=1&category=小说&keyword=xxx
+// GET /api/books/categories — 上架与筛选用的分类字典（存库用 key，展示用 label）
+pub async fn list_book_categories_handler(State(state): State<AppState>) -> impl IntoResponse {
+    match state.db_service.list_book_categories().await {
+        Ok(rows) => {
+            let categories: Vec<_> = rows
+                .iter()
+                .map(|r| {
+                    json!({
+                        "key": r.key,
+                        "label": r.label_zh,
+                        "sort_order": r.sort_order
+                    })
+                })
+                .collect();
+            (StatusCode::OK, Json(json!({ "categories": categories }))).into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+// GET /api/books/conditions — 品相字典（存库用 key，展示用 label / description）
+pub async fn list_book_conditions_handler(State(state): State<AppState>) -> impl IntoResponse {
+    match state.db_service.list_book_conditions().await {
+        Ok(rows) => {
+            let conditions: Vec<_> = rows
+                .iter()
+                .map(|r| {
+                    json!({
+                        "key": r.key,
+                        "label": r.label_zh,
+                        "description": r.description_zh,
+                        "sort_order": r.sort_order
+                    })
+                })
+                .collect();
+            (StatusCode::OK, Json(json!({ "conditions": conditions }))).into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+// GET /api/books?page=1&category=literature&keyword=xxx （category 为 book_categories.key）
 pub async fn list_market_books_handler(
     State(state): State<AppState>,
     Query(q): Query<MarketQuery>,

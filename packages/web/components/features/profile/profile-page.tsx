@@ -68,14 +68,14 @@ export function ProfilePage() {
   const displayName =
     isAuthenticated && user?.username ? user.username : '匿名用户'
 
-  const stats = [
+  const stats: { label: string; value: number | string }[] = [
     { label: '上架书籍', value: shelfBooks.filter((b) => b.status === 'listed').length },
     {
       label: '历史交易',
-      value: isAuthenticated && user ? user.trade_count : 12,
+      value: isAuthenticated && user ? user.trade_count : '—',
     },
     { label: '已购书籍', value: boughtBooks.length },
-    { label: '累计收益', value: '3.2 SOL' },
+    { label: '累计收益', value: '—' },
   ]
 
   const apiConfigured = !env.useMockData && Boolean(env.apiBaseUrl)

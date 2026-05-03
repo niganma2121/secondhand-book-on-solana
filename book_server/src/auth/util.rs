@@ -187,3 +187,51 @@ pub async fn is_jwt_blacklist(pool:&deadpool_redis::Pool,jti:&str)->Result<bool,
         .map_err(|e|AuthError::Internal(e.to_string()))?;
     Ok(exists)
 }
+
+/// WebSocket 握手凭证 TTL（秒）。
+const WS_TICKET_TTL_SECS: u64 = 60;
+const WS_TICKET_KEY_PREFIX: &str = "ws_ticket:";
+
+/// 已登录用户换取一次性 WS 握手票据（仅存 Redis）。
+pub async fn issue_ws_ticket(pool: &deadpool_redis::Pool, pubkey: &str) -> Result<String, AuthError> {
+    let ticket = format!("{:032x}", uuid::Uuid::new_v4().as_u128());
+    let key = format!("{WS_TICKET_KEY_PREFIX}{ticket}");
+    let mut connection = pool
+        .get()
+        .await
+        .map_err(|e| AuthError::Internal(e.to_string()))?;
+    let _: () = redis::cmd("SET")
+        .arg(&key)
+        .arg(pubkey)
+        .arg("EX")
+        .arg(WS_TICKET_TTL_SECS)
+        .query_async(&mut connection)
+        .await
+        .map_err(|e| AuthError::Internal(format!("写入 WS 票据失败:{e}")))?;
+    Ok(ticket)
+}
+
+/// 原子取出并删除票据（Redis 6.2+ `GETDEL`）。
+pub async fn consume_ws_ticket(
+    pool: &deadpool_redis::Pool,
+    ticket: &str,
+) -> Result<Option<String>, AuthError> {
+    if ticket.len() > 64 || !ticket.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Ok(None);
+    }
+    let key = format!("{WS_TICKET_KEY_PREFIX}{ticket}");
+    let mut connection = pool
+        .get()
+        .await
+        .map_err(|e| AuthError::Internal(e.to_string()))?;
+    let v: Option<String> = redis::cmd("GETDEL")
+        .arg(&key)
+        .query_async(&mut connection)
+        .await
+        .map_err(|e| AuthError::Internal(format!("消费 WS 票据失败:{e}")))?;
+    Ok(v)
+}
+
+pub fn ws_ticket_ttl_secs() -> u64 {
+    WS_TICKET_TTL_SECS
+}

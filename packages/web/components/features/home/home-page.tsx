@@ -9,11 +9,12 @@ import type { Book } from '@/lib/types'
 import { useBooks } from '@/lib/hooks/use-books'
 import { Button } from '@/components/ui/button'
 
+/** 全局指标待后端聚合接口接入；当前不占位假数据 */
 const STATS = [
-  { label: '在售书籍', value: '2,481', unit: '本' },
-  { label: '链上交易', value: '18,374', unit: '笔' },
-  { label: '注册用户', value: '6,912', unit: '人' },
-  { label: '总交易额', value: '1,204', unit: 'SOL' },
+  { label: '在售书籍', value: '—', unit: '' },
+  { label: '链上交易', value: '—', unit: '' },
+  { label: '注册用户', value: '—', unit: '' },
+  { label: '总交易额', value: '—', unit: '' },
 ]
 
 const FEATURES = [
@@ -62,50 +63,52 @@ export function HomePage() {
       {/* ── Hero ── */}
       <section className="relative overflow-hidden px-5 sm:px-8 pt-12 pb-14 md:pt-24 md:pb-28 max-w-7xl mx-auto">
 
-        {/* 呼吸背景光晕 layer 1 — 右上大圆 */}
+        {/* 呼吸光晕：右上 / 左下 / 中部（错开周期，更有层次） */}
         <div
           aria-hidden="true"
-          className="absolute -top-40 -right-40 w-[600px] h-[600px] rounded-full pointer-events-none"
+          className="animate-home-hero-blob-a pointer-events-none absolute -top-40 -right-40 h-[600px] w-[600px] rounded-full"
           style={{
-            background: 'radial-gradient(circle, oklch(0.72 0.19 145 / 0.12) 0%, transparent 70%)',
-            animation: 'breathe 6s ease-in-out infinite',
+            background: 'radial-gradient(circle, oklch(0.72 0.19 145 / 0.14) 0%, transparent 70%)',
           }}
         />
-        {/* 呼吸背景光晕 layer 2 — 左下小圆，反相 */}
         <div
           aria-hidden="true"
-          className="absolute -bottom-32 -left-32 w-[420px] h-[420px] rounded-full pointer-events-none"
+          className="animate-home-hero-blob-b pointer-events-none absolute -bottom-32 -left-32 h-[420px] w-[420px] rounded-full"
           style={{
-            background: 'radial-gradient(circle, oklch(0.72 0.19 145 / 0.07) 0%, transparent 70%)',
-            animation: 'breathe 6s ease-in-out infinite reverse',
-            animationDelay: '-3s',
+            background: 'radial-gradient(circle, oklch(0.72 0.19 145 / 0.09) 0%, transparent 70%)',
           }}
         />
-        {/* 网格纹理 */}
         <div
           aria-hidden="true"
-          className="absolute inset-0 pointer-events-none opacity-[0.025]"
+          className="animate-home-hero-blob-c pointer-events-none absolute top-[36%] left-1/2 h-[min(480px,92vw)] w-[min(480px,92vw)] rounded-full blur-3xl md:top-[40%]"
+          style={{
+            background: 'radial-gradient(circle, oklch(0.72 0.19 145 / 0.1) 0%, transparent 68%)',
+          }}
+        />
+        {/* 网格：轻微明度呼吸 */}
+        <div
+          aria-hidden="true"
+          className="animate-home-hero-grid pointer-events-none absolute inset-0"
           style={{
             backgroundImage:
               'linear-gradient(oklch(0.72 0.19 145) 1px, transparent 1px), linear-gradient(90deg, oklch(0.72 0.19 145) 1px, transparent 1px)',
             backgroundSize: '48px 48px',
+            opacity: 0.03,
           }}
         />
-
-        <style>{`
-          @keyframes breathe {
-            0%, 100% { transform: scale(1); opacity: 1; }
-            50% { transform: scale(1.18); opacity: 0.6; }
-          }
-        `}</style>
+        {/* 底部渐隐：随光略变，压光避免晃眼 */}
+        <div
+          aria-hidden="true"
+          className="animate-home-hero-vignette pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-background"
+        />
 
         <div className="relative flex flex-col md:flex-row md:items-center gap-10 md:gap-16">
 
           {/* 文案区 */}
           <div className="flex-1 min-w-0">
             {/* 徽章 */}
-            <div className="inline-flex items-center gap-2.5 px-4 py-2 md:px-5 md:py-2.5 rounded-full bg-primary/10 border border-primary/25 text-primary text-xs md:text-sm font-medium mb-6 md:mb-8">
-              <span className="w-2 h-2 rounded-full bg-primary animate-pulse shrink-0" />
+            <div className="animate-home-hero-badge inline-flex items-center gap-2.5 rounded-full border border-primary/25 bg-primary/10 px-4 py-2 text-xs font-medium text-primary md:px-5 md:py-2.5 md:text-sm mb-6 md:mb-8">
+              <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-primary" />
               {"Solana Devnet · 安全透明"}
             </div>
 
@@ -141,7 +144,7 @@ export function HomePage() {
 
           {/* 书籍封面展示区 — 仅 PC，3 张：上 1 大 + 下 2 小 */}
           {!loading && heroBooks.length >= 3 && (
-          <div className="hidden md:flex flex-col gap-4 shrink-0 w-[340px] lg:w-[420px]">
+          <div className="animate-home-hero-books hidden shrink-0 flex-col gap-4 md:flex w-[340px] lg:w-[420px]">
             {/* 大图 */}
             <div className="relative w-full h-56 lg:h-64 rounded-2xl overflow-hidden border border-border/60 shadow-2xl">
               <Image
@@ -179,18 +182,20 @@ export function HomePage() {
         </div>
       </section>
 
-      {/* ── 数据统计 ── */}
-      <section className="px-5 sm:px-8 max-w-7xl mx-auto">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+      {/* ── 数据统计（与 Hero 明确分区，避免 PC 上挤进上方光晕/标题区） ── */}
+      <section className="relative z-10 border-t border-border/50 bg-background px-5 sm:px-8 max-w-7xl mx-auto pt-10 pb-1 md:pt-14 md:pb-2">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
           {STATS.map((stat) => (
             <div
               key={stat.label}
               className="bg-card border border-border/60 rounded-2xl p-4 md:p-5 flex flex-col gap-1"
             >
               <span className="text-muted-foreground text-xs md:text-sm">{stat.label}</span>
-              <span className="text-2xl md:text-3xl font-bold text-foreground">
+              <span className="text-2xl md:text-3xl font-bold text-foreground tabular-nums">
                 {stat.value}
-                <span className="text-sm md:text-base font-normal text-muted-foreground ml-1">{stat.unit}</span>
+                {stat.unit ? (
+                  <span className="ml-1 text-sm font-normal text-muted-foreground md:text-base">{stat.unit}</span>
+                ) : null}
               </span>
             </div>
           ))}

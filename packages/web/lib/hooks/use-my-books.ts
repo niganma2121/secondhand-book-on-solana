@@ -4,11 +4,10 @@ import { useEffect, useState } from 'react'
 import type { MyBook } from '@/lib/types'
 import { env } from '@/lib/env'
 import { apiFetch } from '@/lib/api/client'
-import { myBooksFixture } from '@/mocks/fixtures/my-books'
 
 async function loadMyBooks(): Promise<MyBook[]> {
   if (env.useMockData || !env.apiBaseUrl) {
-    return myBooksFixture
+    return []
   }
   return apiFetch<MyBook[]>('/me/books')
 }

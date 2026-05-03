@@ -29,6 +29,8 @@ export interface ChainTransaction {
   signature: string
   type: 'buy' | 'sell' | 'list' | 'delist'
   bookTitle: string
+  /** 链上/业务侧可返回封面 URL；无则卡片内显示占位 */
+  bookCover?: string
   amount: number // SOL
   from: string
   to: string

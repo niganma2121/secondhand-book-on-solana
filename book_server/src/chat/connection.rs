@@ -63,7 +63,9 @@ pub async fn start_read_task(
         if let Message::Text(text) = msg {
             match serde_json::from_str::<ClientCommand>(&text){
                 Ok(cmd)=>{
-                    let _ =chat_service.handle_command(&user_pubkey, cmd,&db.clone(),&id_generator).await;
+                    if let Err(e) = chat_service.handle_command(&user_pubkey, cmd,&db.clone(),&id_generator).await {
+                        error!("handle_command: {}", e);
+                    }
                 }
                 Err(e)=>{
                     error!("反序列化 JSON 失败: {:?}. 原始消息: {}", e, text);

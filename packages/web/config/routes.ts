@@ -11,4 +11,9 @@ export const routes = {
   chat: '/chat',
 } as const
 
+/** 打开与指定钱包的会话（对方完整 Base58 地址） */
+export function chatWithPeer(peerPubkey: string) {
+  return `${routes.chat}?peer=${encodeURIComponent(peerPubkey)}`
+}
+
 export type AppRoute = (typeof routes)[keyof typeof routes]

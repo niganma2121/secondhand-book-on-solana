@@ -11,13 +11,13 @@ use serde::Deserialize;
 use serde_json::json;
 
 #[derive(Deserialize)]
-pub struct PageQuery {
+pub(crate) struct PageQuery {
     pub page: Option<i64>,
     pub page_size: Option<i64>,
 }
 
 impl PageQuery {
-    pub fn to_page(&self) -> Page {
+    pub(crate) fn to_page(&self) -> Page {
         Page::new(self.page.unwrap_or(1), self.page_size.unwrap_or(20))
     }
 }
