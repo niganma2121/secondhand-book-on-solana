@@ -1,11 +1,11 @@
 pub mod error;
-pub mod handler;
+pub mod handlers;
 pub mod service;
 pub mod types;
 pub mod utils;
 use anchor_client::anchor_lang::*;
 use anchor_lang::prelude::Pubkey;
-pub use handler::*;
+pub use handlers::*;
 
 declare_program!(book);
 pub use book::{
