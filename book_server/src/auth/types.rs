@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use crate::{JWT_SECRET_ENV, NONCE_SECRET_ENV, REDIS_URL_ENV};
 use jsonwebtoken::TokenData;
 use serde::{Deserialize, Serialize};
 use jsonwebtoken::errors::Error;
@@ -16,10 +17,10 @@ pub struct AuthService{
 
 impl AuthService{
     pub fn new()->Self{
-        let  redis_url=var("REDIS_URL").expect("缺少REDIS_URL");
-        let jwt_secret=var("JWT_SECRET").expect("JWT密钥加载失败");
+        let  redis_url=var(REDIS_URL_ENV).expect("缺少 REDIS_URL 环境变量");
+        let jwt_secret=var(JWT_SECRET_ENV).expect("JWT密钥加载失败");
 
-        let nonce_secret=var("NONCE_SECRET").expect("JWT密钥加载失败");
+        let nonce_secret=var(NONCE_SECRET_ENV).expect("JWT密钥加载失败");
         let cfg=Config::from_url(redis_url);
         let redis_pool=cfg.create_pool(Some(Runtime::Tokio1))
             .expect("Redis连接池创建失败");

@@ -6,10 +6,10 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-book = "B6FGFq5WVExospwD6XE4RiPdtjLp6R5wFRMYQeVPQsfz"
+book = { address="B6FGFq5WVExospwD6XE4RiPdtjLp6R5wFRMYQeVPQsfz",path="../target/deploy/book.so"}
 
 [provider]
-cluster = "localnet"
+cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]

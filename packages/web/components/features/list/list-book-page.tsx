@@ -21,6 +21,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Loader2, RefreshCw, ZoomIn } from 'lucide-react'
+import { ApiError } from '@/lib/api/client'
+import {
+  broadcastCreateBook,
+  buildCreateBook,
+  signSerializedTxWithWallet,
+} from '@/lib/api/book-listing'
 
 interface FormState {
   title: string
@@ -38,6 +44,8 @@ interface FormState {
 type DetailImageItem = { id: string; file: File; preview: string }
 
 const MAX_DETAIL_IMAGES = 5
+const MAX_COVER_FILE_BYTES = 8 * 1024 * 1024
+const MAX_DETAIL_FILE_BYTES = 4 * 1024 * 1024
 
 function newDetailId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -113,7 +121,7 @@ function LookupResultCard({
 }
 
 export function ListBookPage() {
-  const { publicKey } = useWallet()
+  const { publicKey, signTransaction } = useWallet()
   const openWalletConnect = useOpenWalletConnect()
   const isMobile = useIsMobile()
   const { categories: categoryOptions, loading: categoriesLoading, error: categoriesError } =
@@ -143,7 +151,13 @@ export function ListBookPage() {
   const isbnCameraRef = useRef<HTMLInputElement>(null)
 
   const [form, setForm] = useState<FormState>(INITIAL_FORM)
-  const [step, setStep] = useState<'form' | 'signing' | 'minting' | 'done'>('form')
+  const [step, setStep] = useState<'form' | 'building' | 'signing' | 'minting' | 'done'>('form')
+  /** 分步上架时：封面 / 详情 / 元数据 / 组交易 的当前文案 */
+  const [buildPhase, setBuildPhase] = useState('')
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [lastAsset, setLastAsset] = useState<string | null>(null)
+  const [lastSignature, setLastSignature] = useState<string | null>(null)
+  const [coverFile, setCoverFile] = useState<File | null>(null)
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({})
 
   const [lookupDialogOpen, setLookupDialogOpen] = useState(false)
@@ -201,7 +215,21 @@ export function ListBookPage() {
 
   function handleCoverFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-    if (file) readFile(file, (url) => setForm((f) => ({ ...f, coverPreview: url })))
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        setSubmitError('封面文件必须是图片格式')
+        e.target.value = ''
+        return
+      }
+      if (file.size > MAX_COVER_FILE_BYTES) {
+        setSubmitError('封面图片不能超过 8MB，请压缩后再试')
+        e.target.value = ''
+        return
+      }
+      setSubmitError(null)
+      setCoverFile(file)
+      readFile(file, (url) => setForm((f) => ({ ...f, coverPreview: url })))
+    }
     e.target.value = ''
   }
 
@@ -217,11 +245,18 @@ export function ListBookPage() {
     for (let i = 0; i < list.length && next.length < remaining; i++) {
       const file = list[i]
       if (!file.type.startsWith('image/')) continue
+      if (file.size > MAX_DETAIL_FILE_BYTES) {
+        setSubmitError(`详情图单张不能超过 4MB：${file.name}`)
+        continue
+      }
       next.push({
         id: newDetailId(),
         file,
         preview: URL.createObjectURL(file),
       })
+    }
+    if (next.length > 0) {
+      setSubmitError(null)
     }
     if (next.length) setDetailImages((prev) => [...prev, ...next])
     e.target.value = ''
@@ -247,11 +282,88 @@ export function ListBookPage() {
   async function handleSubmit() {
     if (!publicKey) { openWalletConnect(); return }
     if (!validate()) return
-    setStep('signing')
-    await new Promise((r) => setTimeout(r, 1500))
-    setStep('minting')
-    await new Promise((r) => setTimeout(r, 2000))
-    setStep('done')
+    if (!coverFile) {
+      setSubmitError('请先上传封面图片')
+      return
+    }
+    if (!signTransaction) {
+      setSubmitError('当前钱包不支持交易签名，请切换钱包后重试')
+      return
+    }
+    setSubmitError(null)
+    setLastAsset(null)
+    setLastSignature(null)
+    let failedStage: 'building' | 'signing' | 'minting' = 'building'
+    try {
+      const priceLamports = Math.round(priceNum * 1_000_000_000)
+      if (!Number.isFinite(priceLamports) || priceLamports <= 0) {
+        setSubmitError('价格换算失败，请检查 SOL 定价')
+        return
+      }
+
+      setBuildPhase('')
+      setStep('building')
+      console.info('[list-book] stage=building start', {
+        detailCount: detailImages.length,
+        coverSize: coverFile.size,
+      })
+      const buildRes = await buildCreateBook(
+        {
+          seller: publicKey.toBase58(),
+          name: form.title.trim(),
+          description: form.description.trim(),
+          priceLamports,
+          condition: form.condition,
+          author: form.author.trim() || undefined,
+          series: undefined,
+          category: form.category,
+          coverImage: coverFile,
+          detailImages: detailImages.map((d) => ({ file: d.file })),
+        },
+        (label) => setBuildPhase(label),
+      )
+      console.info('[list-book] stage=building done', {
+        asset: buildRes.asset,
+        bookPda: buildRes.book_pda,
+      })
+
+      setStep('signing')
+      failedStage = 'signing'
+      console.info('[list-book] stage=signing start')
+      const signedTx = await signSerializedTxWithWallet(buildRes.tx, signTransaction)
+      console.info('[list-book] stage=signing done')
+
+      setStep('minting')
+      failedStage = 'minting'
+      console.info('[list-book] stage=minting start')
+      const broadcast = await broadcastCreateBook({
+        signedTx,
+        build: buildRes,
+        seller: publicKey.toBase58(),
+        priceLamports,
+        name: form.title.trim(),
+        author: form.author.trim() || undefined,
+        series: undefined,
+        category: form.category,
+        condition: form.condition,
+      })
+      console.info('[list-book] stage=minting done', { signature: broadcast.signature })
+
+      setLastAsset(buildRes.asset)
+      setLastSignature(broadcast.signature)
+      setStep('done')
+    } catch (e) {
+      setStep('form')
+      setBuildPhase('')
+      console.error('[list-book] submit failed', { stage: failedStage, error: e })
+      if (e instanceof ApiError) {
+        setSubmitError(`[${failedStage}] ${e.message}`)
+      } else if (e instanceof Error) {
+        setSubmitError(`[${failedStage}] ${e.message}`)
+      } else {
+        setSubmitError(`[${failedStage}] 上架失败，请稍后重试`)
+      }
+    }
   }
 
   function handleReset() {
@@ -268,6 +380,11 @@ export function ListBookPage() {
     setDetailZoomUrl(null)
     setCnyDraft('')
     setPriceMode('cny')
+    setSubmitError(null)
+    setLastAsset(null)
+    setLastSignature(null)
+    setBuildPhase('')
+    setCoverFile(null)
   }
 
   function togglePriceMode(next: 'cny' | 'sol') {
@@ -340,12 +457,20 @@ export function ListBookPage() {
               </div>
               <div className="w-full bg-card border border-border/60 rounded-2xl p-4 space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Token ID</span>
-                  <span className="font-mono text-foreground">BCK-{Math.floor(Math.random() * 900 + 100)}</span>
+                  <span className="text-muted-foreground">Asset</span>
+                  <span className="font-mono text-foreground truncate max-w-[65%] text-right">
+                    {lastAsset ?? '-'}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">定价</span>
                   <span className="text-primary font-mono font-semibold">{form.price} SOL</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">交易签名</span>
+                  <span className="font-mono text-foreground truncate max-w-[65%] text-right">
+                    {lastSignature ?? '-'}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">网络</span>
@@ -363,15 +488,23 @@ export function ListBookPage() {
               </div>
               <div className="text-center">
                 <p className="font-semibold text-foreground text-lg">
-                  {step === 'signing' ? '等待钱包签名...' : '链上铸造 NFT...'}
+                  {step === 'building'
+                    ? buildPhase || '准备中…'
+                    : step === 'signing'
+                      ? '等待钱包签名...'
+                      : '链上铸造 NFT...'}
                 </p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  {step === 'signing' ? '请在 Phantom / Solflare 中确认签名' : '正在 Solana Devnet 上铸造书籍 NFT'}
+                  {step === 'building'
+                    ? '已拆分为多步上传，任一步失败只需重试该步（请勿关闭页面）'
+                    : step === 'signing'
+                      ? '请在 Phantom / Solflare 中确认签名弹窗'
+                      : '正在 Solana Devnet 上铸造书籍 NFT'}
                 </p>
               </div>
               <div className="w-full bg-card border border-border/60 rounded-2xl p-4 space-y-3">
-                {(['signing', 'minting'] as const).map((s, i) => {
-                  const done = (step === 'minting' && i === 0)
+                {(['building', 'signing', 'minting'] as const).map((s, i) => {
+                  const done = (step === 'signing' && i === 0) || (step === 'minting' && i < 2)
                   const active = step === s
                   return (
                     <div key={s} className="flex items-center gap-3">
@@ -380,7 +513,13 @@ export function ListBookPage() {
                         done ? 'bg-primary border-primary' : active ? 'border-primary border-t-transparent animate-spin' : 'border-border',
                       ].join(' ')} />
                       <span className={['text-sm', active || done ? 'text-foreground' : 'text-muted-foreground'].join(' ')}>
-                        {i === 0 ? '钱包签名' : '链上铸造 NFT'}
+                        {i === 0
+                          ? step === 'building' && buildPhase
+                            ? buildPhase
+                            : '上传元数据并构建交易'
+                          : i === 1
+                            ? '钱包签名'
+                            : '链上铸造 NFT'}
                       </span>
                       {done && <span className="ml-auto text-[11px] text-primary">完成</span>}
                     </div>
@@ -499,6 +638,10 @@ export function ListBookPage() {
             className="max-w-[min(96vw,720px)] border-0 bg-transparent p-2 shadow-none sm:max-w-3xl [&>button]:text-white [&>button]:drop-shadow-md"
             showCloseButton
           >
+            <DialogHeader className="sr-only">
+              <DialogTitle>封面大图预览</DialogTitle>
+              <DialogDescription>查看书籍封面原图</DialogDescription>
+            </DialogHeader>
             {coverLightboxUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -516,6 +659,10 @@ export function ListBookPage() {
             className="max-w-[min(96vw,720px)] border-0 bg-transparent p-2 shadow-none sm:max-w-3xl [&>button]:text-white [&>button]:drop-shadow-md"
             showCloseButton
           >
+            <DialogHeader className="sr-only">
+              <DialogTitle>详情图大图预览</DialogTitle>
+              <DialogDescription>查看书籍详情图片原图</DialogDescription>
+            </DialogHeader>
             {detailZoomUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -556,6 +703,7 @@ export function ListBookPage() {
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation()
+                      setCoverFile(null)
                       setForm((f) => ({ ...f, coverPreview: null }))
                     }}
                     className="absolute top-2 right-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-background/80 backdrop-blur transition-colors hover:bg-background"
@@ -574,7 +722,7 @@ export function ListBookPage() {
                     <path d="M3 22l7-6 5 5 4-3 10 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                   <span className="text-sm">添加书籍封面</span>
-                  <span className="text-xs">JPG / PNG，建议比例 3:4</span>
+                  <span className="text-xs">JPG / PNG / WebP / GIF，建议比例 3:4，≤ 8MB</span>
                 </div>
               )}
             </div>
@@ -627,6 +775,7 @@ export function ListBookPage() {
               </span>
             </div>
             <p className="text-xs text-muted-foreground mb-2">展示品相、版权页、目录等，便于买家下单前核对。</p>
+            <p className="text-[11px] text-muted-foreground mb-2">单张详情图建议 ≤ 4MB，最多 5 张。</p>
             <div className="grid grid-cols-4 gap-2 sm:grid-cols-5 mb-2">
               {detailImages.map((d) => (
                 <div key={d.id} className="relative aspect-square rounded-lg overflow-hidden border border-border/60 bg-muted">
@@ -996,6 +1145,12 @@ export function ListBookPage() {
             </svg>
             <span>当前为 <strong className="text-yellow-400">Devnet</strong> 测试网络，所有交易使用测试 SOL，不涉及真实资产。上架操作将铸造 NFT 并写入链上。</span>
           </div>
+
+          {submitError && (
+            <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {submitError}
+            </div>
+          )}
 
           {/* ── 提交 ── */}
           <Button

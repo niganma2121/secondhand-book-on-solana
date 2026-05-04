@@ -9,6 +9,7 @@ pub mod google_books;
 pub mod handlers;
 pub mod routers;
 pub mod state;
+pub mod infra;
 pub use config::*;
 pub use error::*;
 

@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use axum::{serve, Router};
+use axum::extract::DefaultBodyLimit;
 use axum::http::{HeaderValue, Method};
 use axum::http::header::{AUTHORIZATION, CONTENT_TYPE, COOKIE};
 use axum::serve::ListenerExt;
@@ -7,6 +8,7 @@ use dotenvy::{dotenv, var};
 use tokio::net::TcpListener;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use book_server::{CORS_ORIGINS_ENV, PORT_ENV, SOLANA_WS_URL_ENV};
 use book_server::state::AppState;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tracing::info;
@@ -20,10 +22,10 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .with(tracing_subscriber::EnvFilter::from_default_env())
         .init();
-    let port=var("PORT").unwrap_or_else(|_|"3005".to_string());
+    let port=var(PORT_ENV).unwrap_or_else(|_|"3005".to_string());
     let addr:SocketAddr=format!("0.0.0.0:{}",port).parse().expect("无效的地址");
 
-    let cors_origins_raw = var("CORS_ORIGINS").unwrap_or_else(|_| {
+    let cors_origins_raw = var(CORS_ORIGINS_ENV).unwrap_or_else(|_| {
         "http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001"
             .to_string()
     });
@@ -33,7 +35,7 @@ async fn main() {
         .filter(|s| !s.is_empty())
         .map(|s| {
             s.parse::<HeaderValue>()
-                .unwrap_or_else(|_| panic!("无效的 CORS_ORIGINS 项: {s}"))
+                .unwrap_or_else(|_| panic!("无效的 {CORS_ORIGINS_ENV} 项: {s}"))
         })
         .collect();
 
@@ -50,7 +52,7 @@ async fn main() {
         ])
         .allow_headers([CONTENT_TYPE, AUTHORIZATION, COOKIE]);
     let state=AppState::new().await;
-    let ws_url=var("SOLANA_WS_URL").expect("缺少Solana的ws url");
+    let ws_url=var(SOLANA_WS_URL_ENV).expect("缺少Solana的ws url");
 
     //仲裁结果监听
     tokio::spawn(listen_dispute_resolved(
@@ -60,6 +62,9 @@ async fn main() {
 
     let app=Router::new()
         .merge(api(state.clone()))
+        // create_book 会携带图片字节（JSON 数组，体积膨胀明显），
+        // 先临时放宽到 120MB 以便高清图联调；后续建议改为 multipart + 压缩方案。
+        .layer(DefaultBodyLimit::max(120 * 1024 * 1024))
         .layer(cors)
         .with_state(state);
 

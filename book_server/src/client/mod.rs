@@ -16,4 +16,4 @@ pub use book::{
     events::DisputeResolvedEvent,
     types::{ArbitrationResult, BookStatus, EscrowState, VoteChoice},
 };
-const MPL_CORE: Pubkey = Pubkey::from_str_const("CoRE9aCUEv7WzZ6EUt2C9pcz7moCCWf999fMey9vR7T");
+const MPL_CORE: Pubkey = Pubkey::from_str_const("CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d");

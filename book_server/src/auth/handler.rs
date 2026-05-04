@@ -2,6 +2,7 @@ use crate::auth::error::AuthError;
 use crate::auth::types::LoginRequest;
 use crate::auth::util::{generate_stateless_nonce, store_nonce};
 use crate::state::AppState;
+use crate::COOKIE_SECURE_ENV;
 use anyhow::Result;
 use axum::Json;
 use dotenvy::var;
@@ -43,7 +44,7 @@ pub async fn login_handler(
 ) -> Result<impl IntoResponse, AuthError> {
     let token = state.auth_service.sign_in(payload).await
         .map_err(|e| AuthError::Unauthorized(e.to_string()))?;
-    let cookie_secure = var("COOKIE_SECURE")
+    let cookie_secure = var(COOKIE_SECURE_ENV)
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false);
     let cookie = Cookie::build(("jwt-token", token.clone()))

@@ -1,10 +1,129 @@
 use crate::client::error::ClientError;
-use crate::client::types::{BroadcastCancelEscrowRequest, BroadcastConfirmReceiptRequest, BroadcastCreateBookRequest, BroadcastCreateEscrowRequest, BroadcastDelistRequest, BroadcastOpenDisputeRequest, BroadcastResolveDisputeRequest, BroadcastShipRequest, BroadcastUpdatePriceRequest, CancelEscrowRequest, ConfirmReceiptRequest, CreateBookRequest, CreateEscrowRequest, DelistBookRequest, OpenDisputeRequest, ResolveDisputeRequest, ShipBookRequest, SignedTxRequest, UpdatePriceRequest};
+use crate::client::types::{
+    BroadcastCancelEscrowRequest, BroadcastConfirmReceiptRequest, BroadcastCreateBookRequest,
+    BroadcastCreateEscrowRequest, BroadcastDelistRequest, BroadcastOpenDisputeRequest,
+    BroadcastResolveDisputeRequest, BroadcastShipRequest, BroadcastUpdatePriceRequest,
+    CancelEscrowRequest, ConfirmReceiptRequest, CreateBookBuildTxRequest, CreateBookMetadataRequest,
+    CreateBookRequest, CreateEscrowRequest, DelistBookRequest, InitCollectionRequest,
+    OpenDisputeRequest, PinataSignedUploadResponse, PinataUploadSignBody, ResolveDisputeRequest,
+    ShipBookRequest, UpdatePriceRequest,
+};
+use crate::client::utils::{pinata_create_signed_upload_url, read_multipart_image};
+use crate::infra::env::u64_env;
+use crate::infra::http::client_ip_from_headers;
+use crate::infra::rate_limit::check_fixed_window;
 use crate::state::AppState;
+use crate::{
+    PINATA_SIGN_COVER_MAX_BYTES_ENV, PINATA_SIGN_DETAIL_MAX_BYTES_ENV, PINATA_SIGN_EXPIRES_SECS_ENV,
+    RATE_LIMIT_PINATA_SIGN_PER_MIN_IP_ENV, RATE_LIMIT_PINATA_SIGN_PER_MIN_USER_ENV,
+};
+use axum::extract::{Extension, Multipart, State};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::IntoResponse;
 use axum::Json;
-use axum::extract::State;
-use axum::http::StatusCode;
-use axum::response::{IntoResponse};
+
+/// 获取 Pinata 直传用临时 URL（Redis 限流 + 需 `PINATA_JWT`）。
+pub async fn pinata_signed_upload_url_handler(
+    State(state): State<AppState>,
+    Extension(pubkey): Extension<String>,
+    headers: HeaderMap,
+    Json(body): Json<PinataUploadSignBody>,
+) -> Result<impl IntoResponse, ClientError> {
+    let ip_key = client_ip_from_headers(&headers).replace(':', "_");
+
+    let per_user = u64_env(RATE_LIMIT_PINATA_SIGN_PER_MIN_USER_ENV, 30);
+    let per_ip = u64_env(RATE_LIMIT_PINATA_SIGN_PER_MIN_IP_ENV, 60);
+    check_fixed_window(
+        &state.auth_service.redis_pool,
+        &format!("rl:pinata_sign:u:{pubkey}"),
+        per_user,
+        60,
+    )
+    .await?;
+    check_fixed_window(
+        &state.auth_service.redis_pool,
+        &format!("rl:pinata_sign:ip:{ip_key}"),
+        per_ip,
+        60,
+    )
+    .await?;
+
+    let jwt = state.anchor_service.pinata_jwt.as_deref().ok_or_else(|| {
+        ClientError::IpfsError(
+            "未配置 PINATA_JWT，无法创建直传链接（请在服务器环境变量中设置）".into(),
+        )
+    })?;
+
+    let purpose = body.purpose.as_deref().unwrap_or("detail").to_ascii_lowercase();
+    let cover_max = u64_env(PINATA_SIGN_COVER_MAX_BYTES_ENV, 8 * 1024 * 1024);
+    let detail_max = u64_env(PINATA_SIGN_DETAIL_MAX_BYTES_ENV, 4 * 1024 * 1024);
+    let max_file_size = if purpose == "cover" {
+        cover_max
+    } else {
+        detail_max
+    };
+
+    let expires_in = u64_env(PINATA_SIGN_EXPIRES_SECS_ENV, 120);
+
+    let upload_url =
+        pinata_create_signed_upload_url(jwt, expires_in, max_file_size).await?;
+
+    Ok((
+        StatusCode::OK,
+        Json(PinataSignedUploadResponse {
+            upload_url,
+            expires_in,
+            max_file_size,
+            ipfs_gateway_base: state.anchor_service.pinata_gateway_base.clone(),
+            msg: "向 upload_url POST multipart（字段 file、network=public），成功后拿 cid 拼网关地址"
+                .into(),
+        }),
+    ))
+}
+
+/// 分步上架：multipart 上传封面图。
+pub async fn upload_create_book_cover_handler(
+    State(state): State<AppState>,
+    multipart: Multipart,
+) -> Result<impl IntoResponse, ClientError> {
+    let (bytes, filename, mime) = read_multipart_image(multipart).await?;
+    let res = state
+        .anchor_service
+        .upload_create_book_image(bytes, filename, mime)
+        .await?;
+    Ok((StatusCode::OK, Json(res)))
+}
+
+/// 分步上架：multipart 上传单张详情图。
+pub async fn upload_create_book_detail_handler(
+    State(state): State<AppState>,
+    multipart: Multipart,
+) -> Result<impl IntoResponse, ClientError> {
+    let (bytes, filename, mime) = read_multipart_image(multipart).await?;
+    let res = state
+        .anchor_service
+        .upload_create_book_image(bytes, filename, mime)
+        .await?;
+    Ok((StatusCode::OK, Json(res)))
+}
+
+/// 分步上架：仅上传元数据 JSON。
+pub async fn create_book_metadata_handler(
+    State(state): State<AppState>,
+    Json(req): Json<CreateBookMetadataRequest>,
+) -> Result<impl IntoResponse, ClientError> {
+    let res = state.anchor_service.create_book_metadata_step(req).await?;
+    Ok((StatusCode::OK, Json(res)))
+}
+
+/// 分步上架：仅组装链上交易（无图片体）。
+pub async fn create_book_build_tx_handler(
+    State(state): State<AppState>,
+    Json(req): Json<CreateBookBuildTxRequest>,
+) -> Result<impl IntoResponse, ClientError> {
+    let res = state.anchor_service.build_create_book_tx_only(req).await?;
+    Ok((StatusCode::OK, Json(res)))
+}
 
 ///构建NFT以及上架书的交易,后端部分签名返回前端签名
 pub async fn create_book_handler(
@@ -12,6 +131,16 @@ pub async fn create_book_handler(
     Json(req): Json<CreateBookRequest>,
 ) -> Result<impl IntoResponse, ClientError> {
     let res = state.anchor_service.build_create_book(req).await?;
+    Ok((StatusCode::OK, Json(res)))
+}
+
+/// 初始化平台默认 collection（部署后通常调用一次）。
+/// 返回的 `collection` 请写入后端 `.env` 的 `BOOK_COLLECTION`。
+pub async fn init_collection_handler(
+    State(state): State<AppState>,
+    Json(req): Json<InitCollectionRequest>,
+) -> Result<impl IntoResponse, ClientError> {
+    let res = state.anchor_service.init_default_collection(req).await?;
     Ok((StatusCode::OK, Json(res)))
 }
 

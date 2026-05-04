@@ -1,8 +1,19 @@
 use super::{BOOK_SEED, ESCROW_SEED, MPL_CORE, VoteChoice, accounts, args};
 use crate::client::error::ClientError;
-use crate::client::types::{AnchorService, BroadcastCancelEscrowRequest, BroadcastConfirmReceiptRequest, BroadcastCreateBookRequest, BroadcastCreateEscrowRequest, BroadcastDelistRequest, BroadcastOpenDisputeRequest, BroadcastResolveDisputeRequest, BroadcastResponse, BroadcastShipRequest, BroadcastUpdatePriceRequest, CancelEscrowRequest, ConfirmReceiptRequest, CreateBookRequest, CreateBookTxResponse, CreateEscrowRequest, DelistBookRequest, OpenDisputeRequest, ResolveDisputeRequest, ShipBookRequest, SignedTxRequest, UnsignedTxResponse, UpdatePriceRequest};
+use crate::client::types::{
+    AnchorService, BroadcastCancelEscrowRequest, BroadcastConfirmReceiptRequest,
+    BroadcastCreateBookRequest, BroadcastCreateEscrowRequest, BroadcastDelistRequest,
+    BroadcastOpenDisputeRequest, BroadcastResolveDisputeRequest, BroadcastResponse, BroadcastShipRequest,
+    BroadcastUpdatePriceRequest, CancelEscrowRequest, ConfirmReceiptRequest, CreateBookBuildTxRequest,
+    CreateBookMetadataDetailItem, CreateBookMetadataRequest, CreateBookMetadataResponse,
+    CreateBookRequest, CreateBookTxResponse, CreateBookUploadImageResponse, CreateEscrowRequest,
+    DelistBookRequest, InitCollectionRequest,
+    InitCollectionResponse, OpenDisputeRequest, ResolveDisputeRequest, ShipBookRequest,
+    SignedTxRequest, UnsignedTxResponse, UpdatePriceRequest,
+};
 use crate::client::utils::{
-    deserialize_signed_tx, hash_json, parse, serialize_tx, upload_json_to_ipfs, upload_to_ipfs,
+    deserialize_signed_tx, hash_json, parse, resolve_image_mime_type, serialize_tx,
+    tx_primary_signature, upload_json_to_ipfs, upload_to_ipfs,
 };
 use crate::db::DBService;
 use anchor_client::anchor_lang::prelude::Pubkey;
@@ -10,13 +21,19 @@ use anchor_client::solana_sdk::hash::Hash;
 use anchor_client::solana_sdk::message::Message;
 use anchor_client::solana_sdk::signature::{Keypair, Signer};
 use anchor_client::solana_sdk::transaction::Transaction;
-use mpl_core::instructions::{BurnV1Builder, CreateV1Builder};
+use mpl_core::instructions::{BurnV1Builder, CreateCollectionV1Builder, CreateV1Builder};
 use solana_system_interface::program::ID as SYSTEM_PROGRAM_ID;
 use sonyflake::Sonyflake;
 use tracing::{info, warn};
 
 ///工具部分
 impl AnchorService {
+    //构建URL
+    fn ipfs_gateway_url(&self, cid: &str) -> String {
+        let base = self.pinata_gateway_base.trim_end_matches('/');
+        format!("{base}/{cid}")
+    }
+
     //获取PDA
     fn book_pda(&self, seller: &Pubkey, asset: &Pubkey) -> Pubkey {
         Pubkey::find_program_address(
@@ -25,7 +42,7 @@ impl AnchorService {
         )
         .0
     }
-
+    
     fn escrow_pda(&self, buyer: &Pubkey, book: &Pubkey) -> Pubkey {
         Pubkey::find_program_address(
             &[ESCROW_SEED, buyer.as_ref(), book.as_ref()],
@@ -45,74 +62,155 @@ impl AnchorService {
 
 ///Book交易构建
 impl AnchorService {
-    pub async fn build_create_book(
+    /// 初始化一个全新的 MPL Core collection（平台默认 collection）。
+    /// 等等后面在开发网上创建collection
+    pub async fn init_default_collection(
         &self,
-        req: CreateBookRequest,
-    ) -> Result<CreateBookTxResponse, ClientError> {
-        let seller = parse(&req.seller)?;
-        let collection = parse(&req.collection)?;
-
-        //上传封面
-        let cover_cid = upload_to_ipfs(
-            req.cover_image,
-            req.cover_filename,
-            "image/jpeg",
-            &self.pinata_api_key,
-            &self.pinata_secret,
-        )
-        .await?;
-        let cover_url = format!("https://gateway.pinata.cloud/ipfs/{}", cover_cid);
-
-        //上传详情图片
-        let mut detail_urls = vec![];
-        for (bytes, filename) in req.detail_images {
-            let cid = upload_to_ipfs(
-                bytes,
-                filename,
-                "image/jpeg",
-                &self.pinata_api_key,
-                &self.pinata_secret,
-            )
-            .await?;
-            detail_urls.push(format!("https://gateway.pinata.cloud/ipfs/{}", cid));
+        req: InitCollectionRequest,
+    ) -> Result<InitCollectionResponse, ClientError> {
+        let name = req.name.trim();
+        let uri = req.uri.trim();
+        if name.is_empty() || uri.is_empty() {
+            return Err(ClientError::TxBuildError(
+                "collection name/uri 不能为空".into(),
+            ));
         }
 
-        //构建json描述文件
+        let collection_keypair = Keypair::new();
+        let collection_pubkey = collection_keypair.pubkey();
+        let admin = self.admin_keypair.pubkey();
+
+        let ix = CreateCollectionV1Builder::new()
+            .collection(collection_pubkey)
+            .update_authority(Some(admin))
+            .payer(admin)
+            .name(name.to_string())
+            .uri(uri.to_string())
+            .instruction();
+
+        let block_hash = self.get_blockhash().await?;
+        let msg = Message::new_with_blockhash(&[ix], Some(&admin), &block_hash);
+        let mut tx = Transaction::new_unsigned(msg);
+        tx.partial_sign(&[self.admin_keypair.as_ref(), &collection_keypair], block_hash);
+
+        let sig = self
+            .get_program()?
+            .rpc()
+            .send_and_confirm_transaction(&tx)
+            .await
+            .map_err(|e| ClientError::BroadcastFailed(e.to_string()))?;
+
+        Ok(InitCollectionResponse {
+            collection: collection_pubkey.to_string(),
+            signature: sig.to_string(),
+            msg: "collection 创建成功".into(),
+        })
+    }
+
+    /// 分步上架：单张图片上传到 Pinata（封面或详情）。
+    pub async fn upload_create_book_image(
+        &self,
+        bytes: Vec<u8>,
+        filename: String,
+        mime_type: Option<String>,
+    ) -> Result<CreateBookUploadImageResponse, ClientError> {
+        let mime = resolve_image_mime_type(mime_type.as_deref(), filename.as_str(), bytes.as_slice())?;
+        let cid = upload_to_ipfs(
+            bytes,
+            filename,
+            Some(mime.as_str()),
+            self.pinata_jwt.as_deref(),
+            self.pinata_api_key.as_deref(),
+            self.pinata_secret.as_deref(),
+        )
+        .await?;
+        let url = self.ipfs_gateway_url(&cid);
+        info!("[create_book] image uploaded cid={}", cid);
+        Ok(CreateBookUploadImageResponse {
+            cid,
+            url,
+            mime_type: mime,
+            msg: "上传成功".into(),
+        })
+    }
+
+    /// 分步上架：上传 JSON 元数据到 IPFS。
+    pub async fn create_book_metadata_step(
+        &self,
+        req: CreateBookMetadataRequest,
+    ) -> Result<CreateBookMetadataResponse, ClientError> {
+        info!(
+            "[create_book] metadata start seller={} title={}",
+            req.seller, req.name
+        );
         let metadata = serde_json::json!({
             "name": req.name,
             "description": req.description,
-            "image": cover_url,
+            "image": req.cover_url,
             "attributes": [
                 {"trait_type": "condition", "value": req.condition},
                 {"trait_type": "seller", "value": req.seller},
             ],
             "properties": {
-                "files": detail_urls.iter().map(|url| serde_json::json!({
-                    "uri": url,
-                    "type": "image/jpeg"
+                "files": req.details.iter().map(|d| serde_json::json!({
+                    "uri": d.url,
+                    "type": d.mime_type
                 })).collect::<Vec<_>>()
             }
         });
-        let metadata_cid =
-            upload_json_to_ipfs(&metadata, &self.pinata_api_key, &self.pinata_secret).await?;
-        let metadata_url = format!("https://gateway.pinata.cloud/ipfs/{}", metadata_cid);
-        let metadata_hash = hash_json(&metadata);
+        let metadata_cid = upload_json_to_ipfs(
+            &metadata,
+            self.pinata_jwt.as_deref(),
+            self.pinata_api_key.as_deref(),
+            self.pinata_secret.as_deref(),
+        )
+        .await?;
+        let metadata_url = self.ipfs_gateway_url(&metadata_cid);
+        let hash = hash_json(&metadata);
+        info!("[create_book] metadata uploaded cid={}", metadata_cid);
+        Ok(CreateBookMetadataResponse {
+            metadata_cid,
+            metadata_url,
+            metadata_hash: hash.to_vec(),
+            msg: "元数据已上传".into(),
+        })
+    }
 
-        //构建交易
+    /// 分步上架：仅组装并 partial_sign 创建书籍交易（无图片上传）。
+        pub async fn build_create_book_tx_only(
+        &self,
+        req: CreateBookBuildTxRequest,
+    ) -> Result<CreateBookTxResponse, ClientError> {
+        let seller = parse(&req.seller)?;
+        let collection = self.book_collection;
+        if req.metadata_hash.len() != 32 {
+            return Err(ClientError::TxBuildError(
+                "metadata_hash 长度须为 32 字节".into(),
+            ));
+        }
+        let mut hash_arr = [0u8; 32];
+        hash_arr.copy_from_slice(&req.metadata_hash);
+        let metadata_cid = req.metadata_cid.clone();
+        let metadata_url = req.metadata_url.clone();
+        info!(
+            "[create_book] build_tx start seller={} title={} metadata_cid={}",
+            req.seller, req.name, metadata_cid
+        );
+
         let asset_keypair = Keypair::new();
         let asset_pubkey = asset_keypair.pubkey();
         let book_pda = self.book_pda(&seller, &asset_pubkey);
         let program = self.get_program()?;
-
+        let admin_pk = self.admin_keypair.pubkey();
         let mint_ix = CreateV1Builder::new()
             .asset(asset_pubkey)
             .collection(Some(collection))
+            .authority(Some(admin_pk))
             .payer(seller)
             .owner(Some(seller))
-            .name(req.name)
-            .uri(metadata_url.clone())
+            .name(req.name.clone())
+            .uri(metadata_url)
             .instruction();
-
         let create_ix = program
             .request()
             .accounts(accounts::CreateBook {
@@ -125,7 +223,7 @@ impl AnchorService {
             .args(args::CreateBook {
                 price: req.price,
                 metadata_id: metadata_cid,
-                metadata_hash,
+                metadata_hash: hash_arr,
             })
             .instructions()?;
         let mut all_ix = vec![mint_ix];
@@ -133,20 +231,78 @@ impl AnchorService {
         let block_hash = self.get_blockhash().await?;
         let msg = Message::new_with_blockhash(&all_ix, Some(&seller), &block_hash);
         let mut tx = Transaction::new_unsigned(msg);
-
         tx.partial_sign(&[&self.admin_keypair, &asset_keypair], block_hash);
+        info!(
+            "[create_book] build done seller={} asset={} book_pda={}",
+            req.seller, asset_pubkey, book_pda
+        );
         Ok(CreateBookTxResponse {
             tx: serialize_tx(&tx)?,
             asset: asset_pubkey.to_string(),
             book_pda: book_pda.to_string(),
             msg: "书籍构造成功，签名后以上架书籍".into(),
-            cover_url,
-            detail_urls,
-            metadata_url,
-            metadata_hash: metadata_hash.to_vec(),
+            cover_url: req.cover_url,
+            detail_urls: req.detail_urls,
+            metadata_url: req.metadata_url,
+            metadata_hash: req.metadata_hash,
         })
     }
-    // 前端签名后带着元数据广播，广播成功写数据库
+
+    /// 一步式上架：上传 → metadata → 组交易 与分步接口共享逻辑。
+    /// 暂时保留,不修改,,,兼容一下把
+    pub async fn build_create_book(
+        &self,
+        req: CreateBookRequest,
+    ) -> Result<CreateBookTxResponse, ClientError> {
+        info!(
+            "[create_book] build (monolithic) start seller={} title={} details={}",
+            req.seller,
+            req.name,
+            req.detail_images.len()
+        );
+        let cover = self
+            .upload_create_book_image(
+                req.cover_image,
+                req.cover_filename,
+                req.cover_mime_type,
+            )
+            .await?;
+        let cover_url = cover.url.clone();
+        let mut detail_urls: Vec<String> = Vec::new();
+        let mut details = Vec::new();
+        for image in req.detail_images {
+            let r = self
+                .upload_create_book_image(image.bytes, image.filename, image.mime_type)
+                .await?;
+            detail_urls.push(r.url.clone());
+            details.push(CreateBookMetadataDetailItem {
+                url: r.url,
+                mime_type: r.mime_type,
+            });
+        }
+        let meta = self
+            .create_book_metadata_step(CreateBookMetadataRequest {
+                seller: req.seller.clone(),
+                name: req.name.clone(),
+                description: req.description,
+                condition: req.condition.clone(),
+                cover_url,
+                details,
+            })
+            .await?;
+        self.build_create_book_tx_only(CreateBookBuildTxRequest {
+            seller: req.seller,
+            name: req.name,
+            price: req.price,
+            cover_url: cover.url,
+            detail_urls,
+            metadata_cid: meta.metadata_cid,
+            metadata_url: meta.metadata_url,
+            metadata_hash: meta.metadata_hash,
+        })
+        .await
+    }
+
 
     pub async fn build_delist_book(
         &self,
@@ -224,21 +380,53 @@ impl AnchorService {
         id_generator:&Sonyflake,
         now: i64,
     ) -> Result<BroadcastResponse, ClientError> {
+        info!(
+            "[create_book] broadcast start asset={} seller={}",
+            req.asset, req.seller
+        );
         let tx = deserialize_signed_tx(&req.signed_tx)?;
-        let sig = self
-            .get_program()?
-            .rpc()
-            .send_and_confirm_transaction(&tx)
-            .await
-            .map_err(|e| ClientError::BroadcastFailed(e.to_string()))?;
+        let rpc = self.get_program()?.rpc();
+        let send_result = rpc.send_and_confirm_transaction(&tx).await;
+        let sig = match send_result {
+            Ok(s) => s,
+            Err(e) => {
+                let err_s = e.to_string();
+                // 重复提交同一笔已上链交易时 RPC 会报已处理，按幂等成功处理并补入库。
+                if err_s.contains("already been processed") {
+                    let recovered = tx_primary_signature(&tx).map_err(|ie| {
+                        warn!(
+                            "[create_book] duplicate tx but no signature asset={} seller={} err={}",
+                            req.asset, req.seller, ie
+                        );
+                        ie
+                    })?;
+                    info!(
+                        "[create_book] broadcast idempotent (链上已存在) asset={} sig={}",
+                        req.asset, recovered
+                    );
+                    recovered
+                } else {
+                    warn!(
+                        "[create_book] broadcast failed asset={} seller={} err={}",
+                        req.asset, req.seller, err_s
+                    );
+                    return Err(ClientError::BroadcastFailed(err_s));
+                }
+            }
+        };
+        info!(
+            "[create_book] broadcast confirmed asset={} sig={}",
+            req.asset, sig
+        );
 
         // 广播成功，写书籍主表
+        let collection = self.book_collection.to_string();
         if let Err(e) = db
             .insert_book(
                 &req.asset,
                 &req.book_pda,
                 &req.seller,
-                &req.collection,
+                &collection,
                 req.price as i64,
                 &req.metadata_url,
                 &req.metadata_hash,

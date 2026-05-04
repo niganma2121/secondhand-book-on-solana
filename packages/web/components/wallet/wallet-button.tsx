@@ -1,7 +1,9 @@
 'use client'
 
 import { useWallet } from '@solana/wallet-adapter-react'
-import { useState } from 'react'
+import { useConnection } from '@solana/wallet-adapter-react'
+import { LAMPORTS_PER_SOL } from '@solana/web3.js'
+import { useEffect, useState } from 'react'
 import { useOpenWalletConnect } from '@/lib/hooks/use-open-wallet-connect'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/components/providers/auth-provider'
@@ -18,11 +20,17 @@ function shortenAddress(address: string) {
 }
 
 export function WalletButton() {
+  const { connection } = useConnection()
   const { publicKey, disconnect, connecting, signMessage } = useWallet()
   const openWalletConnect = useOpenWalletConnect()
   const [copied, setCopied] = useState(false)
+  const [balance, setBalance] = useState<number | null>(null)
+  const [balanceLoading, setBalanceLoading] = useState(false)
+  const [airdropLoading, setAirdropLoading] = useState(false)
+  const [airdropStatus, setAirdropStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const { isAuthenticated, sessionStatus, authLoading, authError, login, logout } =
     useAuth()
+  const networkLabel = 'Devnet'
 
   async function handleCopy() {
     if (!publicKey) return
@@ -37,6 +45,67 @@ export function WalletButton() {
     }
     await login({ publicKey: publicKey!, signMessage })
   }
+
+  async function refreshBalance() {
+    if (!publicKey) return
+    setBalanceLoading(true)
+    try {
+      const lamports = await connection.getBalance(publicKey, 'confirmed')
+      setBalance(lamports / LAMPORTS_PER_SOL)
+    } finally {
+      setBalanceLoading(false)
+    }
+  }
+
+  async function handleAirdrop() {
+    if (!publicKey || airdropLoading) return
+    setAirdropLoading(true)
+    setAirdropStatus('idle')
+    try {
+      const signature = await connection.requestAirdrop(publicKey, LAMPORTS_PER_SOL)
+      const latest = await connection.getLatestBlockhash('confirmed')
+      await connection.confirmTransaction(
+        {
+          signature,
+          blockhash: latest.blockhash,
+          lastValidBlockHeight: latest.lastValidBlockHeight,
+        },
+        'confirmed'
+      )
+      await refreshBalance()
+      setAirdropStatus('success')
+      setTimeout(() => setAirdropStatus('idle'), 3000)
+    } catch (e) {
+      setAirdropStatus('error')
+      setTimeout(() => setAirdropStatus('idle'), 3000)
+    } finally {
+      setAirdropLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!publicKey) {
+      setBalance(null)
+      setAirdropStatus('idle')
+      return
+    }
+    void refreshBalance()
+  }, [publicKey, connection])
+
+  const airdropText = airdropLoading
+    ? '领取中...'
+    : airdropStatus === 'success'
+      ? '领取成功'
+      : airdropStatus === 'error'
+        ? '领取失败'
+        : '领取 1 SOL (Devnet)'
+
+  const airdropClassName =
+    airdropStatus === 'success'
+      ? 'cursor-pointer text-sm text-emerald-600 focus:bg-emerald-600/10 focus:text-emerald-600'
+      : airdropStatus === 'error'
+        ? 'cursor-pointer text-sm text-destructive focus:bg-destructive/10 focus:text-destructive'
+        : 'cursor-pointer text-sm focus:bg-secondary'
 
   // ① 未连接钱包
   if (!publicKey) {
@@ -135,8 +204,31 @@ export function WalletButton() {
               <p className="text-xs font-mono text-foreground mt-0.5 truncate">
                 {shortenAddress(publicKey.toBase58())}
               </p>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                网络: {networkLabel}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                余额: {balanceLoading ? '加载中...' : `${(balance ?? 0).toFixed(3)} SOL`}
+              </p>
             </div>
             <DropdownMenuSeparator className="bg-border" />
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault()
+                void handleAirdrop()
+              }}
+              disabled={airdropLoading}
+              className={airdropClassName}
+            >
+              {airdropLoading ? (
+                <span className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                  {airdropText}
+                </span>
+              ) : (
+                airdropText
+              )}
+            </DropdownMenuItem>
             <DropdownMenuItem
               onClick={handleCopy}
               className="cursor-pointer text-sm focus:bg-secondary"
@@ -179,7 +271,7 @@ export function WalletButton() {
           <span className="w-2 h-2 rounded-full bg-primary shrink-0" />
           {shortenAddress(publicKey.toBase58())}
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400 font-sans">
-            Devnet
+            {networkLabel}
           </span>
         </Button>
       </DropdownMenuTrigger>
@@ -189,6 +281,10 @@ export function WalletButton() {
           <p className="text-sm font-mono text-foreground mt-0.5 truncate">
             {publicKey.toBase58()}
           </p>
+          <p className="text-[11px] text-muted-foreground mt-1">网络: {networkLabel}</p>
+          <p className="text-[11px] text-muted-foreground">
+            余额: {balanceLoading ? '加载中...' : `${(balance ?? 0).toFixed(3)} SOL`}
+          </p>
         </div>
         {authError && (
           <>
@@ -196,6 +292,24 @@ export function WalletButton() {
             <div className="px-3 py-2 text-[11px] text-destructive break-all">{authError}</div>
           </>
         )}
+        <DropdownMenuSeparator className="bg-border" />
+        <DropdownMenuItem
+          onSelect={(event) => {
+            event.preventDefault()
+            void handleAirdrop()
+          }}
+          disabled={airdropLoading}
+          className={airdropClassName}
+        >
+          {airdropLoading ? (
+            <span className="flex items-center gap-2">
+              <span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" />
+              {airdropText}
+            </span>
+          ) : (
+            airdropText
+          )}
+        </DropdownMenuItem>
         <DropdownMenuSeparator className="bg-border" />
         <DropdownMenuItem
           onClick={handleCopy}

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use dotenvy::var;
+use crate::ADMIN_KEYPAIR_URL_ENV;
 use crate::auth::types::AuthService;
 use crate::chat::types::ChatService;
 use crate::client::types::AnchorService;
@@ -18,7 +19,7 @@ pub struct AppState{
 
 impl AppState{
     pub async fn new ()->Self{
-        let admin_pubkey_url=var("ADMIN_KEYPAIR_URL").expect("缺少管理员密钥对");
+        let admin_pubkey_url=var(ADMIN_KEYPAIR_URL_ENV).expect("缺少管理员密钥对");
         let keypair=read_keypair_file(&admin_pubkey_url)
             .expect("密钥加载失败");
         //TODO,需要删除和修改,目前chat需要使用暂时不管

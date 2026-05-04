@@ -1,6 +1,5 @@
 use anchor_lang::prelude::*;
 
-
 //平台公钥
 pub const PLATFORM_FEE_ACCOUNT:Pubkey=Pubkey::from_str_const("25K7f8hiKxutjL27CdrURYd4QbPKeAVogkLka8yyGyME");
 

@@ -7,7 +7,6 @@ use serde_json::json;
 
 pub mod book;
 pub mod chat;
-pub mod google_books;
 pub mod me;
 pub mod user;
 pub mod error;

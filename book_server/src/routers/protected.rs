@@ -6,8 +6,10 @@ use crate::client::{
     broadcast_create_book_handler, broadcast_create_escrow_handler, broadcast_delist_handler,
     broadcast_open_dispute_handler, broadcast_resolve_dispute_handler, broadcast_ship_handler,
     broadcast_update_price_handler, cancel_escrow_handler, confirm_receipt_handler,
-    create_book_handler, create_escrow_handler, delist_book_handler, open_dispute_handler,
-    resolve_dispute_handler, ship_book_handler, update_price_handler,
+    create_book_build_tx_handler, create_book_handler, create_book_metadata_handler,
+    create_escrow_handler, delist_book_handler, init_collection_handler, open_dispute_handler,
+    pinata_signed_upload_url_handler, resolve_dispute_handler, ship_book_handler,
+    update_price_handler, upload_create_book_cover_handler, upload_create_book_detail_handler,
 };
 use crate::handlers::chat::{
     issue_ws_ticket_handler, list_chat_conversations_handler, list_chat_messages_handler,
@@ -40,6 +42,12 @@ pub fn chat_router() -> Router<AppState> {
 
 pub fn book_router() -> Router<AppState> {
     Router::new()
+        .route("/collection/init", post(init_collection_handler))
+        .route("/create/upload/signed-url", post(pinata_signed_upload_url_handler))
+        .route("/create/upload/cover", post(upload_create_book_cover_handler))
+        .route("/create/upload/detail", post(upload_create_book_detail_handler))
+        .route("/create/metadata", post(create_book_metadata_handler))
+        .route("/create/build-tx", post(create_book_build_tx_handler))
         .route("/create", post(create_book_handler))
         .route("/create/broadcast", post(broadcast_create_book_handler))
         .route("/delist", post(delist_book_handler))

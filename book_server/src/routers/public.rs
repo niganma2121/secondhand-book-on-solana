@@ -8,7 +8,7 @@ use crate::handlers::book::{
     get_book_detail_handler, list_book_categories_handler, list_book_conditions_handler,
     list_market_books_handler,
 };
-use crate::handlers::google_books::google_books_search_handler;
+use crate::google_books::google_books_search_handler;
 use crate::handlers::user::{get_user_handler, list_seller_books_handler, list_user_reviews_handler};
 use crate::state::AppState;
 

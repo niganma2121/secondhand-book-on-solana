@@ -9,7 +9,7 @@ resolver = "2"
 [workspace.dependencies]
 #后端
 tokio = {version = "1.51.1",features = ["full"]}
-axum = {version = "0.8.8",features = ["tokio","ws",]}
+axum = {version = "0.8.8",features = ["tokio","ws","multipart"]}
 axum-extra = {version = "0.12.6",features = ["cookie"]}
 sqlx={version = "0.8.6",features = ["runtime-tokio","postgres"]}
 dashmap = "6.1.0"

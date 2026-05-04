@@ -30,6 +30,12 @@ pub enum ClientError {
 
     #[error("数据库操作失败:{0}")]
     DbError(String),
+
+    #[error("图片类型校验失败:{0}")]
+    InvalidImageType(String),
+
+    #[error("请求过于频繁，请稍后再试")]
+    RateLimited,
 }
 impl IntoResponse for ClientError {
     fn into_response(self) -> Response {
@@ -43,6 +49,8 @@ impl IntoResponse for ClientError {
             ClientError::IpfsError(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
             ClientError::ProgramError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             ClientError::DbError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            ClientError::InvalidImageType(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            ClientError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
         };
         (status, Json(serde_json::json!({ "error": msg }))).into_response()
     }
