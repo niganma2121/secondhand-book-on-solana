@@ -5,6 +5,7 @@ import Image from 'next/image'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useOpenWalletConnect } from '@/lib/hooks/use-open-wallet-connect'
 import { routes } from '@/config/routes'
+import { formatSellerDisplay } from '@/lib/format-seller'
 import type { Book } from '@/lib/types'
 import { useBooks } from '@/lib/hooks/use-books'
 import { Button } from '@/components/ui/button'
@@ -235,8 +236,8 @@ export function HomePage() {
           </Link>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-4">
-          {(loading ? [] : books.slice(0, 4)).map((book) => (
-            <RecentBookCard key={book.id} book={book} />
+          {(loading ? [] : books.slice(0, 4)).map((book, index) => (
+            <RecentBookCard key={book.id} book={book} eagerImage={index === 0} />
           ))}
         </div>
       </section>
@@ -245,7 +246,7 @@ export function HomePage() {
   )
 }
 
-function RecentBookCard({ book }: { book: Book }) {
+function RecentBookCard({ book, eagerImage = false }: { book: Book; eagerImage?: boolean }) {
   return (
     <div className="bg-card border border-border/60 rounded-2xl overflow-hidden hover:border-primary/30 transition-colors group">
       <div className="relative aspect-[3/4] w-full min-h-[160px] overflow-hidden">
@@ -255,11 +256,18 @@ function RecentBookCard({ book }: { book: Book }) {
           fill
           className="object-cover group-hover:scale-105 transition-transform duration-300"
           sizes="(max-width: 640px) 50vw, 25vw"
+          loading={eagerImage ? 'eager' : 'lazy'}
         />
       </div>
       <div className="p-3 md:p-4">
         <p className="text-sm md:text-base font-medium text-foreground truncate">{book.title}</p>
         <p className="text-xs md:text-sm text-muted-foreground truncate mt-0.5">{book.author}</p>
+        <p
+          className="text-[10px] text-muted-foreground/90 truncate mt-1"
+          title={book.seller}
+        >
+          卖家 {formatSellerDisplay(book.seller, book.sellerUsername)}
+        </p>
         <div className="mt-2.5 flex items-center justify-between">
           <span className="text-primary font-mono font-semibold text-sm md:text-base">{book.price} SOL</span>
           <span className="text-[10px] md:text-xs px-1.5 py-0.5 rounded-md bg-secondary text-muted-foreground">

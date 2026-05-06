@@ -4810,6 +4810,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@vant/area-data@npm:^2.1.0":
+  version: 2.1.0
+  resolution: "@vant/area-data@npm:2.1.0"
+  checksum: 10c0/48f2b2f157f3c89ca251fa155b89833dfda0f2cf5714158693dea644c03cc5777e43f1539a3b1010d3be1cfc2679a990ac2ec0e42420db69f27b54d082056345
+  languageName: node
+  linkType: hard
+
 "@vercel/analytics@npm:1.6.1":
   version: 1.6.1
   resolution: "@vercel/analytics@npm:1.6.1"
@@ -5739,6 +5746,7 @@ __metadata:
     "@types/node": "npm:^22"
     "@types/react": "npm:^19"
     "@types/react-dom": "npm:^19"
+    "@vant/area-data": "npm:^2.1.0"
     "@vercel/analytics": "npm:1.6.1"
     autoprefixer: "npm:^10.4.20"
     bs58: "npm:^6.0.0"

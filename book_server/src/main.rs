@@ -12,7 +12,7 @@ use book_server::{CORS_ORIGINS_ENV, PORT_ENV, SOLANA_WS_URL_ENV};
 use book_server::state::AppState;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tracing::info;
-use book_server::event_listener::listen_dispute_resolved;
+use book_server::event_listener::{listen_dispute_resolved, reconcile_loop};
 use book_server::routers::api;
 
 #[tokio::main]
@@ -59,6 +59,7 @@ async fn main() {
         state.db_service.clone(),
         ws_url
     ));
+    tokio::spawn(reconcile_loop(state.db_service.clone()));
 
     let app=Router::new()
         .merge(api(state.clone()))

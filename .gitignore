@@ -4,3 +4,4 @@ target/
 .yarn/
 *.log
 book_server/.env
+book_server/.sqlx

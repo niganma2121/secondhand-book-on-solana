@@ -9,7 +9,12 @@ use crate::handlers::book::{
     list_market_books_handler,
 };
 use crate::google_books::google_books_search_handler;
-use crate::handlers::user::{get_user_handler, list_seller_books_handler, list_user_reviews_handler};
+use crate::handlers::transactions::list_program_transactions_handler;
+use crate::handlers::encryption::list_encryption_templates_handler;
+use crate::handlers::user::{
+    get_user_encryption_pubkey_handler, get_user_handler, list_seller_books_handler,
+    list_user_reviews_handler,
+};
 use crate::state::AppState;
 
 pub fn auth_router(state:AppState)->Router<AppState>{
@@ -26,6 +31,8 @@ pub fn api_public_router(state: AppState) -> Router<AppState> {
         .nest("/books", books_public_router())
         .nest("/users", users_public_router())
         .nest("/google-books", google_books_public_router())
+        .nest("/encryption", encryption_public_router())
+        .route("/transactions", get(list_program_transactions_handler))
 }
 
 fn google_books_public_router() -> Router<AppState> {
@@ -43,7 +50,12 @@ pub fn books_public_router() -> Router<AppState> {
 pub fn users_public_router() -> Router<AppState> {
     Router::new()
         .route("/{pubkey}",         get(get_user_handler))
+        .route("/{pubkey}/encryption-pubkey", get(get_user_encryption_pubkey_handler))
         .route("/{pubkey}/books",   get(list_seller_books_handler))
         .route("/{pubkey}/reviews", get(list_user_reviews_handler))
+}
+
+pub fn encryption_public_router() -> Router<AppState> {
+    Router::new().route("/templates", get(list_encryption_templates_handler))
 }
 

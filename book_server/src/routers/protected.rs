@@ -3,7 +3,8 @@ use crate::auth::auth_middleware;
 use crate::chat::chat_handler;
 use crate::client::{
     broadcast_cancel_escrow_handler, broadcast_confirm_receipt_handler,
-    broadcast_create_book_handler, broadcast_create_escrow_handler, broadcast_delist_handler,
+    broadcast_create_book_handler, broadcast_create_escrow_auto_handler,
+    broadcast_delist_handler,
     broadcast_open_dispute_handler, broadcast_resolve_dispute_handler, broadcast_ship_handler,
     broadcast_update_price_handler, cancel_escrow_handler, confirm_receipt_handler,
     create_book_build_tx_handler, create_book_handler, create_book_metadata_handler,
@@ -16,13 +17,19 @@ use crate::handlers::chat::{
 };
 use crate::handlers::me::{
     list_bought_books_handler, list_buyer_escrows_handler, list_favorites_handler,
-    list_seller_escrows_handler, toggle_favorite_handler,
+    list_my_books_handler, list_seller_escrows_handler, toggle_favorite_handler,
+    get_order_shipping_cipher_handler, upsert_order_shipping_cipher_handler,
+    upsert_order_shipping_cipher_by_asset_handler, update_my_profile_handler,
+};
+use crate::handlers::transactions::list_my_transactions_handler;
+use crate::handlers::encryption::{
+    get_my_encryption_backup_handler, upsert_my_encryption_backup_handler,
 };
 use crate::me::submit_review_handler;
 use crate::state::AppState;
 use axum::Router;
 use axum::middleware::from_fn_with_state;
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 
 ///访问需要登陆的路由
 pub fn api_protected_router(state: AppState) -> Router<AppState> {
@@ -62,7 +69,7 @@ pub fn book_router() -> Router<AppState> {
 pub fn escrow_router() -> Router<AppState> {
     Router::new()
         .route("/create", post(create_escrow_handler))
-        .route("/create/broadcast", post(broadcast_create_escrow_handler))
+        .route("/create/broadcast", post(broadcast_create_escrow_auto_handler))
         .route("/ship", post(ship_book_handler))
         .route("/ship/broadcast", post(broadcast_ship_handler))
         .route("/confirm", post(confirm_receipt_handler))
@@ -83,12 +90,20 @@ pub fn escrow_router() -> Router<AppState> {
 
 pub fn me_router() -> Router<AppState> {
     Router::new()
+        .route("/transactions", get(list_my_transactions_handler))
+        .route("/books", get(list_my_books_handler))
         .route("/favorites/", get(list_favorites_handler))
         .route("/favorites/{asset}", post(toggle_favorite_handler))
         .route("/orders/buying", get(list_buyer_escrows_handler))
         .route("/orders/selling", get(list_seller_escrows_handler))
+        .route("/profile", patch(update_my_profile_handler))
+        .route("/orders/{escrow_pda}/shipping-cipher", get(get_order_shipping_cipher_handler))
+        .route("/orders/{escrow_pda}/shipping-cipher", post(upsert_order_shipping_cipher_handler))
+        .route("/orders/by-asset/{asset}/shipping-cipher", post(upsert_order_shipping_cipher_by_asset_handler))
         .route("/bought", get(list_bought_books_handler))
         .route("/reviews", post(submit_review_handler)) // 加这行
         .route("/chat/conversations", get(list_chat_conversations_handler))
         .route("/chat/{peer}/messages", get(list_chat_messages_handler))
+        .route("/encryption-backup", get(get_my_encryption_backup_handler))
+        .route("/encryption-backup", post(upsert_my_encryption_backup_handler))
 }

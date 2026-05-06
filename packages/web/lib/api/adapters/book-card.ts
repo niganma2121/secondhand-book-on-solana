@@ -6,6 +6,8 @@ export type BookCardDto = {
   asset: string
   seller: string
   price: number
+  price_cny?: number | null
+  fx_cny_per_sol?: number | null
   status: string
   name: string
   cover_url?: string | null
@@ -13,6 +15,7 @@ export type BookCardDto = {
   category: string
   condition: string
   created_at: number
+  seller_username?: string | null
 }
 
 export function bookCardDtoToBook(row: BookCardDto): Book {
@@ -24,9 +27,12 @@ export function bookCardDtoToBook(row: BookCardDto): Book {
     author: row.author ?? '',
     cover: row.cover_url ?? '/placeholder.jpg',
     price: row.price / 1_000_000_000,
+    priceCny: row.price_cny ?? undefined,
+    fxCnyPerSol: row.fx_cny_per_sol ?? undefined,
     condition: conditionZh,
     category: row.category as BookCategory,
     seller: row.seller,
+    sellerUsername: row.seller_username ?? undefined,
     tokenId: row.asset,
     description: '',
     listedAt: new Date(row.created_at * 1000).toISOString(),

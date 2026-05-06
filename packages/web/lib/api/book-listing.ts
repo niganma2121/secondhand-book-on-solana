@@ -48,6 +48,8 @@ type BroadcastCreateBookInput = {
   build: CreateBookBuildResponse
   seller: string
   priceLamports: number
+  priceCny?: number | null
+  fxCnyPerSol?: number | null
   name: string
   author?: string
   series?: string
@@ -317,6 +319,8 @@ export async function broadcastCreateBook(
       book_pda: input.build.book_pda,
       seller: input.seller,
       price: input.priceLamports,
+      price_cny: input.priceCny ?? null,
+      fx_cny_per_sol: input.fxCnyPerSol ?? null,
       metadata_url: input.build.metadata_url,
       metadata_hash: input.build.metadata_hash,
       name: input.name,

@@ -1,11 +1,10 @@
 use crate::AppError;
 use crate::db::types::Page;
+use crate::handlers::error::{HandlerResult, bad_request, ok};
 use crate::state::AppState;
 use axum::Extension;
 use axum::Json;
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
 use chrono::Utc;
 use serde::Deserialize;
 use serde_json::json;
@@ -27,10 +26,10 @@ pub async fn list_favorites_handler(
     State(state): State<AppState>,
     Extension(pubkey): Extension<String>,
     Query(q): Query<PageQuery>,
-) -> Result<impl IntoResponse, AppError> {
+) -> HandlerResult {
     let page = q.to_page();
     let books = state.db_service.list_user_favorites(&pubkey, &page).await?;
-    Ok((StatusCode::OK, Json(json!({ "books": books }))))
+    Ok(ok(json!({ "books": books })))
 }
 
 // POST /api/me/favorites/:asset  → 已收藏则取消，未收藏则添加
@@ -38,14 +37,14 @@ pub async fn toggle_favorite_handler(
     State(state): State<AppState>,
     Extension(pubkey): Extension<String>,
     Path(asset): Path<String>,
-) -> Result<impl IntoResponse, AppError> {
+) -> HandlerResult {
     let now = Utc::now().timestamp();
     if state.db_service.is_favorited(&pubkey, &asset).await? {
         state.db_service.remove_favorite(&pubkey, &asset).await?;
-        Ok((StatusCode::OK, Json(json!({ "favorited": false }))))
+        Ok(ok(json!({ "favorited": false })))
     } else {
         state.db_service.add_favorite(&pubkey, &asset, now).await?;
-        Ok((StatusCode::OK, Json(json!({ "favorited": true }))))
+        Ok(ok(json!({ "favorited": true })))
     }
 }
 // GET /api/me/orders/buying
@@ -53,10 +52,10 @@ pub async fn list_buyer_escrows_handler(
     State(state): State<AppState>,
     Extension(pubkey): Extension<String>,
     Query(q): Query<PageQuery>,
-) -> Result<impl IntoResponse, AppError> {
+) -> HandlerResult {
     let page = q.to_page();
     let orders = state.db_service.list_buyer_escrows(&pubkey, &page).await?;
-    Ok((StatusCode::OK, Json(json!({ "orders": orders }))))
+    Ok(ok(json!({ "orders": orders })))
 }
 
 // GET /api/me/orders/selling
@@ -64,10 +63,21 @@ pub async fn list_seller_escrows_handler(
     State(state): State<AppState>,
     Extension(pubkey): Extension<String>,
     Query(q): Query<PageQuery>,
-) -> Result<impl IntoResponse, AppError> {
+) -> HandlerResult {
     let page = q.to_page();
     let orders = state.db_service.list_seller_escrows(&pubkey, &page).await?;
-    Ok((StatusCode::OK, Json(json!({ "orders": orders }))))
+    Ok(ok(json!({ "orders": orders })))
+}
+
+// GET /api/me/books — 当前登录用户作为卖家上架的书籍（与 GET /api/users/:pubkey/books 数据源一致）
+pub async fn list_my_books_handler(
+    State(state): State<AppState>,
+    Extension(pubkey): Extension<String>,
+    Query(q): Query<PageQuery>,
+) -> HandlerResult {
+    let page = q.to_page();
+    let books = state.db_service.list_seller_books(&pubkey, &page).await?;
+    Ok(ok(json!({ "books": books })))
 }
 
 // GET /api/me/bought
@@ -75,10 +85,10 @@ pub async fn list_bought_books_handler(
     State(state): State<AppState>,
     Extension(pubkey): Extension<String>,
     Query(q): Query<PageQuery>,
-) -> Result<impl IntoResponse, AppError> {
+) -> HandlerResult {
     let page = q.to_page();
     let books = state.db_service.list_bought_books(&pubkey, &page).await?;
-    Ok((StatusCode::OK, Json(json!({ "books": books }))))
+    Ok(ok(json!({ "books": books })))
 }
 // POST /api/me/reviews
 #[derive(Deserialize)]
@@ -89,11 +99,28 @@ pub struct SubmitReviewRequest {
     pub comment: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct UpsertOrderShippingCipherRequest {
+    pub seller_ciphertext: String,
+    pub seller_nonce: String,
+    pub seller_alg: String,
+    pub buyer_ciphertext: Option<String>,
+    pub buyer_nonce: Option<String>,
+    pub buyer_alg: Option<String>,
+    pub encryption_key_version: String,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateMyProfileRequest {
+    pub username: Option<String>,
+    pub avatar: Option<String>,
+}
+
 pub async fn submit_review_handler(
     State(state): State<AppState>,
     Extension(pubkey): Extension<String>,
     Json(req): Json<SubmitReviewRequest>,
-) -> Result<impl IntoResponse, AppError> {
+) -> HandlerResult {
     let now = Utc::now().timestamp();
     let id = state
         .id_generator
@@ -113,5 +140,160 @@ pub async fn submit_review_handler(
         )
         .await?;
 
-    Ok((StatusCode::OK, Json(json!({ "msg": "评价提交成功" }))))
+    Ok(ok(json!({ "msg": "评价提交成功" })))
+}
+
+// PATCH /api/me/profile
+pub async fn update_my_profile_handler(
+    State(state): State<AppState>,
+    Extension(pubkey): Extension<String>,
+    Json(req): Json<UpdateMyProfileRequest>,
+) -> HandlerResult {
+    let username_trimmed = req.username.as_deref().map(str::trim);
+    if let Some(name) = username_trimmed {
+        if name.is_empty() {
+            return Err(bad_request("昵称不能为空"));
+        }
+        if name.chars().count() > 32 {
+            return Err(bad_request("昵称长度不能超过 32 个字符"));
+        }
+    }
+    if let Some(avatar) = req.avatar.as_deref() {
+        if avatar.len() > 1024 {
+            return Err(bad_request("头像地址过长"));
+        }
+    }
+
+    state
+        .db_service
+        .update_user_profile(&pubkey, username_trimmed, req.avatar.as_deref())
+        .await?;
+
+    let user = state
+        .db_service
+        .get_user(&pubkey)
+        .await?
+        .ok_or_else(|| bad_request("用户不存在"))?;
+
+    Ok(ok(json!({
+        "pubkey":      user.pubkey,
+        "username":    user.username,
+        "avatar":      user.avatar,
+        "enc_pubkey":  user.enc_pubkey,
+        "trade_count": user.trade_count,
+        "sell_count":  user.sell_count,
+        "buy_count":   user.buy_count,
+    })))
+}
+
+// POST /api/me/orders/:escrow_pda/shipping-cipher
+// 仅买家可写入订单收货地址密文（给卖家解密用，可选给买家自查副本）
+pub async fn upsert_order_shipping_cipher_handler(
+    State(state): State<AppState>,
+    Extension(pubkey): Extension<String>,
+    Path(escrow_pda): Path<String>,
+    Json(req): Json<UpsertOrderShippingCipherRequest>,
+) -> HandlerResult {
+    let escrow = state
+        .db_service
+        .get_escrow(&escrow_pda)
+        .await?
+        .ok_or_else(|| bad_request("订单不存在"))?;
+    if escrow.buyer != pubkey {
+        return Err(bad_request("仅买家可提交收货密文"));
+    }
+
+    let now = Utc::now().timestamp();
+    state
+        .db_service
+        .upsert_escrow_shipping_cipher(
+            &escrow_pda,
+            &escrow.buyer,
+            &escrow.seller,
+            &req.seller_ciphertext,
+            &req.seller_nonce,
+            &req.seller_alg,
+            req.buyer_ciphertext.as_deref(),
+            req.buyer_nonce.as_deref(),
+            req.buyer_alg.as_deref(),
+            &req.encryption_key_version,
+            now,
+        )
+        .await?;
+
+    Ok(ok(json!({ "msg": "收货地址密文已保存" })))
+}
+
+// GET /api/me/orders/:escrow_pda/shipping-cipher
+// 买家或卖家可读取该订单密文（各自前端使用本地通讯私钥解密）
+pub async fn get_order_shipping_cipher_handler(
+    State(state): State<AppState>,
+    Extension(pubkey): Extension<String>,
+    Path(escrow_pda): Path<String>,
+) -> HandlerResult {
+    let escrow = state
+        .db_service
+        .get_escrow(&escrow_pda)
+        .await?
+        .ok_or_else(|| bad_request("订单不存在"))?;
+    if escrow.buyer != pubkey && escrow.seller != pubkey {
+        return Err(bad_request("无权限查看该订单密文"));
+    }
+
+    let row = state
+        .db_service
+        .get_escrow_shipping_cipher(&escrow_pda)
+        .await?
+        .ok_or_else(|| bad_request("订单收货密文未提交"))?;
+
+    Ok(ok(json!({
+            "escrow_pda": row.escrow_pda,
+            "buyer_pubkey": row.buyer_pubkey,
+            "seller_pubkey": row.seller_pubkey,
+            "seller_ciphertext": row.seller_ciphertext,
+            "seller_nonce": row.seller_nonce,
+            "seller_alg": row.seller_alg,
+            "buyer_ciphertext": row.buyer_ciphertext,
+            "buyer_nonce": row.buyer_nonce,
+            "buyer_alg": row.buyer_alg,
+            "encryption_key_version": row.encryption_key_version,
+            "updated_at": row.updated_at
+        })))
+}
+
+// POST /api/me/orders/by-asset/:asset/shipping-cipher
+// 便于前端在创建托管后（已知 asset）直接提交密文
+pub async fn upsert_order_shipping_cipher_by_asset_handler(
+    State(state): State<AppState>,
+    Extension(pubkey): Extension<String>,
+    Path(asset): Path<String>,
+    Json(req): Json<UpsertOrderShippingCipherRequest>,
+) -> HandlerResult {
+    let escrow = state
+        .db_service
+        .get_active_escrow_by_asset(&asset)
+        .await?
+        .ok_or_else(|| bad_request("该书当前无活跃订单"))?;
+    if escrow.buyer != pubkey {
+        return Err(bad_request("仅买家可提交收货密文"));
+    }
+    let now = Utc::now().timestamp();
+    state
+        .db_service
+        .upsert_escrow_shipping_cipher(
+            &escrow.escrow_pda,
+            &escrow.buyer,
+            &escrow.seller,
+            &req.seller_ciphertext,
+            &req.seller_nonce,
+            &req.seller_alg,
+            req.buyer_ciphertext.as_deref(),
+            req.buyer_nonce.as_deref(),
+            req.buyer_alg.as_deref(),
+            &req.encryption_key_version,
+            now,
+        )
+        .await?;
+
+    Ok(ok(json!({ "msg": "收货地址密文已保存", "escrow_pda": escrow.escrow_pda })))
 }

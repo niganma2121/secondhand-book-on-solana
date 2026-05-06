@@ -44,11 +44,60 @@ interface FormState {
 type DetailImageItem = { id: string; file: File; preview: string }
 
 const MAX_DETAIL_IMAGES = 5
-const MAX_COVER_FILE_BYTES = 8 * 1024 * 1024
-const MAX_DETAIL_FILE_BYTES = 4 * 1024 * 1024
+const MIN_DETAIL_IMAGES = 2
+const MAX_COVER_FILE_BYTES = 3 * 1024 * 1024
+const MAX_DETAIL_FILE_BYTES = 5 * 1024 * 1024
+const COVER_MAX_EDGE = 1800
+const DETAIL_MAX_EDGE = 2600
 
 function newDetailId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+async function loadImageElement(file: File): Promise<HTMLImageElement> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(new Error('读取图片失败'))
+    reader.readAsDataURL(file)
+  })
+  return await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('解析图片失败'))
+    img.src = dataUrl
+  })
+}
+
+async function compressImageIfNeeded(file: File, maxBytes: number, maxEdge: number): Promise<File> {
+  if (file.size <= maxBytes) return file
+  const img = await loadImageElement(file)
+  let scale = Math.min(1, maxEdge / Math.max(img.naturalWidth, img.naturalHeight))
+  const qualities = [0.9, 0.84, 0.78, 0.72, 0.66]
+
+  for (let round = 0; round < 3; round++) {
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale))
+    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale))
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('浏览器不支持图片压缩')
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+
+    for (const quality of qualities) {
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob((b) => resolve(b), 'image/webp', quality)
+      })
+      if (!blob) continue
+      if (blob.size <= maxBytes) {
+        if (blob.size >= file.size) return file
+        const filename = file.name.replace(/\.[^/.]+$/, '') + '.webp'
+        return new File([blob], filename, { type: 'image/webp' })
+      }
+    }
+    scale *= 0.86
+  }
+
+  throw new Error(`图片压缩后仍超过 ${Math.round(maxBytes / 1024 / 1024)}MB，请更换更小图片`)
 }
 
 const INITIAL_FORM: FormState = {
@@ -56,7 +105,68 @@ const INITIAL_FORM: FormState = {
   price: '', description: '', coverPreview: null,
 }
 
-const PLATFORM_FEE_RATE = 0.025
+const PLATFORM_FEE_RATE = 0.02
+
+function MobileCameraButton({
+  onClick,
+  disabled,
+  children,
+}: {
+  onClick: () => void
+  disabled?: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={[
+        'flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-sm transition-colors active:scale-95',
+        'bg-primary text-primary-foreground hover:opacity-90',
+        disabled ? 'opacity-60 cursor-not-allowed' : '',
+      ].join(' ')}
+    >
+      <svg width="17" height="17" viewBox="0 0 20 20" fill="none" aria-hidden="true" className="text-primary-foreground">
+        <path d="M7.5 3.5h5l1.5 2.5H17a1 1 0 011 1V16a1 1 0 01-1 1H3a1 1 0 01-1-1V7a1 1 0 011-1h3L7.5 3.5z"
+          stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+        <circle cx="10" cy="11" r="2.8" stroke="currentColor" strokeWidth="1.4" />
+      </svg>
+      {children}
+    </button>
+  )
+}
+
+function UploadActionButton({
+  onClick,
+  disabled,
+  children,
+  mobileFlex = false,
+}: {
+  onClick: () => void
+  disabled?: boolean
+  children: React.ReactNode
+  mobileFlex?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={[
+        'flex items-center justify-center gap-2 h-10 rounded-xl border border-border/60 bg-card text-sm text-foreground hover:border-primary/40 transition-colors active:scale-95',
+        disabled ? 'opacity-60 cursor-not-allowed' : '',
+        mobileFlex ? 'flex-1' : 'px-6',
+      ].join(' ')}
+    >
+      <svg width="17" height="17" viewBox="0 0 20 20" fill="none" aria-hidden="true" className="text-muted-foreground">
+        <path d="M10 3v10M6 7l4-4 4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M3 16h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+      {children}
+    </button>
+  )
+}
 
 function LookupResultCard({
   hit,
@@ -146,6 +256,7 @@ export function ListBookPage() {
   const coverFileRef = useRef<HTMLInputElement>(null)
   const coverCameraRef = useRef<HTMLInputElement>(null)
   const detailFilesRef = useRef<HTMLInputElement>(null)
+  const detailCameraRef = useRef<HTMLInputElement>(null)
   // ISBN 相关 refs
   const isbnFileRef = useRef<HTMLInputElement>(null)
   const isbnCameraRef = useRef<HTMLInputElement>(null)
@@ -161,6 +272,8 @@ export function ListBookPage() {
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({})
 
   const [lookupDialogOpen, setLookupDialogOpen] = useState(false)
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false)
+  const [confirmChecked, setConfirmChecked] = useState(false)
   const [coverLightboxUrl, setCoverLightboxUrl] = useState<string | null>(null)
   const [detailZoomUrl, setDetailZoomUrl] = useState<string | null>(null)
   const [lookupQuery, setLookupQuery] = useState('')
@@ -168,6 +281,7 @@ export function ListBookPage() {
   const [lookupError, setLookupError] = useState<string | null>(null)
   const [lookupResults, setLookupResults] = useState<GoogleBooksHit[]>([])
   const [detailImages, setDetailImages] = useState<DetailImageItem[]>([])
+  const [imageProcessing, setImageProcessing] = useState(false)
 
   const priceNum = parseFloat(form.price) || 0
   const platformFee = priceNum * PLATFORM_FEE_RATE
@@ -213,7 +327,7 @@ export function ListBookPage() {
     reader.readAsDataURL(file)
   }
 
-  function handleCoverFile(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleCoverFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (file) {
       if (!file.type.startsWith('image/')) {
@@ -221,19 +335,22 @@ export function ListBookPage() {
         e.target.value = ''
         return
       }
-      if (file.size > MAX_COVER_FILE_BYTES) {
-        setSubmitError('封面图片不能超过 8MB，请压缩后再试')
-        e.target.value = ''
-        return
+      try {
+        setImageProcessing(true)
+        const processed = await compressImageIfNeeded(file, MAX_COVER_FILE_BYTES, COVER_MAX_EDGE)
+        setSubmitError(null)
+        setCoverFile(processed)
+        readFile(processed, (url) => setForm((f) => ({ ...f, coverPreview: url })))
+      } catch (err) {
+        setSubmitError(err instanceof Error ? err.message : '封面处理失败')
+      } finally {
+        setImageProcessing(false)
       }
-      setSubmitError(null)
-      setCoverFile(file)
-      readFile(file, (url) => setForm((f) => ({ ...f, coverPreview: url })))
     }
     e.target.value = ''
   }
 
-  function handleDetailFilesChange(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleDetailFilesChange(e: React.ChangeEvent<HTMLInputElement>) {
     const list = e.target.files
     if (!list?.length) return
     const remaining = MAX_DETAIL_IMAGES - detailImages.length
@@ -242,23 +359,28 @@ export function ListBookPage() {
       return
     }
     const next: DetailImageItem[] = []
+    setImageProcessing(true)
     for (let i = 0; i < list.length && next.length < remaining; i++) {
       const file = list[i]
       if (!file.type.startsWith('image/')) continue
-      if (file.size > MAX_DETAIL_FILE_BYTES) {
-        setSubmitError(`详情图单张不能超过 4MB：${file.name}`)
+      let processed: File
+      try {
+        processed = await compressImageIfNeeded(file, MAX_DETAIL_FILE_BYTES, DETAIL_MAX_EDGE)
+      } catch {
+        setSubmitError(`详情图处理失败或仍超过 5MB：${file.name}`)
         continue
       }
       next.push({
         id: newDetailId(),
-        file,
-        preview: URL.createObjectURL(file),
+        file: processed,
+        preview: URL.createObjectURL(processed),
       })
     }
     if (next.length > 0) {
       setSubmitError(null)
     }
     if (next.length) setDetailImages((prev) => [...prev, ...next])
+    setImageProcessing(false)
     e.target.value = ''
   }
 
@@ -279,11 +401,15 @@ export function ListBookPage() {
     e.target.value = ''
   }
 
-  async function handleSubmit() {
+  async function submitMintFlow() {
     if (!publicKey) { openWalletConnect(); return }
     if (!validate()) return
     if (!coverFile) {
       setSubmitError('请先上传封面图片')
+      return
+    }
+    if (detailImages.length < MIN_DETAIL_IMAGES) {
+      setSubmitError(`请至少上传 ${MIN_DETAIL_IMAGES} 张详情图片`)
       return
     }
     if (!signTransaction) {
@@ -300,6 +426,11 @@ export function ListBookPage() {
         setSubmitError('价格换算失败，请检查 SOL 定价')
         return
       }
+      const parsedCny = Number.parseFloat(cnyDraft)
+      const priceCny =
+        Number.isFinite(parsedCny) && parsedCny > 0 ? Number(parsedCny.toFixed(2)) : null
+      const fxCnyPerSolSnapshot =
+        cnyPerSol != null && Number.isFinite(cnyPerSol) && cnyPerSol > 0 ? cnyPerSol : null
 
       setBuildPhase('')
       setStep('building')
@@ -341,6 +472,8 @@ export function ListBookPage() {
         build: buildRes,
         seller: publicKey.toBase58(),
         priceLamports,
+        priceCny,
+        fxCnyPerSol: fxCnyPerSolSnapshot,
         name: form.title.trim(),
         author: form.author.trim() || undefined,
         series: undefined,
@@ -366,6 +499,22 @@ export function ListBookPage() {
     }
   }
 
+  function handleSubmit() {
+    if (!publicKey) { openWalletConnect(); return }
+    if (!validate()) return
+    if (!coverFile) {
+      setSubmitError('请先上传封面图片')
+      return
+    }
+    if (detailImages.length < MIN_DETAIL_IMAGES) {
+      setSubmitError(`请至少上传 ${MIN_DETAIL_IMAGES} 张详情图片`)
+      return
+    }
+    setSubmitError(null)
+    setConfirmChecked(false)
+    setConfirmDialogOpen(true)
+  }
+
   function handleReset() {
     detailImages.forEach((d) => URL.revokeObjectURL(d.preview))
     setDetailImages([])
@@ -376,6 +525,8 @@ export function ListBookPage() {
     setLookupError(null)
     setLookupQuery('')
     setLookupDialogOpen(false)
+    setConfirmDialogOpen(false)
+    setConfirmChecked(false)
     setCoverLightboxUrl(null)
     setDetailZoomUrl(null)
     setCnyDraft('')
@@ -674,10 +825,65 @@ export function ListBookPage() {
           </DialogContent>
         </Dialog>
 
+        <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
+          <DialogContent className="max-w-[min(92vw,640px)]">
+            <DialogHeader>
+              <DialogTitle>上架信息核对</DialogTitle>
+              <DialogDescription>
+                请确认以下信息。上架成功后，除价格外其余信息默认不可修改。
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-[88px_1fr] gap-2">
+                <span className="text-muted-foreground">书名</span>
+                <span className="text-foreground font-medium break-words">{form.title || '—'}</span>
+                <span className="text-muted-foreground">作者</span>
+                <span className="text-foreground break-words">{form.author || '—'}</span>
+                <span className="text-muted-foreground">分类</span>
+                <span className="text-foreground">{categoryOptions.find((c) => c.key === form.category)?.label ?? '—'}</span>
+                <span className="text-muted-foreground">品相</span>
+                <span className="text-foreground">{conditionOptions.find((c) => c.key === form.condition)?.label ?? '—'}</span>
+                <span className="text-muted-foreground">封面/详情图</span>
+                <span className="text-foreground">{coverFile ? '1' : '0'} / {detailImages.length}</span>
+                <span className="text-muted-foreground">定价</span>
+                <span className="text-foreground font-mono">
+                  {priceNum.toFixed(6)} SOL
+                  {cnyDraft.trim() ? `（约 ¥${cnyDraft.trim()}）` : ''}
+                </span>
+              </div>
+              <label className="flex items-start gap-2 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={confirmChecked}
+                  onChange={(e) => setConfirmChecked(e.target.checked)}
+                />
+                我已核对信息（至少 2 张详情图），确认上架后仅支持修改价格。
+              </label>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setConfirmDialogOpen(false)}>
+                返回修改
+              </Button>
+              <Button
+                disabled={!confirmChecked}
+                onClick={() => {
+                  setConfirmDialogOpen(false)
+                  void submitMintFlow()
+                }}
+              >
+                确认并铸造
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
         <div className="space-y-5">
           {/* ── 封面上传 ── */}
           <div>
-            <label className="block text-sm font-medium text-foreground mb-2">书籍封面</label>
+            <label className="block text-sm font-medium text-foreground mb-2">
+              书籍封面 <span className="text-destructive">*</span>
+            </label>
 
             {/* 预览区 */}
             <div className="w-full h-44 rounded-2xl border-2 border-dashed border-border/60 bg-card overflow-hidden relative mb-2 group/cover">
@@ -722,44 +928,35 @@ export function ListBookPage() {
                     <path d="M3 22l7-6 5 5 4-3 10 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                   <span className="text-sm">添加书籍封面</span>
-                  <span className="text-xs">JPG / PNG / WebP / GIF，建议比例 3:4，≤ 8MB</span>
+                  <span className="text-xs">JPG / PNG / WebP / GIF，建议比例 3:4，≤ 3MB</span>
                 </div>
               )}
             </div>
+            <p className="text-[11px] text-muted-foreground mb-2">封面最大 3MB，超限时会自动压缩并尽量保留清晰度。</p>
 
             {/* 按钮组 */}
             <div className={['flex gap-2', isMobile ? '' : 'justify-start'].join(' ')}>
               {/* 移动端：拍照按钮 */}
               {isMobile && (
-                <button
-                  type="button"
-                  onClick={() => coverCameraRef.current?.click()}
-                  className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl border border-border/60 bg-card text-sm text-foreground hover:border-primary/40 transition-colors active:scale-95"
-                >
-                  <svg width="17" height="17" viewBox="0 0 20 20" fill="none" aria-hidden="true" className="text-primary">
-                    <path d="M7.5 3.5h5l1.5 2.5H17a1 1 0 011 1V16a1 1 0 01-1 1H3a1 1 0 01-1-1V7a1 1 0 011-1h3L7.5 3.5z"
-                      stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-                    <circle cx="10" cy="11" r="2.8" stroke="currentColor" strokeWidth="1.4" />
-                  </svg>
+                <MobileCameraButton onClick={() => coverCameraRef.current?.click()} disabled={imageProcessing}>
                   拍照
-                </button>
+                </MobileCameraButton>
               )}
               {/* 通用：文件上传 */}
-              <button
-                type="button"
+              <UploadActionButton
                 onClick={() => coverFileRef.current?.click()}
-                className={[
-                  'flex items-center justify-center gap-2 h-10 rounded-xl border border-border/60 bg-card text-sm text-foreground hover:border-primary/40 transition-colors active:scale-95',
-                  isMobile ? 'flex-1' : 'px-6',
-                ].join(' ')}
+                disabled={imageProcessing}
+                mobileFlex={isMobile}
               >
-                <svg width="17" height="17" viewBox="0 0 20 20" fill="none" aria-hidden="true" className="text-muted-foreground">
-                  <path d="M10 3v10M6 7l4-4 4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M3 16h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                </svg>
                 从相册上传
-              </button>
+              </UploadActionButton>
             </div>
+            {imageProcessing && (
+              <div className="mt-2 inline-flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                上传图片中…
+              </div>
+            )}
 
             {/* 隐藏 input */}
             <input ref={coverFileRef} type="file" accept="image/*" className="sr-only" onChange={handleCoverFile} />
@@ -769,13 +966,15 @@ export function ListBookPage() {
           {/* ── 详情图（与后端 detail_images 对应，上架时一并提交） ── */}
           <div>
             <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
-              <label className="block text-sm font-medium text-foreground">详情图片（选填）</label>
+              <label className="block text-sm font-medium text-foreground">
+                详情图片 <span className="text-destructive">*</span>
+              </label>
               <span className="text-xs text-muted-foreground">
-                最多 {MAX_DETAIL_IMAGES} 张 · 已选 {detailImages.length}
+                至少 {MIN_DETAIL_IMAGES} 张，最多 {MAX_DETAIL_IMAGES} 张 · 已选 {detailImages.length}
               </span>
             </div>
             <p className="text-xs text-muted-foreground mb-2">展示品相、版权页、目录等，便于买家下单前核对。</p>
-            <p className="text-[11px] text-muted-foreground mb-2">单张详情图建议 ≤ 4MB，最多 5 张。</p>
+            <p className="text-[11px] text-muted-foreground mb-2">单张详情图最大 5MB，超限时会自动压缩并尽量保留清晰度。</p>
             <div className="grid grid-cols-4 gap-2 sm:grid-cols-5 mb-2">
               {detailImages.map((d) => (
                 <div key={d.id} className="relative aspect-square rounded-lg overflow-hidden border border-border/60 bg-muted">
@@ -802,21 +1001,40 @@ export function ListBookPage() {
                 </div>
               ))}
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="rounded-xl"
-              disabled={detailImages.length >= MAX_DETAIL_IMAGES}
-              onClick={() => detailFilesRef.current?.click()}
-            >
-              {detailImages.length >= MAX_DETAIL_IMAGES ? '已达上限' : '添加详情图'}
-            </Button>
+            <div className={['flex gap-2', isMobile ? '' : ''].join(' ')}>
+              {isMobile && (
+                <MobileCameraButton
+                  onClick={() => detailCameraRef.current?.click()}
+                  disabled={detailImages.length >= MAX_DETAIL_IMAGES || imageProcessing}
+                >
+                  {imageProcessing ? '上传图片中…' : detailImages.length >= MAX_DETAIL_IMAGES ? '已达上限' : '拍照'}
+                </MobileCameraButton>
+              )}
+              <UploadActionButton
+                onClick={() => detailFilesRef.current?.click()}
+                disabled={detailImages.length >= MAX_DETAIL_IMAGES || imageProcessing}
+                mobileFlex={isMobile}
+              >
+                {imageProcessing
+                  ? '上传图片中…'
+                  : detailImages.length >= MAX_DETAIL_IMAGES
+                    ? '已达上限'
+                    : '添加详情图'}
+              </UploadActionButton>
+            </div>
             <input
               ref={detailFilesRef}
               type="file"
               accept="image/*"
               multiple
+              className="sr-only"
+              onChange={handleDetailFilesChange}
+            />
+            <input
+              ref={detailCameraRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
               className="sr-only"
               onChange={handleDetailFilesChange}
             />
@@ -1126,7 +1344,7 @@ export function ListBookPage() {
             {priceNum > 0 && (
               <div className="mt-2.5 bg-secondary/50 rounded-xl p-3.5 text-xs space-y-1.5">
                 <div className="flex justify-between text-muted-foreground">
-                  <span>平台手续费 (2.5%)</span>
+                  <span>平台手续费 (2%)</span>
                   <span className="font-mono">-{platformFee.toFixed(4)} SOL</span>
                 </div>
                 <div className="flex justify-between font-semibold border-t border-border/50 pt-1.5">

@@ -16,9 +16,15 @@ export interface Book {
   author: string
   cover: string
   price: number // SOL
+  /** 卖家上架时填写的人民币价格 */
+  priceCny?: number
+  /** 上架时汇率快照：1 SOL ≈ ? CNY */
+  fxCnyPerSol?: number
   condition: BookCondition
   category: BookCategory
   seller: string // wallet address
+  /** 站内昵称（若有）；展示时与缩写公钥组合 */
+  sellerUsername?: string | null
   tokenId: string
   description: string
   listedAt: string
@@ -38,6 +44,8 @@ export interface ChainTransaction {
   status: 'confirmed' | 'processing' | 'failed'
   slot: number
   fee: number // lamports
+  /** account：Explorer 打开托管 PDA；缺省按链上交易签名处理 */
+  transactionLinkKind?: 'account' | 'tx'
 }
 
 export interface MyBook {

@@ -14,6 +14,8 @@ impl DBService {
         seller: &str,
         collection: &str,
         price: i64,
+        price_cny: Option<f64>,
+        fx_cny_per_sol: Option<f64>,
         metadata_url: &str,
         metadata_hash: &[u8],
         name: &str,
@@ -24,28 +26,30 @@ impl DBService {
         condition: &str,
         created_at: i64,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
+        sqlx::query(
             "INSERT INTO books
-                (asset, book_pda, seller, collection, price, metadata_url,
+                (asset, book_pda, seller, collection, price, price_cny, fx_cny_per_sol, metadata_url,
                  metadata_hash, name, cover_url, author, series,
                  category, condition, created_at, updated_at)
              VALUES
-                ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14)",
-            asset,
-            book_pda,
-            seller,
-            collection,
-            price,
-            metadata_url,
-            metadata_hash,
-            name,
-            cover_url,
-            author,
-            series,
-            category,
-            condition,
-            created_at
+                ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16)",
         )
+        .bind(asset)
+        .bind(book_pda)
+        .bind(seller)
+        .bind(collection)
+        .bind(price)
+        .bind(price_cny)
+        .bind(fx_cny_per_sol)
+        .bind(metadata_url)
+        .bind(metadata_hash)
+        .bind(name)
+        .bind(cover_url)
+        .bind(author)
+        .bind(series)
+        .bind(category)
+        .bind(condition)
+        .bind(created_at)
         .execute(&self.db_pool)
         .await?;
         Ok(())
@@ -112,7 +116,7 @@ impl DBService {
     // 单本书完整详情（category 为字典中文名，便于展示）
     pub async fn get_book_detail(&self, asset: &str) -> Result<Option<BookDetailRow>, sqlx::Error> {
         sqlx::query_as::<_, BookDetailRow>(
-            r#"SELECT b.asset, b.book_pda, b.seller, b.collection, b.price, b.status,
+            r#"SELECT b.asset, b.book_pda, b.seller, b.collection, b.price, b.price_cny, b.fx_cny_per_sol, b.status,
                       b.metadata_url, b.metadata_hash, b.name, b.cover_url, b.author, b.series,
                       COALESCE(bc.label_zh, b.category) AS category,
                       COALESCE(bcond.label_zh, b.condition) AS condition,
@@ -150,11 +154,14 @@ impl DBService {
     ) -> Result<Vec<BookCardRow>, sqlx::Error> {
         let mut qb: QueryBuilder<sqlx::Postgres> = QueryBuilder::new(
             "SELECT b.asset, b.seller, b.price, b.status, b.name, b.cover_url,
+                    b.price_cny, b.fx_cny_per_sol,
                     b.author, COALESCE(bc.label_zh, b.category) AS category,
-                    COALESCE(bcond.label_zh, b.condition) AS condition, b.created_at
+                    COALESCE(bcond.label_zh, b.condition) AS condition, b.created_at,
+                    u.username AS seller_username
              FROM books b
              LEFT JOIN book_categories bc ON b.category = bc.key
              LEFT JOIN book_conditions bcond ON b.condition = bcond.key
+             LEFT JOIN users u ON b.seller = u.pubkey
              WHERE b.status = 'Listed'",
         );
 
@@ -218,12 +225,14 @@ impl DBService {
         page: &Page,
     ) -> Result<Vec<BookCardRow>, sqlx::Error> {
         sqlx::query_as::<_, BookCardRow>(
-            r#"SELECT b.asset, b.seller, b.price, b.status, b.name, b.cover_url,
+            r#"SELECT b.asset, b.seller, b.price, b.price_cny, b.fx_cny_per_sol, b.status, b.name, b.cover_url,
                       b.author, COALESCE(bc.label_zh, b.category) AS category,
-                      COALESCE(bcond.label_zh, b.condition) AS condition, b.created_at
+                      COALESCE(bcond.label_zh, b.condition) AS condition, b.created_at,
+                      u.username AS seller_username
                FROM books b
                LEFT JOIN book_categories bc ON b.category = bc.key
                LEFT JOIN book_conditions bcond ON b.condition = bcond.key
+               LEFT JOIN users u ON b.seller = u.pubkey
                WHERE b.seller = $1
                ORDER BY b.created_at DESC
                LIMIT $2 OFFSET $3"#,
@@ -235,24 +244,26 @@ impl DBService {
         .await
     }
 
-    // 用户买过的书（通过 escrows 关联，状态 Completed）
+    // 用户买过的书（通过 escrows 关联，成交完成态 Released）
     pub async fn list_bought_books(
         &self,
         buyer: &str,
         page: &Page,
     ) -> Result<Vec<BookCardRow>, sqlx::Error> {
         sqlx::query_as::<_, BookCardRow>(
-            r#"SELECT b.asset, b.seller, b.price, b.status, b.name,
+            r#"SELECT b.asset, b.seller, b.price, b.price_cny, b.fx_cny_per_sol, b.status, b.name,
                       b.cover_url, b.author,
                       COALESCE(bc.label_zh, b.category) AS category,
                       COALESCE(bcond.label_zh, b.condition) AS condition,
-                      b.created_at
+                      b.created_at,
+                      u.username AS seller_username
                FROM books b
                INNER JOIN escrows e ON e.asset = b.asset
                LEFT JOIN book_categories bc ON b.category = bc.key
                LEFT JOIN book_conditions bcond ON b.condition = bcond.key
+               LEFT JOIN users u ON b.seller = u.pubkey
                WHERE e.buyer = $1
-                 AND e.state = 'Completed'
+                 AND e.state = 'Released'
                ORDER BY e.created_at DESC
                LIMIT $2 OFFSET $3"#,
         )

@@ -11,6 +11,9 @@ pub mod escrow;
 pub mod favorite;
 pub mod review;
 pub mod message;
+pub mod sync;
+pub mod encryption;
+pub mod shipping_cipher;
 
 pub use types::*;
 pub use message::*;
@@ -19,6 +22,9 @@ pub use escrow::*;
 pub use user::*;
 pub use review::*;
 pub use favorite::*;
+pub use sync::*;
+pub use encryption::*;
+pub use shipping_cipher::*;
 #[derive(Clone)]
 pub struct DBService{
     db_pool:PgPool
@@ -35,6 +41,10 @@ impl DBService{
             .connect(&db_url)
             .await
             .expect("数据库连接失败");
+        sqlx::migrate!("./migrations")
+            .run(&db_pool)
+            .await
+            .expect("数据库迁移失败");
         Self{db_pool}
     }
 }

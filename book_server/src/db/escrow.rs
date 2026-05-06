@@ -1,5 +1,5 @@
 use crate::db::DBService;
-use crate::db::types::{EscrowRow, Page};
+use crate::db::types::{EscrowActivityRow, EscrowRow, Page};
 
 impl DBService {
     //买家买书
@@ -141,6 +141,47 @@ impl DBService {
             page.limit,
             page.offset
         )
+        .fetch_all(&self.db_pool)
+        .await
+    }
+
+    /// 链上记录页：全站托管订单（数据库同步）
+    pub async fn list_escrow_activity_global(
+        &self,
+        page: &Page,
+    ) -> Result<Vec<EscrowActivityRow>, sqlx::Error> {
+        sqlx::query_as::<_, EscrowActivityRow>(
+            r#"SELECT e.escrow_pda, e.asset, e.seller, e.buyer, e.price, e.state,
+                      b.name AS book_name, b.cover_url, e.created_at
+               FROM escrows e
+               INNER JOIN books b ON b.asset = e.asset
+               ORDER BY e.created_at DESC
+               LIMIT $1 OFFSET $2"#,
+        )
+        .bind(page.limit)
+        .bind(page.offset)
+        .fetch_all(&self.db_pool)
+        .await
+    }
+
+    /// 链上记录页：仅与某用户相关的托管（买或卖）
+    pub async fn list_escrow_activity_for_user(
+        &self,
+        pubkey: &str,
+        page: &Page,
+    ) -> Result<Vec<EscrowActivityRow>, sqlx::Error> {
+        sqlx::query_as::<_, EscrowActivityRow>(
+            r#"SELECT e.escrow_pda, e.asset, e.seller, e.buyer, e.price, e.state,
+                      b.name AS book_name, b.cover_url, e.created_at
+               FROM escrows e
+               INNER JOIN books b ON b.asset = e.asset
+               WHERE e.buyer = $1 OR e.seller = $1
+               ORDER BY e.created_at DESC
+               LIMIT $2 OFFSET $3"#,
+        )
+        .bind(pubkey)
+        .bind(page.limit)
+        .bind(page.offset)
         .fetch_all(&self.db_pool)
         .await
     }

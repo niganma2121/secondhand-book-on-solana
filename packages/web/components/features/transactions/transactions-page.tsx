@@ -1,9 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Image from 'next/image'
+import { useWallet } from '@solana/wallet-adapter-react'
 import { ChainTransaction } from '@/lib/types'
-import { useTransactions } from '@/lib/hooks/use-transactions'
+import { useTransactions, type TxScope } from '@/lib/hooks/use-transactions'
+import { shortenPubkey } from '@/lib/format-seller'
+import { useAuth } from '@/components/providers/auth-provider'
+import { fetchOrderShippingCipher, upsertOrderShippingCipher } from '@/lib/api/shipping-cipher'
+import { fetchUserEncryptionPublicKey } from '@/lib/api/encryption'
 
 const TYPE_LABELS: Record<ChainTransaction['type'], string> = {
   buy: '购买',
@@ -35,19 +40,215 @@ const FILTER_OPTIONS: { label: string; value: ChainTransaction['status'] | 'all'
   { label: '失败', value: 'failed' },
 ]
 
+const SCOPE_OPTIONS: { label: string; value: TxScope; hint: string }[] = [
+  {
+    label: '我的记录',
+    value: 'mine',
+    hint: '当前登录钱包在本程序中作为买家或卖家的托管订单（需登录）。',
+  },
+  {
+    label: '链上记录',
+    value: 'program',
+    hint: '数据库同步的全部托管订单，便于查看市场整体动态。',
+  },
+]
+
 function shortenSig(sig: string) {
   if (sig.includes('...')) return sig
   return `${sig.slice(0, 6)}...${sig.slice(-4)}`
 }
 
-function TxCard({ tx }: { tx: ChainTransaction }) {
+function base64ToBytes(base64: string) {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
+
+async function sha256(data: Uint8Array) {
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', data))
+}
+
+async function decryptShippingCipherForSeller(
+  sellerCiphertext: string,
+  sellerNonce: string,
+  sellerPubkey: string,
+) {
+  const key = localStorage.getItem(`bookchain:comm-key:${sellerPubkey}`)
+  if (!key) throw new Error('本地通讯私钥不存在，请先到个人中心完成自动恢复。')
+  const sellerPriv = await crypto.subtle.importKey(
+    'pkcs8',
+    base64ToBytes(key),
+    { name: 'X25519' } as EcKeyImportParams,
+    false,
+    ['deriveBits'],
+  )
+  const parsed = JSON.parse(sellerCiphertext) as { epk: string; ct: string }
+  const ephPub = await crypto.subtle.importKey(
+    'raw',
+    base64ToBytes(parsed.epk),
+    { name: 'X25519' } as EcKeyImportParams,
+    false,
+    [],
+  )
+  const shared = new Uint8Array(
+    await crypto.subtle.deriveBits(
+      { name: 'X25519', public: ephPub } as EcdhKeyDeriveParams,
+      sellerPriv,
+      256,
+    ),
+  )
+  const iv = base64ToBytes(sellerNonce)
+  const keySeed = new Uint8Array(shared.length + iv.length)
+  keySeed.set(shared, 0)
+  keySeed.set(iv, shared.length)
+  const aesRaw = await sha256(keySeed)
+  const aes = await crypto.subtle.importKey('raw', aesRaw, { name: 'AES-GCM' }, false, ['decrypt'])
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aes, base64ToBytes(parsed.ct))
+  return new TextDecoder().decode(plain)
+}
+
+async function encryptShippingForSeller(
+  sellerEncPubB64: string,
+  plain: string,
+  buyerPubkey: string,
+) {
+  const key = localStorage.getItem(`bookchain:comm-key:${buyerPubkey}`)
+  if (!key) throw new Error('本地通讯私钥不存在，请先到个人中心完成自动恢复。')
+  const sellerPub = await crypto.subtle.importKey(
+    'raw',
+    base64ToBytes(sellerEncPubB64),
+    { name: 'X25519' } as EcKeyImportParams,
+    false,
+    [],
+  )
+  const eph = (await crypto.subtle.generateKey(
+    { name: 'X25519' } as EcKeyGenParams,
+    true,
+    ['deriveBits'],
+  )) as CryptoKeyPair
+  const shared = new Uint8Array(await crypto.subtle.deriveBits(
+    { name: 'X25519', public: sellerPub } as EcdhKeyDeriveParams,
+    eph.privateKey,
+    256,
+  ))
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const keySeed = new Uint8Array(shared.length + iv.length)
+  keySeed.set(shared, 0)
+  keySeed.set(iv, shared.length)
+  const aesRaw = await sha256(keySeed)
+  const aes = await crypto.subtle.importKey('raw', aesRaw, { name: 'AES-GCM' }, false, ['encrypt'])
+  const ct = new Uint8Array(
+    await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aes, new TextEncoder().encode(plain)),
+  )
+  const ephPub = new Uint8Array(await crypto.subtle.exportKey('raw', eph.publicKey))
+  let binaryIv = ''
+  for (let i = 0; i < iv.length; i++) binaryIv += String.fromCharCode(iv[i])
+  let binaryEpk = ''
+  for (let i = 0; i < ephPub.length; i++) binaryEpk += String.fromCharCode(ephPub[i])
+  let binaryCt = ''
+  for (let i = 0; i < ct.length; i++) binaryCt += String.fromCharCode(ct[i])
+  return {
+    seller_ciphertext: JSON.stringify({ epk: btoa(binaryEpk), ct: btoa(binaryCt) }),
+    seller_nonce: btoa(binaryIv),
+    seller_alg: 'x25519_aesgcm_v1',
+  }
+}
+
+function TxCard({ tx, myPubkey }: { tx: ChainTransaction; myPubkey?: string }) {
   const [copied, setCopied] = useState(false)
+  const [decrypting, setDecrypting] = useState(false)
+  const [updatingAddress, setUpdatingAddress] = useState(false)
+  const [showAddressEditor, setShowAddressEditor] = useState(false)
+  const [addressDraft, setAddressDraft] = useState('')
+  const [shippingPlaintext, setShippingPlaintext] = useState<string | null>(null)
+  const [shippingError, setShippingError] = useState<string | null>(null)
+  const [shippingHint, setShippingHint] = useState<string | null>(null)
   const status = STATUS_CONFIG[tx.status]
+  const explorerHref =
+    tx.transactionLinkKind === 'account'
+      ? `https://explorer.solana.com/address/${encodeURIComponent(tx.signature)}?cluster=devnet`
+      : `https://explorer.solana.com/tx/${encodeURIComponent(tx.signature)}?cluster=devnet`
 
   async function handleCopy() {
     await navigator.clipboard.writeText(tx.signature)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
+  }
+  const canDecryptShipping =
+    Boolean(myPubkey) &&
+    tx.type === 'sell' &&
+    tx.transactionLinkKind === 'account' &&
+    tx.signature.length > 40
+  const canUpdateShipping =
+    Boolean(myPubkey) &&
+    tx.type === 'buy' &&
+    tx.transactionLinkKind === 'account' &&
+    tx.signature.length > 40 &&
+    myPubkey === tx.from
+
+  async function handleDecryptShipping() {
+    if (!myPubkey || !canDecryptShipping) return
+    setDecrypting(true)
+    setShippingError(null)
+    setShippingHint(null)
+    try {
+      const payload = await fetchOrderShippingCipher(tx.signature)
+      const plain = await decryptShippingCipherForSeller(
+        payload.seller_ciphertext,
+        payload.seller_nonce,
+        myPubkey,
+      )
+      setShippingPlaintext(plain)
+    } catch (e) {
+      setShippingError(e instanceof Error ? e.message : '解密失败')
+    } finally {
+      setDecrypting(false)
+    }
+  }
+
+  function handleOpenAddressEditor() {
+    if (!myPubkey) return
+    const key = `bookchain:shipping-profile:${myPubkey}`
+    const raw = localStorage.getItem(key)
+    if (!raw) {
+      setAddressDraft('')
+      setShowAddressEditor(true)
+      return
+    }
+    try {
+      const parsed = JSON.parse(raw) as { name?: string; phone?: string; region?: string; detail?: string }
+      const merged = [parsed.name, parsed.phone, parsed.region, parsed.detail].filter(Boolean).join('，')
+      setAddressDraft(merged)
+    } catch {
+      setAddressDraft('')
+    }
+    setShowAddressEditor(true)
+  }
+
+  async function handleUpdateShippingAddress() {
+    if (!myPubkey || !addressDraft.trim()) return
+    setUpdatingAddress(true)
+    setShippingError(null)
+    setShippingHint(null)
+    try {
+      const sellerPub = await fetchUserEncryptionPublicKey(tx.to)
+      const encrypted = await encryptShippingForSeller(
+        sellerPub.encryption_public_key,
+        addressDraft.trim(),
+        myPubkey,
+      )
+      await upsertOrderShippingCipher(tx.signature, {
+        ...encrypted,
+        encryption_key_version: 'v1',
+      })
+      setShowAddressEditor(false)
+      setShippingHint('地址已更新并加密提交。')
+    } catch (e) {
+      setShippingError(e instanceof Error ? e.message : '地址更新失败')
+    } finally {
+      setUpdatingAddress(false)
+    }
   }
 
   const showCover = Boolean(tx.bookCover?.trim())
@@ -106,11 +307,15 @@ function TxCard({ tx }: { tx: ChainTransaction }) {
             )}
           </button>
           <a
-            href={`https://explorer.solana.com/tx/${encodeURIComponent(tx.signature)}?cluster=devnet`}
+            href={explorerHref}
             target="_blank"
             rel="noopener noreferrer"
             className="ml-auto text-muted-foreground transition-colors hover:text-primary"
-            aria-label="在 Solana Explorer 查看"
+            aria-label={
+              tx.transactionLinkKind === 'account'
+                ? '在 Solana Explorer 查看托管账户'
+                : '在 Solana Explorer 查看交易'
+            }
           >
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
               <path d="M7.5 1.5H11.5V5.5M11.5 1.5L6 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
@@ -140,13 +345,89 @@ function TxCard({ tx }: { tx: ChainTransaction }) {
         {tx.type !== 'list' && tx.type !== 'delist' && (
           <div className="grid grid-cols-2 gap-2 border-t border-border pt-2.5 text-xs">
             <div>
-              <p className="mb-0.5 text-muted-foreground">发送方</p>
-              <p className="truncate font-mono text-foreground">{tx.from}</p>
+              <p className="mb-0.5 text-muted-foreground">买方</p>
+              <p className="truncate font-mono text-foreground" title={tx.from}>
+                {shortenPubkey(tx.from)}
+              </p>
             </div>
             <div>
-              <p className="mb-0.5 text-muted-foreground">接收方</p>
-              <p className="truncate font-mono text-foreground">{tx.to}</p>
+              <p className="mb-0.5 text-muted-foreground">卖方</p>
+              <p className="truncate font-mono text-foreground" title={tx.to}>
+                {shortenPubkey(tx.to)}
+              </p>
             </div>
+          </div>
+        )}
+        {canDecryptShipping && (
+          <div className="border-t border-border pt-2.5">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">订单收货地址（端到端加密）</p>
+              <button
+                type="button"
+                onClick={handleDecryptShipping}
+                disabled={decrypting}
+                className="rounded-md border border-border px-2 py-1 text-[11px] text-foreground hover:border-primary/50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {decrypting ? '读取中...' : '查看买家收货地址'}
+              </button>
+            </div>
+            {shippingPlaintext ? (
+              <div className="rounded-md bg-secondary/50 px-2.5 py-2 text-xs text-foreground whitespace-pre-wrap">
+                {shippingPlaintext}
+              </div>
+            ) : null}
+            {shippingError ? (
+              <p className="text-xs text-destructive">{shippingError}</p>
+            ) : null}
+            {shippingHint ? (
+              <p className="text-xs text-primary">{shippingHint}</p>
+            ) : null}
+          </div>
+        )}
+        {canUpdateShipping && (
+          <div className="border-t border-border pt-2.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">本单收货地址</p>
+              <button
+                type="button"
+                onClick={handleOpenAddressEditor}
+                className="rounded-md border border-border px-2 py-1 text-[11px] text-foreground hover:border-primary/50"
+              >
+                修改收货地址
+              </button>
+            </div>
+            {showAddressEditor ? (
+              <div className="space-y-2">
+                <textarea
+                  rows={3}
+                  value={addressDraft}
+                  onChange={(e) => {
+                    setAddressDraft(e.target.value)
+                    setShippingHint(null)
+                  }}
+                  placeholder="收件人、手机号、省市区、详细地址"
+                  className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddressEditor(false)}
+                    className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground"
+                    disabled={updatingAddress}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleUpdateShippingAddress}
+                    disabled={updatingAddress || !addressDraft.trim()}
+                    className="rounded-md border border-primary/40 px-2 py-1 text-[11px] text-primary disabled:opacity-60"
+                  >
+                    {updatingAddress ? '提交中...' : '保存并更新本单地址'}
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -155,8 +436,18 @@ function TxCard({ tx }: { tx: ChainTransaction }) {
 }
 
 export function TransactionsPage() {
-  const { transactions, loading } = useTransactions()
+  const { publicKey } = useWallet()
+  const { sessionStatus, isAuthenticated } = useAuth()
+  const [scope, setScope] = useState<TxScope>('program')
+  const [scopeTouched, setScopeTouched] = useState(false)
+  const { transactions, loading, error, unauthorized } = useTransactions(scope)
   const [filter, setFilter] = useState<ChainTransaction['status'] | 'all'>('all')
+
+  useEffect(() => {
+    if (scopeTouched) return
+    if (sessionStatus === 'loading') return
+    setScope(isAuthenticated ? 'mine' : 'program')
+  }, [isAuthenticated, scopeTouched, sessionStatus])
 
   const displayed = filter === 'all'
     ? transactions
@@ -176,7 +467,31 @@ export function TransactionsPage() {
         {/* 标题 */}
         <div className="mb-5">
           <h1 className="text-xl font-bold text-foreground">链上交易记录</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">所有交易数据永久上链，公开可查</p>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {SCOPE_OPTIONS.find((o) => o.value === scope)?.hint}
+          </p>
+        </div>
+
+        {/* 范围：默认未登录=链上记录，登录=我的记录；用户可手动切换 */}
+        <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-none pb-1 -mx-4 px-4 sm:mx-0 sm:px-0">
+          {SCOPE_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => {
+                setScopeTouched(true)
+                setScope(opt.value)
+              }}
+              className={[
+                'shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors',
+                scope === opt.value
+                  ? 'bg-secondary text-foreground border-primary/40'
+                  : 'bg-card border-border text-muted-foreground hover:text-foreground',
+              ].join(' ')}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
 
         {/* 统计卡片 */}
@@ -220,13 +535,25 @@ export function TransactionsPage() {
             <path d="M7 6v4M7 4.5v.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
           </svg>
           <span>
-            当前网络: Solana Devnet。点击右侧 Explorer 图标可在 Solana Explorer 查看完整链上数据（需完整交易签名）。
+            当前网络: Solana Devnet。列表来自服务端同步的托管账户；点击 Explorer
+            打开托管 PDA 或交易（与签名类型一致）。完整链上签名仍以 RPC / Explorer 为准。
           </span>
         </div>
+
+        {error && (
+          <div className="mb-4 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {error.message}
+          </div>
+        )}
 
         {/* 交易列表 */}
         {loading ? (
           <div className="py-20 text-center text-sm text-muted-foreground">加载中…</div>
+        ) : unauthorized ? (
+          <div className="flex min-h-[min(52vh,480px)] flex-col items-center justify-center px-4 py-16 text-center text-sm text-muted-foreground gap-2">
+            <p>查看「我的记录」请先使用右上角登录（钱包签名）。</p>
+            <p className="text-xs">也可切换到「链上记录」浏览公开托管流水。</p>
+          </div>
         ) : displayed.length === 0 ? (
           <div className="flex min-h-[min(52vh,480px)] flex-col items-center justify-center px-4 py-16 text-center text-sm text-muted-foreground">
             暂无交易记录
@@ -234,7 +561,7 @@ export function TransactionsPage() {
         ) : (
           <div className="flex flex-col gap-3">
             {displayed.map((tx) => (
-              <TxCard key={tx.signature} tx={tx} />
+              <TxCard key={tx.signature} tx={tx} myPubkey={publicKey?.toBase58()} />
             ))}
           </div>
         )}

@@ -2,7 +2,7 @@ use super::{accounts, args, BOOK_SEED, ESCROW_SEED, MPL_CORE, VoteChoice};
 use crate::client::error::ClientError;
 use crate::client::types::{
     AnchorService, BroadcastCancelEscrowRequest, BroadcastConfirmReceiptRequest,
-    BroadcastCreateBookRequest, BroadcastCreateEscrowRequest, BroadcastDelistRequest,
+    BroadcastCreateBookRequest, BroadcastCreateEscrowAutoRequest, BroadcastDelistRequest,
     BroadcastOpenDisputeRequest, BroadcastResolveDisputeRequest, BroadcastResponse,
     BroadcastShipRequest, BroadcastUpdatePriceRequest, CancelEscrowRequest, ConfirmReceiptRequest,
     CreateBookBuildTxRequest, CreateBookMetadataDetailItem, CreateBookMetadataRequest,

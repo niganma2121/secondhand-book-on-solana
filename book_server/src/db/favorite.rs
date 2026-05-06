@@ -57,15 +57,17 @@ impl DBService {
         page:        &crate::db::types::Page,
     ) -> Result<Vec<BookCardRow>, sqlx::Error> {
         sqlx::query_as::<_, BookCardRow>(
-            r#"SELECT b.asset, b.seller, b.price, b.status, b.name,
+            r#"SELECT b.asset, b.seller, b.price, b.price_cny, b.fx_cny_per_sol, b.status, b.name,
                       b.cover_url, b.author,
                       COALESCE(bc.label_zh, b.category) AS category,
                       COALESCE(bcond.label_zh, b.condition) AS condition,
-                      b.created_at
+                      b.created_at,
+                      u.username AS seller_username
                FROM books b
                INNER JOIN favorites f ON f.asset = b.asset
                LEFT JOIN book_categories bc ON b.category = bc.key
                LEFT JOIN book_conditions bcond ON b.condition = bcond.key
+               LEFT JOIN users u ON b.seller = u.pubkey
                WHERE f.user_pubkey = $1
                ORDER BY f.created_at DESC
                LIMIT $2 OFFSET $3"#,

@@ -3,7 +3,7 @@
 import { useMemo } from 'react'
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react'
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui'
-import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets'
+import { SolflareWalletAdapter } from '@solana/wallet-adapter-wallets'
 import { clusterApiUrl } from '@solana/web3.js'
 
 // 引入官方 modal 样式
@@ -19,11 +19,12 @@ export function SolanaProvider({ children }: { children: React.ReactNode }) {
   const endpoint = useMemo(() => clusterApiUrl('devnet'), [])
 
   /**
-   * 显式挂上常用 Legacy Adapter，避免仅依赖 Wallet Standard 时在部分环境「零钱包 / 点连接无反应」。
+   * 显式挂上 Solflare Legacy Adapter。
+   * Phantom 已支持 Wallet Standard 自动发现，避免重复注册提示，不再显式注入 Phantom adapter。
    * WalletProvider 会与 Standard 发现结果合并，同名一般会去重。
    */
   const wallets = useMemo(
-    () => [new PhantomWalletAdapter(), new SolflareWalletAdapter()],
+    () => [new SolflareWalletAdapter()],
     [],
   )
 

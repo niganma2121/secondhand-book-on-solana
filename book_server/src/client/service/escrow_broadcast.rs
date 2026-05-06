@@ -2,12 +2,17 @@ use super::*;
 
 /// 托管广播部分
 impl AnchorService {
-    pub async fn broadcast_create_escrow(
+    pub async fn broadcast_create_escrow_auto(
         &self,
-        req: BroadcastCreateEscrowRequest,
+        req: BroadcastCreateEscrowAutoRequest,
         db: &DBService,
         now: i64,
     ) -> Result<BroadcastResponse, ClientError> {
+        let seller = parse(&req.seller)?;
+        let buyer = parse(&req.buyer)?;
+        let asset = parse(&req.asset)?;
+        let book_pda = self.book_pda(&seller, &asset);
+        let escrow_pda = self.escrow_pda(&buyer, &book_pda);
         let tx = deserialize_signed_tx(&req.signed_tx)?;
         let sig = self
             .get_program()?
@@ -18,7 +23,7 @@ impl AnchorService {
 
         if let Err(e) = db
             .insert_escrow(
-                &req.escrow_pda,
+                &escrow_pda.to_string(),
                 &req.asset,
                 &req.seller,
                 &req.buyer,

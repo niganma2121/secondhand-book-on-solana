@@ -19,7 +19,10 @@ pub fn deserialize_signed_tx(b64tx: &str) -> Result<Transaction, ClientError> {
     let bytes = STANDARD
         .decode(b64tx)
         .map_err(|e| ClientError::TxVerifyFailed(e.to_string()))?;
-    bincode::deserialize(&bytes).map_err(|e| ClientError::TxBuildError(e.to_string()))
+    let tx: Transaction = bincode::deserialize(&bytes).map_err(|e| ClientError::TxBuildError(e.to_string()))?;
+    // 最低限度校验：必须携带至少一个非默认签名，防止前端传入未签交易
+    tx_primary_signature(&tx)?;
+    Ok(tx)
 }
 
 /// 已签名交易中第一个非默认签名，即 RPC 用于判重的交易 id。

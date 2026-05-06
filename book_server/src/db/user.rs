@@ -4,11 +4,8 @@ use crate::db::types::UserRow;
 impl DBService {
     // 查用户，不存在返回 None
     pub async fn get_user(&self, pubkey: &str) -> Result<Option<UserRow>, sqlx::Error> {
-        sqlx::query_as!(
-            UserRow,
-            "SELECT * FROM users WHERE pubkey = $1",
-            pubkey
-        )
+        sqlx::query_as::<_, UserRow>("SELECT * FROM users WHERE pubkey = $1")
+            .bind(pubkey)
             .fetch_optional(&self.db_pool)
             .await
     }
@@ -77,6 +74,23 @@ impl DBService {
             .await?;
 
         tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn upsert_user_encryption_pubkey(
+        &self,
+        pubkey: &str,
+        enc_pubkey: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE users
+             SET enc_pubkey = $2
+             WHERE pubkey = $1"
+        )
+        .bind(pubkey)
+        .bind(enc_pubkey)
+        .execute(&self.db_pool)
+        .await?;
         Ok(())
     }
 }

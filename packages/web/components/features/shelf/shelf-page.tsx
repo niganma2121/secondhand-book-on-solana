@@ -2,13 +2,23 @@
 
 import Link from 'next/link'
 import Image from 'next/image'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useOpenWalletConnect } from '@/lib/hooks/use-open-wallet-connect'
 import { routes } from '@/config/routes'
 import type { MyBook } from '@/lib/types'
 import { useMyBooks } from '@/lib/hooks/use-my-books'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { useSolCnyRate } from '@/lib/hooks/use-sol-cny-rate'
+import { fetchBookDetail } from '@/lib/api/book-detail'
+import {
+  broadcastDelistBook,
+  broadcastUpdatePrice,
+  buildDelistBook,
+  buildUpdatePrice,
+} from '@/lib/api/book-management'
+import { signSerializedTxWithWallet } from '@/lib/api/book-listing'
 
 type ShelfTab = 'listed' | 'purchased'
 
@@ -19,14 +29,132 @@ const STATUS_CONFIG: Record<MyBook['status'], { label: string; className: string
 }
 
 function ShelfBookCard({ book, type }: { book: MyBook; type: ShelfTab }) {
+  const { publicKey, signTransaction } = useWallet()
   const [delisting, setDelisting] = useState(false)
+  const [delistSigning, setDelistSigning] = useState(false)
   const [delisted, setDelisted] = useState(false)
+  const [updatingPrice, setUpdatingPrice] = useState(false)
+  const [priceSigning, setPriceSigning] = useState(false)
+  const [priceSol, setPriceSol] = useState(book.price)
+  const [priceDialogOpen, setPriceDialogOpen] = useState(false)
+  const [priceMode, setPriceMode] = useState<'cny' | 'sol'>('cny')
+  const [draftPriceSol, setDraftPriceSol] = useState(String(book.price))
+  const [draftPriceCny, setDraftPriceCny] = useState('')
+  const [resultDialogOpen, setResultDialogOpen] = useState(false)
+  const [resultMsg, setResultMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null)
+  const [cancelHintOpen, setCancelHintOpen] = useState(false)
+  const { cnyPerSol, loading: rateLoading } = useSolCnyRate()
+
+  function normalizeCnyInput(raw: string): string {
+    const cleaned = raw.replace(/[^\d.]/g, '')
+    const firstDot = cleaned.indexOf('.')
+    if (firstDot < 0) return cleaned
+    const intPart = cleaned.slice(0, firstDot)
+    const decRaw = cleaned.slice(firstDot + 1).replace(/\./g, '')
+    return `${intPart}.${decRaw.slice(0, 2)}`
+  }
+
+  function openResult(type: 'error' | 'success', text: string) {
+    setResultMsg({ type, text })
+    setResultDialogOpen(true)
+  }
+
+  useEffect(() => {
+    if (!cancelHintOpen) return
+    const timer = window.setTimeout(() => setCancelHintOpen(false), 3000)
+    return () => window.clearTimeout(timer)
+  }, [cancelHintOpen])
 
   async function handleDelist() {
+    if (!publicKey) return
+    if (!signTransaction) {
+      openResult('error', '当前钱包不支持交易签名')
+      return
+    }
     setDelisting(true)
-    await new Promise((r) => setTimeout(r, 1500))
-    setDelisted(true)
-    setDelisting(false)
+    try {
+      const detail = await fetchBookDetail(book.id)
+      const built = await buildDelistBook({
+        seller: publicKey.toBase58(),
+        asset: book.id,
+        collection: detail.book.collection,
+      })
+      let signedTx = ''
+      try {
+        setDelistSigning(true)
+        signedTx = await signSerializedTxWithWallet(built.tx, signTransaction)
+      } catch {
+        openResult('error', '已取消操作')
+        return
+      } finally {
+        setDelistSigning(false)
+      }
+      await broadcastDelistBook({
+        signed_tx: signedTx,
+        asset: book.id,
+        seller: publicKey.toBase58(),
+      })
+      setDelisted(true)
+      openResult('success', '广播成功')
+    } catch {
+      openResult('error', '广播失败')
+    } finally {
+      setDelisting(false)
+    }
+  }
+
+  async function handleUpdatePriceSubmit() {
+    if (!publicKey) return
+    if (!signTransaction) {
+      openResult('error', '当前钱包不支持交易签名')
+      return
+    }
+    const next = Number(draftPriceSol.trim())
+    if (!Number.isFinite(next) || next <= 0) {
+      openResult('error', '请输入合法价格（大于 0）')
+      return
+    }
+    const lamports = Math.round(next * 1_000_000_000)
+    if (lamports <= 0) {
+      openResult('error', '价格过小，请提高后重试')
+      return
+    }
+    const currentLamports = Math.round(priceSol * 1_000_000_000)
+    if (lamports === currentLamports) {
+      openResult('error', '新价格与当前价格相同，请修改后再提交')
+      return
+    }
+    setUpdatingPrice(true)
+    try {
+      const built = await buildUpdatePrice({
+        seller: publicKey.toBase58(),
+        asset: book.id,
+        new_price: lamports,
+      })
+      let signedTx = ''
+      try {
+        setPriceSigning(true)
+        signedTx = await signSerializedTxWithWallet(built.tx, signTransaction)
+      } catch {
+        setPriceDialogOpen(false)
+        setCancelHintOpen(true)
+        return
+      } finally {
+        setPriceSigning(false)
+      }
+      await broadcastUpdatePrice({
+        signed_tx: signedTx,
+        asset: book.id,
+        new_price: lamports,
+      })
+      setPriceSol(next)
+      setPriceDialogOpen(false)
+      openResult('success', '广播成功')
+    } catch {
+      openResult('error', '广播失败')
+    } finally {
+      setUpdatingPrice(false)
+    }
   }
 
   const status = STATUS_CONFIG[book.status]
@@ -54,7 +182,7 @@ function ShelfBookCard({ book, type }: { book: MyBook; type: ShelfTab }) {
 
         <div className="flex items-center justify-between mt-auto">
           <div>
-            <span className="text-primary font-mono font-bold text-sm">{book.price} SOL</span>
+            <span className="text-primary font-mono font-bold text-sm">{priceSol} SOL</span>
             {book.purchasedAt && (
               <p className="text-[10px] text-muted-foreground">
                 {type === 'listed' ? `上架于 ${book.listedAt}` : `购入于 ${book.purchasedAt}`}
@@ -64,20 +192,51 @@ function ShelfBookCard({ book, type }: { book: MyBook; type: ShelfTab }) {
 
           {/* 操作按钮 */}
           {type === 'listed' && book.status === 'listed' && !delisted && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleDelist}
-              disabled={delisting}
-              className="h-7 px-3 text-xs border-destructive/40 text-destructive hover:bg-destructive/10 rounded-lg"
-            >
-              {delisting ? (
-                <span className="flex items-center gap-1.5">
-                  <span className="w-3 h-3 rounded-full border-2 border-destructive border-t-transparent animate-spin" />
-                  下架中
-                </span>
-              ) : '下架'}
-            </Button>
+            <div className="flex items-center gap-1.5">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setDraftPriceSol(String(priceSol))
+                  if (cnyPerSol && Number.isFinite(cnyPerSol) && cnyPerSol > 0) {
+                    setDraftPriceCny((priceSol * cnyPerSol).toFixed(2))
+                    setPriceMode('cny')
+                  } else {
+                    setDraftPriceCny('')
+                    setPriceMode('sol')
+                  }
+                  setPriceDialogOpen(true)
+                }}
+                disabled={updatingPrice || delisting || priceSigning || delistSigning}
+                className="h-7 px-3 text-xs border-primary/40 text-primary hover:bg-primary/10 rounded-lg"
+              >
+                {priceSigning ? (
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                    待签名
+                  </span>
+                ) : updatingPrice ? '改价中' : '改价'}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleDelist}
+                disabled={delisting || updatingPrice || priceSigning || delistSigning}
+                className="h-7 px-3 text-xs border-destructive/40 text-destructive hover:bg-destructive/10 rounded-lg"
+              >
+                {delistSigning ? (
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded-full border-2 border-destructive border-t-transparent animate-spin" />
+                    待签名
+                  </span>
+                ) : delisting ? (
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded-full border-2 border-destructive border-t-transparent animate-spin" />
+                    下架中
+                  </span>
+                ) : '下架'}
+              </Button>
+            </div>
           )}
           {type === 'purchased' && book.status === 'owned' && (
             <Button
@@ -90,6 +249,120 @@ function ShelfBookCard({ book, type }: { book: MyBook; type: ShelfTab }) {
           )}
         </div>
       </div>
+      <Dialog open={priceDialogOpen} onOpenChange={setPriceDialogOpen}>
+        <DialogContent className="max-w-[min(92vw,420px)]">
+          <DialogHeader>
+            <DialogTitle>修改价格</DialogTitle>
+            <DialogDescription>
+              支持人民币与 SOL 两种输入，确认后进行签名。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="inline-flex rounded-lg border border-border p-1">
+              <button
+                type="button"
+                onClick={() => setPriceMode('cny')}
+                className={['px-3 py-1 text-xs rounded-md', priceMode === 'cny' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'].join(' ')}
+              >
+                人民币
+              </button>
+              <button
+                type="button"
+                onClick={() => setPriceMode('sol')}
+                className={['px-3 py-1 text-xs rounded-md', priceMode === 'sol' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'].join(' ')}
+              >
+                SOL
+              </button>
+            </div>
+            {priceMode === 'cny' ? (
+              <input
+                value={draftPriceCny}
+                onChange={(e) => {
+                  const v = normalizeCnyInput(e.target.value)
+                  setDraftPriceCny(v)
+                  const n = Number.parseFloat(v)
+                  if (cnyPerSol && Number.isFinite(n) && n > 0) {
+                    const sol = n / cnyPerSol
+                    setDraftPriceSol(sol.toFixed(9).replace(/\.?0+$/, ''))
+                  } else {
+                    setDraftPriceSol('')
+                  }
+                }}
+                onBlur={() => {
+                  const n = Number.parseFloat(draftPriceCny)
+                  if (Number.isFinite(n) && n > 0) {
+                    setDraftPriceCny(n.toFixed(2))
+                  }
+                }}
+                placeholder={rateLoading ? '正在获取汇率…' : '例如 88.00'}
+                className="w-full h-10 rounded-md border border-border bg-input px-3 text-sm"
+                disabled={!cnyPerSol || rateLoading}
+              />
+            ) : (
+              <input
+                value={draftPriceSol}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setDraftPriceSol(v)
+                  const n = Number.parseFloat(v)
+                  if (cnyPerSol && Number.isFinite(n) && n > 0) {
+                    setDraftPriceCny((n * cnyPerSol).toFixed(2))
+                  } else if (v.trim() === '') {
+                    setDraftPriceCny('')
+                  }
+                }}
+                placeholder="例如 0.12"
+                className="w-full h-10 rounded-md border border-border bg-input px-3 text-sm"
+              />
+            )}
+            {cnyPerSol ? (
+              <p className="text-xs text-muted-foreground">
+                参考汇率：1 SOL ≈ ¥{cnyPerSol.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">当前未获取到汇率，仅支持 SOL 输入。</p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              链上实际提交：{draftPriceSol || '—'} SOL
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setPriceDialogOpen(false)}
+                disabled={updatingPrice || priceSigning}
+              >
+                取消
+              </Button>
+              <Button onClick={handleUpdatePriceSubmit} disabled={updatingPrice || priceSigning}>
+                {priceSigning ? (
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin" />
+                    等待签名
+                  </span>
+                ) : updatingPrice ? '处理中...' : '签名确定'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      {cancelHintOpen ? (
+        <div className="fixed top-20 left-1/2 z-[90] -translate-x-1/2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-xs text-destructive shadow-sm">
+          已取消操作
+        </div>
+      ) : null}
+      <Dialog open={resultDialogOpen} onOpenChange={setResultDialogOpen}>
+        <DialogContent className="max-w-[min(92vw,360px)]">
+          <DialogHeader>
+            <DialogTitle>{resultMsg?.type === 'success' ? '操作成功' : '操作结果'}</DialogTitle>
+            <DialogDescription className={resultMsg?.type === 'success' ? 'text-primary' : 'text-destructive'}>
+              {resultMsg?.text ?? ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end">
+            <Button onClick={() => setResultDialogOpen(false)}>知道了</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

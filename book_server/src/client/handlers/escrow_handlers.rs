@@ -1,6 +1,7 @@
 use crate::client::error::ClientError;
 use crate::client::types::{
-    BroadcastCancelEscrowRequest, BroadcastConfirmReceiptRequest, BroadcastCreateEscrowRequest,
+    BroadcastCreateEscrowAutoRequest,
+    BroadcastCancelEscrowRequest, BroadcastConfirmReceiptRequest,
     BroadcastOpenDisputeRequest, BroadcastResolveDisputeRequest, BroadcastShipRequest,
     CancelEscrowRequest, ConfirmReceiptRequest, CreateEscrowRequest, OpenDisputeRequest,
     ResolveDisputeRequest, ShipBookRequest,
@@ -64,14 +65,14 @@ pub async fn resolve_dispute_handler(
     Ok((StatusCode::OK, Json(res)))
 }
 
-pub async fn broadcast_create_escrow_handler(
+pub async fn broadcast_create_escrow_auto_handler(
     State(state): State<AppState>,
-    Json(req): Json<BroadcastCreateEscrowRequest>,
+    Json(req): Json<BroadcastCreateEscrowAutoRequest>,
 ) -> Result<impl IntoResponse, ClientError> {
     let now = chrono::Utc::now().timestamp();
     let res = state
         .anchor_service
-        .broadcast_create_escrow(req, &state.db_service, now)
+        .broadcast_create_escrow_auto(req, &state.db_service, now)
         .await?;
     Ok((StatusCode::OK, Json(res)))
 }

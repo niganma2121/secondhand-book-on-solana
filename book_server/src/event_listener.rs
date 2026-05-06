@@ -9,6 +9,7 @@ use tracing::{info, warn};
 use crate::client::{ArbitrationResult, BOOK_PROGRAM_ID};
 use base64::Engine;
 use crate::client::book::events::DisputeResolvedEvent;
+use std::time::Duration;
 
 
 pub async fn listen_dispute_resolved(
@@ -37,24 +38,43 @@ async fn run_listener(db: &DBService, ws_url: &str) -> anyhow::Result<()> {
         ).await?;
 
     while let Some(log) = stream.next().await {
+        let slot = log.context.slot as i64;
+        let signature = log.value.signature.clone();
         let has_event = log.value.logs
             .iter()
             .any(|l| l.contains("DisputeResolvedEvent"));
         if !has_event {
             continue;
         }
-        if let Err(e) = handle_dispute_resolved(&log.value.logs, db).await {
+        if let Err(e) = handle_dispute_resolved(&log.value.logs, &signature, slot, db).await {
             warn!("处理仲裁事件失败: {e}");
         }
     }
     Ok(())
 }
 
-async fn handle_dispute_resolved(logs: &[String], db: &DBService) -> anyhow::Result<()> {
+async fn handle_dispute_resolved(
+    logs: &[String],
+    signature: &str,
+    slot: i64,
+    db: &DBService,
+) -> anyhow::Result<()> {
     let now = chrono::Utc::now().timestamp();
 
-    for line in logs {
+    for (idx, line) in logs.iter().enumerate() {
         if !line.starts_with("Program data:") {
+            continue;
+        }
+        let inserted = db
+            .try_insert_chain_event_dedup(
+                signature,
+                slot,
+                idx as i32,
+                "DisputeResolvedEvent",
+                now,
+            )
+            .await?;
+        if !inserted {
             continue;
         }
         let b64 = line.trim_start_matches("Program data:").trim();
@@ -91,10 +111,52 @@ async fn handle_dispute_resolved(logs: &[String], db: &DBService) -> anyhow::Res
         }
 
         info!(
-            "仲裁裁决已同步 escrow={} result={:?} book_status={}",
-            escrow_pda, event.result, book_status
+            "仲裁裁决已同步 escrow={} result={:?} book_status={} signature={}",
+            escrow_pda, event.result, book_status, signature
         );
     }
+    db.set_chain_cursor("book_program_logs", slot, now).await?;
     Ok(())
+}
+
+/// 低频补偿：按游标窗口执行一次对账（骨架）
+pub async fn run_reconcile_once(db: &DBService, window_slots: i64) -> anyhow::Result<()> {
+    let now = chrono::Utc::now().timestamp();
+    let last_slot = db.get_chain_cursor("book_program_logs").await?.unwrap_or(0);
+    let from_slot = (last_slot - window_slots).max(0);
+    let to_slot = last_slot;
+    let run_id = db.start_reconcile_run(now, from_slot, to_slot).await?;
+
+    // TODO: 在这里调用 RPC 按 slot window 拉取程序交易并与 DB 对比。
+    // 当前先记录运行痕迹，后续可在此处填充 scanned/repaired/mismatch 统计。
+    let scanned_count = 0;
+    let repaired_count = 0;
+    let mismatch_count = 0;
+
+    db.finish_reconcile_run(
+        run_id,
+        chrono::Utc::now().timestamp(),
+        scanned_count,
+        repaired_count,
+        mismatch_count,
+        None,
+    )
+    .await?;
+
+    info!(
+        "对账任务完成 run_id={} from_slot={} to_slot={} scanned={} repaired={} mismatch={}",
+        run_id, from_slot, to_slot, scanned_count, repaired_count, mismatch_count
+    );
+    Ok(())
+}
+
+/// 后台循环：周期性低频对账
+pub async fn reconcile_loop(db: DBService) -> ! {
+    loop {
+        if let Err(e) = run_reconcile_once(&db, 20_000).await {
+            warn!("对账任务失败: {e}");
+        }
+        tokio::time::sleep(Duration::from_secs(60 * 60)).await;
+    }
 }
 

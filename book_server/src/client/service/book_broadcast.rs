@@ -1,7 +1,43 @@
 use super::*;
+use crate::client::utils::has_at_most_two_decimals;
 
 /// Book广播部分
 impl AnchorService {
+    fn validate_fiat_fields(req: &BroadcastCreateBookRequest) -> Result<(), ClientError> {
+        // 只要传了人民币价格，就必须满足：>0、两位小数内、合理区间，并且带汇率快照
+        if let Some(price_cny) = req.price_cny {
+            if !price_cny.is_finite() || price_cny <= 0.0 {
+                return Err(ClientError::TxVerifyFailed("price_cny 必须大于 0".into()));
+            }
+            if !has_at_most_two_decimals(price_cny) {
+                return Err(ClientError::TxVerifyFailed("price_cny 最多保留两位小数".into()));
+            }
+            if price_cny > 1_000_000.0 {
+                return Err(ClientError::TxVerifyFailed("price_cny 超出允许范围".into()));
+            }
+            let fx = req.fx_cny_per_sol.ok_or_else(|| {
+                ClientError::TxVerifyFailed("传入 price_cny 时必须同时传入 fx_cny_per_sol".into())
+            })?;
+            if !fx.is_finite() || fx <= 0.0 {
+                return Err(ClientError::TxVerifyFailed("fx_cny_per_sol 必须大于 0".into()));
+            }
+            // 防篡改：后端复算人民币换算后的链上 lamports，需与前端提交的 price 基本一致
+            let expected_lamports = ((price_cny / fx) * 1_000_000_000.0).round() as i128;
+            let actual_lamports = req.price as i128;
+            if (expected_lamports - actual_lamports).abs() > 2 {
+                return Err(ClientError::TxVerifyFailed(
+                    "price 与 price_cny/fx_cny_per_sol 换算不一致".into(),
+                ));
+            }
+        } else if req.fx_cny_per_sol.is_some() {
+            // 没传人民币价格就不需要单独传汇率，避免脏数据
+            return Err(ClientError::TxVerifyFailed(
+                "未传 price_cny 时不应单独传 fx_cny_per_sol".into(),
+            ));
+        }
+        Ok(())
+    }
+
     pub async fn broadcast_create_book(
         &self,
         req: BroadcastCreateBookRequest,
@@ -9,6 +45,7 @@ impl AnchorService {
         id_generator: &Sonyflake,
         now: i64,
     ) -> Result<BroadcastResponse, ClientError> {
+        Self::validate_fiat_fields(&req)?;
         info!(
             "[create_book] broadcast start asset={} seller={}",
             req.asset, req.seller
@@ -55,6 +92,8 @@ impl AnchorService {
                 &req.seller,
                 &collection,
                 req.price as i64,
+                req.price_cny,
+                req.fx_cny_per_sol,
                 &req.metadata_url,
                 &req.metadata_hash,
                 &req.name,

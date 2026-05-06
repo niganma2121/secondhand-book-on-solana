@@ -1,9 +1,7 @@
 use crate::db::types::Page;
+use crate::handlers::error::{HandlerResult, not_found, ok};
 use crate::state::AppState;
-use axum::Json;
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -23,20 +21,13 @@ impl PageQuery {
 pub async fn get_user_handler(
     State(state): State<AppState>,
     Path(pubkey): Path<String>,
-) -> impl IntoResponse {
-    match state.db_service.get_user(&pubkey).await {
-        Ok(Some(user)) => (StatusCode::OK, Json(json!(user))).into_response(),
-        Ok(None) => (
-            StatusCode::NOT_FOUND,
-            Json(json!({ "error": "用户不存在" })),
-        )
-            .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
-        )
-            .into_response(),
-    }
+) -> HandlerResult {
+    let user = state
+        .db_service
+        .get_user(&pubkey)
+        .await?
+        .ok_or_else(|| not_found("用户不存在"))?;
+    Ok(ok(json!(user)))
 }
 
 // GET /api/users/:pubkey/books?page=1
@@ -44,16 +35,10 @@ pub async fn list_seller_books_handler(
     State(state): State<AppState>,
     Path(pubkey): Path<String>,
     Query(q): Query<PageQuery>,
-) -> impl IntoResponse {
+) -> HandlerResult {
     let page = q.to_page();
-    match state.db_service.list_seller_books(&pubkey, &page).await {
-        Ok(books) => (StatusCode::OK, Json(json!({ "books": books }))).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
-        )
-            .into_response(),
-    }
+    let books = state.db_service.list_seller_books(&pubkey, &page).await?;
+    Ok(ok(json!({ "books": books })))
 }
 
 // GET /api/users/:pubkey/reviews?page=1
@@ -61,26 +46,30 @@ pub async fn list_user_reviews_handler(
     State(state): State<AppState>,
     Path(pubkey): Path<String>,
     Query(q): Query<PageQuery>,
-) -> impl IntoResponse {
+) -> HandlerResult {
     let page = q.to_page();
 
     // 同时查评价列表和信誉聚合
-    let reviews = state.db_service.list_user_reviews(&pubkey, &page).await;
-    let reputation = state.db_service.get_reputation(&pubkey).await;
+    let reviews = state.db_service.list_user_reviews(&pubkey, &page).await?;
+    let reputation = state.db_service.get_reputation(&pubkey).await?;
+    Ok(ok(json!({
+        "reviews":    reviews,
+        "reputation": reputation,
+    })))
+}
 
-    match (reviews, reputation) {
-        (Ok(reviews), Ok(reputation)) => (
-            StatusCode::OK,
-            Json(json!({
-                "reviews":    reviews,
-                "reputation": reputation,
-            })),
-        )
-            .into_response(),
-        (Err(e), _) | (_, Err(e)) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
-        )
-            .into_response(),
-    }
+// GET /api/users/:pubkey/encryption-pubkey
+pub async fn get_user_encryption_pubkey_handler(
+    State(state): State<AppState>,
+    Path(pubkey): Path<String>,
+) -> HandlerResult {
+    let user = state
+        .db_service
+        .get_user(&pubkey)
+        .await?
+        .ok_or_else(|| not_found("用户不存在"))?;
+    let enc_pubkey = user
+        .enc_pubkey
+        .ok_or_else(|| not_found("用户未配置通讯公钥"))?;
+    Ok(ok(json!({ "pubkey": pubkey, "encryption_public_key": enc_pubkey })))
 }

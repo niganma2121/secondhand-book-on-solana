@@ -4,6 +4,7 @@ use crate::ADMIN_KEYPAIR_URL_ENV;
 use crate::auth::types::AuthService;
 use crate::chat::types::ChatService;
 use crate::client::types::AnchorService;
+use crate::crypto::default_templates;
 use anchor_client::solana_sdk::signature::read_keypair_file;
 use sonyflake::Sonyflake;
 use crate::db::DBService;
@@ -28,6 +29,20 @@ impl AppState{
         let anchor_service=Arc::new(AnchorService::new());
         let auth_service=Arc::new(AuthService::new());
         let db_service=DBService::new().await;
+        let now = chrono::Utc::now().timestamp();
+        for tpl in default_templates() {
+            db_service
+                .upsert_encryption_template(
+                    tpl.version,
+                    tpl.message_template,
+                    tpl.kdf_name,
+                    &tpl.kdf_params,
+                    true,
+                    now,
+                )
+                .await
+                .expect("初始化加密模板失败");
+        }
         let id_generator=Arc::new(Sonyflake::new().expect("id生成器生成器构建失败"));
 
         Self{chat_service,auth_service,anchor_service,db_service,id_generator}

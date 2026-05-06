@@ -2,16 +2,26 @@
 
 import Link from 'next/link'
 import Image from 'next/image'
-import { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useWallet } from '@solana/wallet-adapter-react'
+import { areaList } from '@vant/area-data'
 import { useOpenWalletConnect } from '@/lib/hooks/use-open-wallet-connect'
 import { routes } from '@/config/routes'
 import { env } from '@/lib/env'
 import type { MyBook } from '@/lib/types'
 import { useMyBooks } from '@/lib/hooks/use-my-books'
 import { useAuth } from '@/components/providers/auth-provider'
-import { hasStoredAccessToken } from '@/lib/auth/token-store'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { ApiError } from '@/lib/api/client'
+import { updateMyProfile } from '@/lib/api/profile'
+import {
+  fetchEncryptionTemplates,
+  fetchMyEncryptionBackup,
+  upsertMyEncryptionBackup,
+  type EncryptionTemplate,
+  type MyEncryptionBackup,
+} from '@/lib/api/encryption'
 
 type ProfileTab = 'shelf' | 'sold'
 
@@ -46,15 +56,40 @@ function MiniBookCard({ book }: { book: MyBook }) {
 }
 
 export function ProfilePage() {
-  const { publicKey, disconnect } = useWallet()
+  const { publicKey, disconnect, signMessage } = useWallet()
   const openWalletConnect = useOpenWalletConnect()
   const [profileTab, setProfileTab] = useState<ProfileTab>('shelf')
+  const [addressDialogOpen, setAddressDialogOpen] = useState(false)
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false)
+  const [securityDialogOpen, setSecurityDialogOpen] = useState(false)
+  const [privacyDialogOpen, setPrivacyDialogOpen] = useState(false)
+  const [templates, setTemplates] = useState<EncryptionTemplate[]>([])
+  const [backupPayload, setBackupPayload] = useState<MyEncryptionBackup | null>(null)
+  const [backupVersion, setBackupVersion] = useState<string | null>(null)
+  const [addressLoading, setAddressLoading] = useState(false)
+  const [addressActionLoading, setAddressActionLoading] = useState(false)
+  const [addressError, setAddressError] = useState<string | null>(null)
+  const [addressHint, setAddressHint] = useState<string | null>(null)
+  const autoProvisionTriedRef = useRef(false)
+  const [shippingName, setShippingName] = useState('')
+  const [shippingPhone, setShippingPhone] = useState('')
+  const [shippingProvinceCode, setShippingProvinceCode] = useState('')
+  const [shippingCityCode, setShippingCityCode] = useState('')
+  const [shippingDistrictCode, setShippingDistrictCode] = useState('')
+  const [shippingDetail, setShippingDetail] = useState('')
+  const [profileNameDraft, setProfileNameDraft] = useState('')
+  const [profileAvatarPreview, setProfileAvatarPreview] = useState<string | null>(null)
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [profileError, setProfileError] = useState<string | null>(null)
+  const [securityAutoLock, setSecurityAutoLock] = useState(true)
+  const [securityHideAddress, setSecurityHideAddress] = useState(true)
+  const [privacyMaskPhone, setPrivacyMaskPhone] = useState(true)
+  const [privacyOnlyOrderParties, setPrivacyOnlyOrderParties] = useState(true)
+  const avatarFileRef = useRef<HTMLInputElement>(null)
   const {
     user,
-    sessionStatus,
     isAuthenticated,
     refreshSession,
-    authLoading,
   } = useAuth()
 
   const addr = publicKey ? publicKey.toBase58() : ''
@@ -67,6 +102,7 @@ export function ProfilePage() {
 
   const displayName =
     isAuthenticated && user?.username ? user.username : '匿名用户'
+  const avatarUrl = profileAvatarPreview ?? user?.avatar ?? null
 
   const stats: { label: string; value: number | string }[] = [
     { label: '上架书籍', value: shelfBooks.filter((b) => b.status === 'listed').length },
@@ -79,8 +115,241 @@ export function ProfilePage() {
   ]
 
   const apiConfigured = !env.useMockData && Boolean(env.apiBaseUrl)
-  const walletMatchesBackend =
-    isAuthenticated && user && addr && user.pubkey === addr
+  const localCommKeyStorageKey = addr ? `bookchain:comm-key:${addr}` : ''
+  const profileShippingStorageKey = addr ? `bookchain:shipping-profile:${addr}` : ''
+  const provinceMap = areaList.province_list as Record<string, string>
+  const cityMap = areaList.city_list as Record<string, string>
+  const districtMap = areaList.county_list as Record<string, string>
+
+  const provinceOptions = useMemo(
+    () => Object.entries(provinceMap).map(([code, name]) => ({ code, name })),
+    [provinceMap],
+  )
+  const cityOptions = useMemo(() => {
+    if (!shippingProvinceCode) return []
+    const prefix = shippingProvinceCode.slice(0, 2)
+    return Object.entries(cityMap)
+      .filter(([code]) => code.startsWith(prefix))
+      .map(([code, name]) => ({ code, name }))
+  }, [cityMap, shippingProvinceCode])
+  const districtOptions = useMemo(() => {
+    if (!shippingCityCode) return []
+    const prefix = shippingCityCode.slice(0, 4)
+    return Object.entries(districtMap)
+      .filter(([code]) => code.startsWith(prefix))
+      .map(([code, name]) => ({ code, name }))
+  }, [districtMap, shippingCityCode])
+
+  const shippingRegionText = [
+    provinceMap[shippingProvinceCode],
+    cityMap[shippingCityCode],
+    districtMap[shippingDistrictCode],
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  useEffect(() => {
+    setProfileNameDraft(user?.username ?? '')
+  }, [user?.username])
+
+  function bytesToBase64(bytes: Uint8Array) {
+    let binary = ''
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+    return btoa(binary)
+  }
+
+  function base64ToBytes(base64: string) {
+    const binary = atob(base64)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    return bytes
+  }
+
+  function fillMessageTemplate(tpl: string, pubkey: string) {
+    return tpl.replaceAll('{pubkey}', pubkey).replaceAll('{origin}', window.location.origin)
+  }
+
+  async function deriveAesKey(signature: Uint8Array, salt: Uint8Array) {
+    const merged = new Uint8Array(signature.length + salt.length)
+    merged.set(signature, 0)
+    merged.set(salt, signature.length)
+    const digest = await crypto.subtle.digest('SHA-256', merged)
+    return crypto.subtle.importKey('raw', digest, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
+  }
+
+  async function createBackup(template: EncryptionTemplate) {
+    if (!publicKey || !signMessage || !localCommKeyStorageKey) return
+    setAddressActionLoading(true)
+    try {
+      const keyPair = (await crypto.subtle.generateKey(
+        { name: 'X25519' } as EcKeyGenParams,
+        true,
+        ['deriveBits'],
+      )) as CryptoKeyPair
+      const exportedPub = new Uint8Array(await crypto.subtle.exportKey('raw', keyPair.publicKey))
+      const exportedPriv = new Uint8Array(await crypto.subtle.exportKey('pkcs8', keyPair.privateKey))
+      const salt = crypto.getRandomValues(new Uint8Array(16))
+      const iv = crypto.getRandomValues(new Uint8Array(12))
+      const msg = fillMessageTemplate(template.message_template, publicKey.toBase58())
+      const sig = await signMessage(new TextEncoder().encode(msg))
+      const aes = await deriveAesKey(sig, salt)
+      const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aes, exportedPriv)
+      await upsertMyEncryptionBackup({
+        backup_version: template.version,
+        encryption_public_key: bytesToBase64(exportedPub),
+        encrypted_private_key: bytesToBase64(new Uint8Array(encrypted)),
+        nonce: bytesToBase64(iv),
+        kdf_salt: bytesToBase64(salt),
+        kdf_params: template.kdf_params,
+      })
+      const saved = await fetchMyEncryptionBackup()
+      localStorage.setItem(localCommKeyStorageKey, bytesToBase64(exportedPriv))
+      setBackupVersion(saved.backup_version)
+      setAddressHint('已自动创建加密备份，可在新设备通过钱包签名恢复。')
+      setBackupPayload(saved)
+    } catch (err) {
+      setAddressError(err instanceof Error ? err.message : '自动创建加密备份失败')
+    } finally {
+      setAddressActionLoading(false)
+    }
+  }
+
+  async function restoreBackup() {
+    if (!publicKey || !signMessage || !backupPayload || !localCommKeyStorageKey) return
+    if (localStorage.getItem(localCommKeyStorageKey)) return
+    const tpl = templates.find((x) => x.version === backupPayload.backup_version)
+    if (!tpl) return
+    setAddressActionLoading(true)
+    try {
+      const msg = fillMessageTemplate(tpl.message_template, publicKey.toBase58())
+      const sig = await signMessage(new TextEncoder().encode(msg))
+      const aes = await deriveAesKey(sig, base64ToBytes(backupPayload.kdf_salt))
+      const plain = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: base64ToBytes(backupPayload.nonce) },
+        aes,
+        base64ToBytes(backupPayload.encrypted_private_key),
+      )
+      localStorage.setItem(localCommKeyStorageKey, bytesToBase64(new Uint8Array(plain)))
+      setAddressHint('已自动恢复本地通讯密钥。')
+    } catch (err) {
+      setAddressError(err instanceof Error ? err.message : '自动恢复密钥失败')
+    } finally {
+      setAddressActionLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setBackupVersion(null)
+      setAddressError(null)
+      return
+    }
+    let cancelled = false
+    async function loadAddressMeta() {
+      setAddressLoading(true)
+      setAddressError(null)
+      try {
+        const [tplRes, backupRes] = await Promise.all([
+          fetchEncryptionTemplates(),
+          fetchMyEncryptionBackup().catch((err) => {
+            if (err instanceof ApiError && err.status === 404) return null
+            throw err
+          }),
+        ])
+        if (cancelled) return
+        setTemplates(tplRes.templates)
+        if (backupRes) {
+          setBackupPayload(backupRes)
+          setBackupVersion(backupRes.backup_version)
+        } else {
+          setBackupPayload(null)
+          setBackupVersion(null)
+        }
+        if (profileShippingStorageKey) {
+          const raw = localStorage.getItem(profileShippingStorageKey)
+          if (raw) {
+            const parsed = JSON.parse(raw) as {
+              name?: string
+              phone?: string
+              region?: string
+              provinceCode?: string
+              cityCode?: string
+              districtCode?: string
+              detail?: string
+            }
+            setShippingName(parsed.name ?? '')
+            setShippingPhone(parsed.phone ?? '')
+            setShippingProvinceCode(parsed.provinceCode ?? '')
+            setShippingCityCode(parsed.cityCode ?? '')
+            setShippingDistrictCode(parsed.districtCode ?? '')
+            setShippingDetail(parsed.detail ?? '')
+          }
+        }
+      } catch (err) {
+        if (cancelled) return
+        setAddressError(err instanceof Error ? err.message : '地址配置加载失败')
+      } finally {
+        if (!cancelled) setAddressLoading(false)
+      }
+    }
+    void loadAddressMeta()
+    return () => {
+      cancelled = true
+    }
+  }, [isAuthenticated])
+
+  function handleSaveShippingProfile() {
+    if (!profileShippingStorageKey) return
+    localStorage.setItem(
+      profileShippingStorageKey,
+      JSON.stringify({
+        name: shippingName.trim(),
+        phone: shippingPhone.trim(),
+        region: shippingRegionText,
+        provinceCode: shippingProvinceCode,
+        cityCode: shippingCityCode,
+        districtCode: shippingDistrictCode,
+        detail: shippingDetail.trim(),
+      }),
+    )
+    setAddressHint('收货信息已保存。下单时会自动带入，你也可以按订单修改。')
+  }
+
+  async function handleSaveMyProfile() {
+    const name = profileNameDraft.trim()
+    if (!name) {
+      setProfileError('昵称不能为空')
+      return
+    }
+    if (name.length > 32) {
+      setProfileError('昵称不能超过 32 个字符')
+      return
+    }
+    setProfileSaving(true)
+    setProfileError(null)
+    try {
+      await updateMyProfile({ username: name })
+      await refreshSession()
+      setProfileDialogOpen(false)
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : '保存失败')
+    } finally {
+      setProfileSaving(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!isAuthenticated || !publicKey || !signMessage) return
+    if (addressLoading || addressActionLoading) return
+    if (autoProvisionTriedRef.current) return
+    autoProvisionTriedRef.current = true
+    if (backupPayload) {
+      void restoreBackup()
+      return
+    }
+    const tpl = templates[0]
+    if (tpl) void createBackup(tpl)
+  }, [isAuthenticated, publicKey, signMessage, addressLoading, addressActionLoading, backupPayload, templates])
 
   // 未连接钱包
   if (!publicKey) {
@@ -167,55 +436,6 @@ export function ProfilePage() {
               断开
             </button>
           </div>
-
-          {/* 后端会话（getMe）：刷新页面后仍显示「已登录」依赖此处重新拉取 */}
-          {apiConfigured && (
-            <div className="mx-4 mb-4 p-3 rounded-xl bg-secondary/30 border border-border/50 text-xs space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-medium text-foreground">后端会话</span>
-                <span className="text-muted-foreground">
-                  {sessionStatus === 'loading'
-                    ? '校验中…'
-                    : isAuthenticated
-                      ? '已通过 GET /auth/getme'
-                      : '未登录后端'}
-                </span>
-              </div>
-              {isAuthenticated && user && (
-                <>
-                  <p className="font-mono text-[11px] text-muted-foreground break-all">
-                    账户 pubkey：{user.pubkey.slice(0, 8)}…{user.pubkey.slice(-8)}
-                  </p>
-                  <p className="text-muted-foreground">
-                    交易 {user.trade_count} · 售出 {user.sell_count} · 购入{' '}
-                    {user.buy_count}
-                  </p>
-                  {walletMatchesBackend && (
-                    <p className="text-primary">与当前钱包地址一致</p>
-                  )}
-                  {addr && user.pubkey !== addr && (
-                    <p className="text-amber-500">
-                      提示：后端账户与当前连接钱包不一致，请用登录时的钱包或重新签名登录。
-                    </p>
-                  )}
-                </>
-              )}
-              {!isAuthenticated &&
-                sessionStatus !== 'loading' &&
-                hasStoredAccessToken() && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-8 text-xs"
-                    disabled={authLoading}
-                    onClick={() => refreshSession()}
-                  >
-                    {authLoading ? '重试中…' : '重新验证会话'}
-                  </Button>
-                )}
-            </div>
-          )}
 
           {/* 数据统计 */}
           <div className="grid grid-cols-4 divide-x divide-border/50 border-t border-border/50">
@@ -338,13 +558,32 @@ export function ProfilePage() {
         {/* 设置区 */}
         <div className="rounded-2xl bg-card border border-border/60 overflow-hidden divide-y divide-border/50">
           {[
-            { label: '通知设置', icon: '🔔', desc: '管理消息推送' },
-            { label: '安全设置', icon: '🔒', desc: '账户与隐私' },
+            {
+              label: '个人信息',
+              icon: '👤',
+              desc: '修改昵称，头像上传功能即将上线',
+              onClick: () => {
+                setProfileError(null)
+                setProfileDialogOpen(true)
+              },
+            },
+            {
+              label: '收货地址',
+              icon: '📦',
+              desc: backupVersion
+                ? '已保存收货信息'
+                : '填写默认收货信息，下单可自动带入',
+              onClick: () => setAddressDialogOpen(true),
+            },
+            { label: '订单提醒', icon: '🔔', desc: '买家提交地址后，可在订单里直接查看' },
+            { label: '安全设置', icon: '🔒', desc: '自动锁定与隐私保护开关', onClick: () => setSecurityDialogOpen(true) },
+            { label: '隐私设置', icon: '🛡️', desc: '手机号脱敏与订单可见范围', onClick: () => setPrivacyDialogOpen(true) },
             { label: '帮助与反馈', icon: '💬', desc: '联系支持团队' },
             { label: '关于 BookChain', icon: '📖', desc: '版本 0.1.0 · Solana Devnet' },
           ].map((item) => (
             <button
               key={item.label}
+              onClick={item.onClick}
               className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-secondary/40 transition-colors text-left"
             >
               <span className="text-base" role="img" aria-label={item.label}>{item.icon}</span>
@@ -366,6 +605,190 @@ export function ProfilePage() {
         >
           断开钱包连接
         </button>
+
+        <Dialog open={addressDialogOpen} onOpenChange={setAddressDialogOpen}>
+          <DialogContent className="max-w-[min(92vw,640px)]">
+            <DialogHeader>
+              <DialogTitle>收货地址</DialogTitle>
+              <DialogDescription>
+                填写你的默认收货信息。我们采用加密存储，保护您的隐私，只有您自己和卖家能够查看您的收货地址。
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 text-sm">
+              {addressLoading && <p className="text-xs text-muted-foreground">正在准备地址安全能力…</p>}
+              {addressActionLoading && <p className="text-xs text-muted-foreground">正在初始化安全能力，请稍候…</p>}
+              {addressHint && <p className="text-xs text-primary">{addressHint}</p>}
+              {addressError && <p className="text-xs text-destructive">{addressError}</p>}
+              <div className="rounded-xl border border-border/60 p-3 space-y-2">
+                <p className="text-xs font-semibold text-foreground">默认收货信息</p>
+                <input
+                  value={shippingName}
+                  onChange={(e) => setShippingName(e.target.value)}
+                  placeholder="收件人姓名"
+                  className="w-full h-9 rounded-md bg-input border border-border px-2 text-xs"
+                />
+                <input
+                  value={shippingPhone}
+                  onChange={(e) => setShippingPhone(e.target.value)}
+                  placeholder="手机号"
+                  className="w-full h-9 rounded-md bg-input border border-border px-2 text-xs"
+                />
+                <div className="grid grid-cols-3 gap-2">
+                  <select
+                    value={shippingProvinceCode}
+                    onChange={(e) => {
+                      setShippingProvinceCode(e.target.value)
+                      setShippingCityCode('')
+                      setShippingDistrictCode('')
+                    }}
+                    className="h-9 rounded-md bg-input border border-border px-2 text-xs"
+                  >
+                    <option value="">省</option>
+                    {provinceOptions.map((p) => (
+                      <option key={p.code} value={p.code}>{p.name}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={shippingCityCode}
+                    onChange={(e) => {
+                      setShippingCityCode(e.target.value)
+                      setShippingDistrictCode('')
+                    }}
+                    className="h-9 rounded-md bg-input border border-border px-2 text-xs"
+                    disabled={!shippingProvinceCode}
+                  >
+                    <option value="">市</option>
+                    {cityOptions.map((c) => (
+                      <option key={c.code} value={c.code}>{c.name}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={shippingDistrictCode}
+                    onChange={(e) => setShippingDistrictCode(e.target.value)}
+                    className="h-9 rounded-md bg-input border border-border px-2 text-xs"
+                    disabled={!shippingCityCode}
+                  >
+                    <option value="">区/县</option>
+                    {districtOptions.map((d) => (
+                      <option key={d.code} value={d.code}>{d.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <textarea
+                  rows={3}
+                  value={shippingDetail}
+                  onChange={(e) => setShippingDetail(e.target.value)}
+                  placeholder="详细地址（街道、门牌、楼栋、房号）"
+                  className="w-full rounded-md bg-input border border-border px-2 py-1.5 text-xs"
+                />
+                <Button
+                  size="sm"
+                  disabled={
+                    !shippingName.trim() ||
+                    !shippingPhone.trim() ||
+                    !shippingProvinceCode ||
+                    !shippingCityCode ||
+                    !shippingDistrictCode ||
+                    !shippingDetail.trim()
+                  }
+                  onClick={handleSaveShippingProfile}
+                >
+                  保存收货信息
+                </Button>
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <Button variant="outline" onClick={() => setAddressDialogOpen(false)}>关闭</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
+          <DialogContent className="max-w-[min(92vw,560px)]">
+            <DialogHeader>
+              <DialogTitle>我的信息</DialogTitle>
+              <DialogDescription>可修改昵称。头像先占位，后续接入 OSS 上传。</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="w-14 h-14 rounded-2xl bg-secondary border border-border flex items-center justify-center overflow-hidden">
+                  {avatarUrl ? (
+                    <Image src={avatarUrl} alt="avatar preview" width={56} height={56} className="object-cover w-full h-full" />
+                  ) : (
+                    <span className="text-xs text-muted-foreground">头像</span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" onClick={() => avatarFileRef.current?.click()}>
+                    选择头像（占位）
+                  </Button>
+                  <input
+                    ref={avatarFileRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (!f) return
+                      const reader = new FileReader()
+                      reader.onload = (ev) => setProfileAvatarPreview(ev.target?.result as string)
+                      reader.readAsDataURL(f)
+                    }}
+                  />
+                </div>
+              </div>
+              <input
+                value={profileNameDraft}
+                onChange={(e) => setProfileNameDraft(e.target.value)}
+                placeholder="请输入昵称（最多 32 字）"
+                className="w-full h-10 rounded-md bg-input border border-border px-3 text-sm"
+              />
+              {profileError ? <p className="text-xs text-destructive">{profileError}</p> : null}
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setProfileDialogOpen(false)} disabled={profileSaving}>取消</Button>
+                <Button onClick={handleSaveMyProfile} disabled={profileSaving}>{profileSaving ? '保存中...' : '保存'}</Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={securityDialogOpen} onOpenChange={setSecurityDialogOpen}>
+          <DialogContent className="max-w-[min(92vw,520px)]">
+            <DialogHeader>
+              <DialogTitle>安全设置</DialogTitle>
+              <DialogDescription>本地安全偏好设置（不上传服务器）。</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 text-sm">
+              <label className="flex items-center justify-between gap-2">
+                <span>离开页面后自动锁定敏感操作</span>
+                <input type="checkbox" checked={securityAutoLock} onChange={(e) => setSecurityAutoLock(e.target.checked)} />
+              </label>
+              <label className="flex items-center justify-between gap-2">
+                <span>默认隐藏订单中的完整地址明文</span>
+                <input type="checkbox" checked={securityHideAddress} onChange={(e) => setSecurityHideAddress(e.target.checked)} />
+              </label>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={privacyDialogOpen} onOpenChange={setPrivacyDialogOpen}>
+          <DialogContent className="max-w-[min(92vw,520px)]">
+            <DialogHeader>
+              <DialogTitle>隐私设置</DialogTitle>
+              <DialogDescription>交易地址与联系方式的显示策略。</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 text-sm">
+              <label className="flex items-center justify-between gap-2">
+                <span>手机号默认脱敏显示</span>
+                <input type="checkbox" checked={privacyMaskPhone} onChange={(e) => setPrivacyMaskPhone(e.target.checked)} />
+              </label>
+              <label className="flex items-center justify-between gap-2">
+                <span>仅订单相关双方可见完整地址</span>
+                <input type="checkbox" checked={privacyOnlyOrderParties} onChange={(e) => setPrivacyOnlyOrderParties(e.target.checked)} />
+              </label>
+            </div>
+          </DialogContent>
+        </Dialog>
 
       </div>
     </div>
