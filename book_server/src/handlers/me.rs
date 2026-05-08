@@ -116,6 +116,26 @@ pub struct UpdateMyProfileRequest {
     pub avatar: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct UpsertShippingAddressRequest {
+    pub buyer_ciphertext: String,
+    pub buyer_nonce: String,
+    pub buyer_alg: String,
+    pub encryption_key_version: String,
+    pub is_default: Option<bool>,
+}
+
+fn validate_shipping_address_input(req: &UpsertShippingAddressRequest) -> Result<(), AppError> {
+    if req.buyer_ciphertext.trim().is_empty()
+        || req.buyer_nonce.trim().is_empty()
+        || req.buyer_alg.trim().is_empty()
+        || req.encryption_key_version.trim().is_empty()
+    {
+        return Err(bad_request("地址密文参数不完整"));
+    }
+    Ok(())
+}
+
 pub async fn submit_review_handler(
     State(state): State<AppState>,
     Extension(pubkey): Extension<String>,
@@ -296,4 +316,89 @@ pub async fn upsert_order_shipping_cipher_by_asset_handler(
         .await?;
 
     Ok(ok(json!({ "msg": "收货地址密文已保存", "escrow_pda": escrow.escrow_pda })))
+}
+
+pub async fn list_my_shipping_addresses_handler(
+    State(state): State<AppState>,
+    Extension(pubkey): Extension<String>,
+) -> HandlerResult {
+    let addresses = state.db_service.list_user_shipping_addresses(&pubkey).await?;
+    Ok(ok(json!({ "addresses": addresses })))
+}
+
+pub async fn create_my_shipping_address_handler(
+    State(state): State<AppState>,
+    Extension(pubkey): Extension<String>,
+    Json(req): Json<UpsertShippingAddressRequest>,
+) -> HandlerResult {
+    validate_shipping_address_input(&req)?;
+    let now = Utc::now().timestamp();
+    let row = state
+        .db_service
+        .create_user_shipping_address(
+            &pubkey,
+            req.buyer_ciphertext.trim(),
+            req.buyer_nonce.trim(),
+            req.buyer_alg.trim(),
+            req.encryption_key_version.trim(),
+            req.is_default.unwrap_or(false),
+            now,
+        )
+        .await?;
+    Ok(ok(json!({ "address": row })))
+}
+
+pub async fn update_my_shipping_address_handler(
+    State(state): State<AppState>,
+    Extension(pubkey): Extension<String>,
+    Path(id): Path<i64>,
+    Json(req): Json<UpsertShippingAddressRequest>,
+) -> HandlerResult {
+    validate_shipping_address_input(&req)?;
+    let now = Utc::now().timestamp();
+    let row = state
+        .db_service
+        .update_user_shipping_address(
+            &pubkey,
+            id,
+            req.buyer_ciphertext.trim(),
+            req.buyer_nonce.trim(),
+            req.buyer_alg.trim(),
+            req.encryption_key_version.trim(),
+            now,
+        )
+        .await?
+        .ok_or_else(|| bad_request("地址不存在"))?;
+    Ok(ok(json!({ "address": row })))
+}
+
+pub async fn delete_my_shipping_address_handler(
+    State(state): State<AppState>,
+    Extension(pubkey): Extension<String>,
+    Path(id): Path<i64>,
+) -> HandlerResult {
+    let affected = state
+        .db_service
+        .delete_user_shipping_address(&pubkey, id)
+        .await?;
+    if affected == 0 {
+        return Err(bad_request("地址不存在"));
+    }
+    Ok(ok(json!({ "msg": "地址已删除" })))
+}
+
+pub async fn set_default_my_shipping_address_handler(
+    State(state): State<AppState>,
+    Extension(pubkey): Extension<String>,
+    Path(id): Path<i64>,
+) -> HandlerResult {
+    let now = Utc::now().timestamp();
+    let ok_set = state
+        .db_service
+        .set_default_user_shipping_address(&pubkey, id, now)
+        .await?;
+    if !ok_set {
+        return Err(bad_request("地址不存在"));
+    }
+    Ok(ok(json!({ "msg": "默认地址已更新" })))
 }

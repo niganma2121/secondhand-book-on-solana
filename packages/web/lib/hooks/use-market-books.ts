@@ -14,6 +14,7 @@ export type UseMarketBooksParams = {
   categoryKey: string | null
   conditionDb: string | null
   sortBy: MarketBooksSort | 'favorites'
+  refreshKey?: number
   debounceMs?: number
 }
 
@@ -40,12 +41,14 @@ export function useMarketBooks(params: UseMarketBooksParams) {
         cat: params.categoryKey,
         cond: params.conditionDb,
         sort: params.sortBy,
+        refresh: params.refreshKey ?? 0,
       }),
     [
       debouncedKeyword,
       params.categoryKey,
       params.conditionDb,
       params.sortBy,
+      params.refreshKey,
     ],
   )
 

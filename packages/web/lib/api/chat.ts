@@ -45,3 +45,16 @@ export async function fetchChatMessages(peerPubkey: string, page = 1, pageSize =
     `/me/chat/${encodeURIComponent(peerPubkey)}/messages?${q.toString()}`,
   )
 }
+
+export async function markChatConversationRead(peerPubkey: string) {
+  const peer = encodeURIComponent(peerPubkey)
+  try {
+    return await apiFetch<{ msg: string }>(`/me/chat/${peer}/messages/read`, {
+      method: 'POST',
+    })
+  } catch {
+    return apiFetch<{ msg: string }>(`/me/chat/${peer}/read`, {
+      method: 'POST',
+    })
+  }
+}

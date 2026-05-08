@@ -4,6 +4,7 @@
 export const routes = {
   home: '/',
   market: '/market',
+  pending: '/pending',
   transactions: '/transactions',
   shelf: '/shelf',
   list: '/list',

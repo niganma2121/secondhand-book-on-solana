@@ -138,7 +138,7 @@ impl AnchorService {
 
         let asset_keypair = Keypair::new();
         let asset_pubkey = asset_keypair.pubkey();
-        let book_pda = self.book_pda(&seller, &asset_pubkey);
+        let book_pda = self.book_pda(&asset_pubkey);
         let program = self.get_program()?;
         let admin_pk = self.admin_keypair.pubkey();
         let mint_ix = CreateV1Builder::new()
@@ -154,9 +154,10 @@ impl AnchorService {
             .request()
             .accounts(accounts::CreateBook {
                 seller,
-                admin: self.admin_keypair.pubkey(),
                 book: book_pda,
                 asset: asset_pubkey,
+                collection,
+                mpl_core_program: MPL_CORE,
                 system_program: SYSTEM_PROGRAM_ID,
             })
             .args(args::CreateBook {
@@ -241,16 +242,16 @@ impl AnchorService {
         &self,
         req: DelistBookRequest,
     ) -> Result<UnsignedTxResponse, ClientError> {
-        let seller = parse(&req.seller)?;
+        let owner = parse(&req.seller)?;
         let asset = parse(&req.asset)?;
         let collection = parse(&req.collection)?;
-        let book_pda = self.book_pda(&seller, &asset);
+        let book_pda = self.book_pda(&asset);
         let program = self.get_program()?;
 
         let delist_ix = program
             .request()
             .accounts(accounts::DelistBook {
-                seller,
+                owner,
                 book: book_pda,
             })
             .args(args::DelistBook {})
@@ -258,13 +259,13 @@ impl AnchorService {
         let burn_ix = BurnV1Builder::new()
             .asset(asset)
             .collection(Some(collection))
-            .payer(seller)
+            .payer(owner)
             .instruction();
         let mut all_ix = delist_ix;
         all_ix.push(burn_ix);
 
         let block_hash = self.get_blockhash().await?;
-        let msg = Message::new_with_blockhash(all_ix.as_ref(), Some(&seller), &block_hash);
+        let msg = Message::new_with_blockhash(all_ix.as_ref(), Some(&owner), &block_hash);
         let tx = Transaction::new_unsigned(msg);
 
         Ok(UnsignedTxResponse {
@@ -277,15 +278,15 @@ impl AnchorService {
         &self,
         req: UpdatePriceRequest,
     ) -> Result<UnsignedTxResponse, ClientError> {
-        let seller = parse(&req.seller)?;
+        let owner = parse(&req.seller)?;
         let asset = parse(&req.asset)?;
-        let book_pda = self.book_pda(&seller, &asset);
+        let book_pda = self.book_pda(&asset);
         let program = self.get_program()?;
 
         let ix = program
             .request()
             .accounts(accounts::UpdateBookPrice {
-                seller,
+                owner,
                 book: book_pda,
             })
             .args(args::UpdateBookPrice {
@@ -293,7 +294,7 @@ impl AnchorService {
             })
             .instructions()?;
         let block_hash = self.get_blockhash().await?;
-        let msg = Message::new_with_blockhash(ix.as_ref(), Some(&seller), &block_hash);
+        let msg = Message::new_with_blockhash(ix.as_ref(), Some(&owner), &block_hash);
         let tx = Transaction::new_unsigned(msg);
 
         Ok(UnsignedTxResponse {

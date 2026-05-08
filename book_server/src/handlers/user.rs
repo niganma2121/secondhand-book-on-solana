@@ -68,8 +68,9 @@ pub async fn get_user_encryption_pubkey_handler(
         .get_user(&pubkey)
         .await?
         .ok_or_else(|| not_found("用户不存在"))?;
-    let enc_pubkey = user
-        .enc_pubkey
-        .ok_or_else(|| not_found("用户未配置通讯公钥"))?;
-    Ok(ok(json!({ "pubkey": pubkey, "encryption_public_key": enc_pubkey })))
+    Ok(ok(json!({
+        "pubkey": pubkey,
+        "encryption_public_key": user.enc_pubkey,
+        "configured": user.enc_pubkey.is_some(),
+    })))
 }

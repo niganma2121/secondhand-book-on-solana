@@ -41,7 +41,7 @@ interface FormState {
   coverPreview: string | null
 }
 
-type DetailImageItem = { id: string; file: File; preview: string }
+type DetailImageItem = { id: string; file: File; preview: string; sourceFingerprint: string }
 
 const MAX_DETAIL_IMAGES = 5
 const MIN_DETAIL_IMAGES = 2
@@ -52,6 +52,13 @@ const DETAIL_MAX_EDGE = 2600
 
 function newDetailId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+async function fingerprintFile(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer()
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', buffer)
+  const bytes = new Uint8Array(digest)
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 async function loadImageElement(file: File): Promise<HTMLImageElement> {
@@ -282,6 +289,7 @@ export function ListBookPage() {
   const [lookupResults, setLookupResults] = useState<GoogleBooksHit[]>([])
   const [detailImages, setDetailImages] = useState<DetailImageItem[]>([])
   const [imageProcessing, setImageProcessing] = useState(false)
+  const [duplicateHintOpen, setDuplicateHintOpen] = useState(false)
 
   const priceNum = parseFloat(form.price) || 0
   const platformFee = priceNum * PLATFORM_FEE_RATE
@@ -307,6 +315,12 @@ export function ListBookPage() {
     if (p === '') p = String(sol)
     setForm((f) => (f.price === p ? f : { ...f, price: p }))
   }, [cnyPerSol, cnyDraft, priceMode])
+
+  useEffect(() => {
+    if (!duplicateHintOpen) return
+    const timer = window.setTimeout(() => setDuplicateHintOpen(false), 2000)
+    return () => window.clearTimeout(timer)
+  }, [duplicateHintOpen])
 
   function validate() {
     const e: typeof errors = {}
@@ -359,10 +373,18 @@ export function ListBookPage() {
       return
     }
     const next: DetailImageItem[] = []
+    const existingFingerprints = new Set(detailImages.map((img) => img.sourceFingerprint))
+    let duplicatedCount = 0
     setImageProcessing(true)
     for (let i = 0; i < list.length && next.length < remaining; i++) {
       const file = list[i]
       if (!file.type.startsWith('image/')) continue
+      const sourceFingerprint = await fingerprintFile(file)
+      if (existingFingerprints.has(sourceFingerprint)) {
+        duplicatedCount++
+        setDuplicateHintOpen(true)
+        continue
+      }
       let processed: File
       try {
         processed = await compressImageIfNeeded(file, MAX_DETAIL_FILE_BYTES, DETAIL_MAX_EDGE)
@@ -370,14 +392,19 @@ export function ListBookPage() {
         setSubmitError(`详情图处理失败或仍超过 5MB：${file.name}`)
         continue
       }
+      existingFingerprints.add(sourceFingerprint)
       next.push({
         id: newDetailId(),
         file: processed,
         preview: URL.createObjectURL(processed),
+        sourceFingerprint,
       })
     }
-    if (next.length > 0) {
+    if (next.length > 0 && duplicatedCount === 0) {
       setSubmitError(null)
+    }
+    if (duplicatedCount > 0 && next.length === 0) {
+      setSubmitError('检测到重复详情图，已自动跳过')
     }
     if (next.length) setDetailImages((prev) => [...prev, ...next])
     setImageProcessing(false)
@@ -574,10 +601,6 @@ export function ListBookPage() {
       title: hit.title,
       author: hit.authors.length ? hit.authors.join(' / ') : f.author,
       isbn: hit.isbns[0] ?? f.isbn,
-      description:
-        f.description.trim().length > 0
-          ? f.description
-          : (hit.description?.slice(0, 2000) ?? ''),
       coverPreview: cover ?? f.coverPreview,
     }))
     setLookupDialogOpen(false)
@@ -647,7 +670,7 @@ export function ListBookPage() {
                 </p>
                 <p className="text-sm text-muted-foreground mt-1">
                   {step === 'building'
-                    ? '已拆分为多步上传，任一步失败只需重试该步（请勿关闭页面）'
+                    ? '正在上传中，请不要关闭此页面'
                     : step === 'signing'
                       ? '请在 Phantom / Solflare 中确认签名弹窗'
                       : '正在 Solana Devnet 上铸造书籍 NFT'}
@@ -693,22 +716,6 @@ export function ListBookPage() {
           <p className="text-sm text-muted-foreground mt-0.5">填写信息后将铸造为 Solana NFT 上链出售</p>
         </div>
 
-        {/* Google Books：弹窗内搜索，封面可放大预览 */}
-        <div className="mb-5 rounded-2xl border border-border/60 bg-card/40 p-4 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-muted-foreground flex-1 min-w-[200px]">
-            使用 Google Books 搜索书目并填充表单（密钥仅在服务端）。冷门书若无结果请直接上传封面。
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="shrink-0 rounded-xl"
-            onClick={() => setLookupDialogOpen(true)}
-          >
-            网上查找
-          </Button>
-        </div>
-
         <Dialog
           open={lookupDialogOpen}
           onOpenChange={(open) => {
@@ -726,9 +733,6 @@ export function ListBookPage() {
             <div className="p-5 pb-3 border-b border-border/50 shrink-0">
               <DialogHeader className="space-y-1.5">
                 <DialogTitle>从 Google Books 搜索</DialogTitle>
-                <DialogDescription>
-                  由后端使用 Books API 查询；通常几秒内返回。封面来自 Google 书架缩略图，可点击放大预览。
-                </DialogDescription>
               </DialogHeader>
             </div>
 
@@ -848,7 +852,7 @@ export function ListBookPage() {
                 <span className="text-muted-foreground">定价</span>
                 <span className="text-foreground font-mono">
                   {priceNum.toFixed(6)} SOL
-                  {cnyDraft.trim() ? `（约 ¥${cnyDraft.trim()}）` : ''}
+                  {cnyDraft.trim() ? `（¥${cnyDraft.trim()}）` : ''}
                 </span>
               </div>
               <label className="flex items-start gap-2 text-xs text-muted-foreground">
@@ -858,7 +862,7 @@ export function ListBookPage() {
                   checked={confirmChecked}
                   onChange={(e) => setConfirmChecked(e.target.checked)}
                 />
-                我已核对信息（至少 2 张详情图），确认上架后仅支持修改价格。
+                我已核对信息，确认上架后仅支持修改价格。
               </label>
             </div>
             <div className="flex gap-2 justify-end">
@@ -950,6 +954,15 @@ export function ListBookPage() {
               >
                 从相册上传
               </UploadActionButton>
+              <Button
+                type="button"
+                variant="outline"
+                className={['h-10 rounded-xl', isMobile ? 'flex-1' : 'px-6'].join(' ')}
+                onClick={() => setLookupDialogOpen(true)}
+                disabled={imageProcessing}
+              >
+                网上查找
+              </Button>
             </div>
             {imageProcessing && (
               <div className="mt-2 inline-flex items-center gap-2 text-xs text-muted-foreground">
@@ -1379,6 +1392,11 @@ export function ListBookPage() {
           </Button>
         </div>
       </div>
+      {duplicateHintOpen && (
+        <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-md border border-border/60 bg-card/95 px-3 py-2 text-xs text-foreground shadow-lg backdrop-blur">
+          你已经上传过该图片了
+        </div>
+      )}
     </div>
   )
 }

@@ -6,14 +6,14 @@ use crate::AppError;
 #[derive(Accounts)]
 pub struct DelistBook<'info>{
     #[account(mut)]
-    pub seller:Signer<'info>,
+    pub owner:Signer<'info>,
 
     #[account(
         mut,
-        has_one=seller,
-        close=seller,//退还租金
+        constraint=book.owner==owner.key() @ AppError::UnauthorizedSeller,
+        close=owner,//退还租金
         constraint=book.status==BookStatus::Listed @ AppError::InvalidStatus ,
-        seeds=[BOOK_SEED,seller.key().as_ref(),book.asset.key().as_ref()],
+        seeds=[BOOK_SEED,book.asset.as_ref()],
         bump=book.bump
     )]
     pub book:Account<'info,Book>
@@ -27,7 +27,7 @@ pub fn delist_book(
 
     emit!(DelistBookEvent{
         book:ctx.accounts.book.key(),
-        seller:ctx.accounts.seller.key()
+        seller:ctx.accounts.owner.key()
     });
     Ok(())
 }

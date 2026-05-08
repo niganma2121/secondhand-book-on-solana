@@ -7,6 +7,7 @@ use crate::client::types::{
     ResolveDisputeRequest, ShipBookRequest,
 };
 use crate::state::AppState;
+use axum::Extension;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -41,8 +42,12 @@ pub async fn confirm_receipt_handler(
 /// 取消托管订单（买家或卖家均可发起，链上合约负责权限校验）。
 pub async fn cancel_escrow_handler(
     State(state): State<AppState>,
+    Extension(pubkey): Extension<String>,
     Json(req): Json<CancelEscrowRequest>,
 ) -> Result<impl IntoResponse, ClientError> {
+    if req.signer != pubkey {
+        return Err(ClientError::Forbidden);
+    }
     let res = state.anchor_service.build_cancel_escrow(req).await?;
     Ok((StatusCode::OK, Json(res)))
 }
@@ -103,12 +108,25 @@ pub async fn broadcast_confirm_receipt_handler(
 
 pub async fn broadcast_cancel_escrow_handler(
     State(state): State<AppState>,
+    Extension(pubkey): Extension<String>,
     Json(req): Json<BroadcastCancelEscrowRequest>,
 ) -> Result<impl IntoResponse, ClientError> {
+    let escrow = state
+        .db_service
+        .get_escrow(&req.escrow_pda)
+        .await
+        .map_err(|e| ClientError::DbError(e.to_string()))?
+        .ok_or_else(|| ClientError::BadRequest("订单不存在".into()))?;
+    if escrow.buyer != pubkey && escrow.seller != pubkey {
+        return Err(ClientError::Forbidden);
+    }
+    if escrow.asset != req.asset {
+        return Err(ClientError::BadRequest("订单与资产不匹配".into()));
+    }
     let now = chrono::Utc::now().timestamp();
     let res = state
         .anchor_service
-        .broadcast_cancel_escrow(req, &state.db_service, now)
+        .broadcast_cancel_escrow(req, &state.db_service, &pubkey, now)
         .await?;
     Ok((StatusCode::OK, Json(res)))
 }

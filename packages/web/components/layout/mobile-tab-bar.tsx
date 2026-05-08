@@ -54,6 +54,26 @@ function TransactionsIcon({ active }: { active: boolean }) {
   )
 }
 
+function PendingIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+      <rect
+        x="3"
+        y="3"
+        width="16"
+        height="16"
+        rx="2"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        fill={active ? 'currentColor' : 'none'}
+        fillOpacity={active ? 0.12 : 0}
+      />
+      <path d="M7 8h8M7 11h8M7 14h5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <circle cx="16.5" cy="14.5" r="1.3" fill="currentColor" />
+    </svg>
+  )
+}
+
 function ProfileIcon({ active }: { active: boolean }) {
   return (
     <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
@@ -78,6 +98,8 @@ function iconFor(key: string, active: boolean, isCenter?: boolean) {
       return <MarketIcon active={active} />
     case 'transactions':
       return <TransactionsIcon active={active} />
+    case 'pending':
+      return <PendingIcon active={active} />
     case 'profile':
       return <ProfileIcon active={active} />
     default:

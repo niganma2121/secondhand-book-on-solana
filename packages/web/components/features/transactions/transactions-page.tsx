@@ -9,6 +9,17 @@ import { shortenPubkey } from '@/lib/format-seller'
 import { useAuth } from '@/components/providers/auth-provider'
 import { fetchOrderShippingCipher, upsertOrderShippingCipher } from '@/lib/api/shipping-cipher'
 import { fetchUserEncryptionPublicKey } from '@/lib/api/encryption'
+type ShippingAddress = {
+  id: string
+  label: string
+  name: string
+  phone?: string
+  region: string
+  provinceCode: string
+  cityCode: string
+  districtCode: string
+  detail: string
+}
 
 const TYPE_LABELS: Record<ChainTransaction['type'], string> = {
   buy: '购买',
@@ -164,6 +175,30 @@ function TxCard({ tx, myPubkey }: { tx: ChainTransaction; myPubkey?: string }) {
   const [shippingPlaintext, setShippingPlaintext] = useState<string | null>(null)
   const [shippingError, setShippingError] = useState<string | null>(null)
   const [shippingHint, setShippingHint] = useState<string | null>(null)
+  function readDefaultShippingProfile(pubkey: string) {
+    const raw = localStorage.getItem(`bookchain:shipping-profile:${pubkey}`)
+    if (!raw) return ''
+    try {
+      const parsed = JSON.parse(raw) as {
+        addresses?: ShippingAddress[]
+        defaultId?: string | null
+        name?: string
+        phone?: string
+        region?: string
+        detail?: string
+      }
+      if (Array.isArray(parsed.addresses) && parsed.addresses.length > 0) {
+        const target =
+          parsed.addresses.find((x) => x.id === parsed.defaultId) ??
+          parsed.addresses[0]
+        return [target.name, target.phone, target.region, target.detail].filter(Boolean).join('，')
+      }
+      return [parsed.name, parsed.phone, parsed.region, parsed.detail].filter(Boolean).join('，')
+    } catch {
+      return ''
+    }
+  }
+
   const status = STATUS_CONFIG[tx.status]
   const explorerHref =
     tx.transactionLinkKind === 'account'
@@ -209,20 +244,13 @@ function TxCard({ tx, myPubkey }: { tx: ChainTransaction; myPubkey?: string }) {
 
   function handleOpenAddressEditor() {
     if (!myPubkey) return
-    const key = `bookchain:shipping-profile:${myPubkey}`
-    const raw = localStorage.getItem(key)
-    if (!raw) {
+    const merged = readDefaultShippingProfile(myPubkey)
+    if (!merged) {
       setAddressDraft('')
       setShowAddressEditor(true)
       return
     }
-    try {
-      const parsed = JSON.parse(raw) as { name?: string; phone?: string; region?: string; detail?: string }
-      const merged = [parsed.name, parsed.phone, parsed.region, parsed.detail].filter(Boolean).join('，')
-      setAddressDraft(merged)
-    } catch {
-      setAddressDraft('')
-    }
+    setAddressDraft(merged)
     setShowAddressEditor(true)
   }
 
@@ -233,6 +261,9 @@ function TxCard({ tx, myPubkey }: { tx: ChainTransaction; myPubkey?: string }) {
     setShippingHint(null)
     try {
       const sellerPub = await fetchUserEncryptionPublicKey(tx.to)
+      if (!sellerPub.encryption_public_key) {
+        throw new Error('卖家尚未初始化加密通讯能力，暂时无法更新地址。')
+      }
       const encrypted = await encryptShippingForSeller(
         sellerPub.encryption_public_key,
         addressDraft.trim(),
@@ -405,7 +436,7 @@ function TxCard({ tx, myPubkey }: { tx: ChainTransaction; myPubkey?: string }) {
                     setAddressDraft(e.target.value)
                     setShippingHint(null)
                   }}
-                  placeholder="收件人、手机号、省市区、详细地址"
+                  placeholder="收件人、省市区、详细地址"
                   className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs"
                 />
                 <div className="flex gap-2">
@@ -442,6 +473,7 @@ export function TransactionsPage() {
   const [scopeTouched, setScopeTouched] = useState(false)
   const { transactions, loading, error, unauthorized } = useTransactions(scope)
   const [filter, setFilter] = useState<ChainTransaction['status'] | 'all'>('all')
+  const showStatusFilters = scope !== 'program'
 
   useEffect(() => {
     if (scopeTouched) return
@@ -449,9 +481,10 @@ export function TransactionsPage() {
     setScope(isAuthenticated ? 'mine' : 'program')
   }, [isAuthenticated, scopeTouched, sessionStatus])
 
-  const displayed = filter === 'all'
+  const effectiveFilter = showStatusFilters ? filter : 'all'
+  const displayed = effectiveFilter === 'all'
     ? transactions
-    : transactions.filter((t) => t.status === filter)
+    : transactions.filter((t) => t.status === effectiveFilter)
 
   const stats = {
     total: transactions.length,
@@ -510,35 +543,25 @@ export function TransactionsPage() {
           </div>
         </div>
 
-        {/* 状态筛选 */}
-        <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-none pb-1 -mx-4 px-4 sm:mx-0 sm:px-0">
-          {FILTER_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => setFilter(opt.value)}
-              className={[
-                'shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors',
-                filter === opt.value
-                  ? 'bg-primary text-primary-foreground border-primary'
-                  : 'bg-card border-border text-muted-foreground hover:text-foreground',
-              ].join(' ')}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Devnet 提示：放在列表区域上方，避免短页面时整条贴在视口底部 */}
-        <div className="mb-4 flex items-start gap-2 rounded-lg bg-secondary/50 px-3 py-2.5 text-xs text-muted-foreground">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="mt-0.5 shrink-0">
-            <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.3" />
-            <path d="M7 6v4M7 4.5v.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-          </svg>
-          <span>
-            当前网络: Solana Devnet。列表来自服务端同步的托管账户；点击 Explorer
-            打开托管 PDA 或交易（与签名类型一致）。完整链上签名仍以 RPC / Explorer 为准。
-          </span>
-        </div>
+        {/* 状态筛选（链上记录模式不展示） */}
+        {showStatusFilters && (
+          <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-none pb-1 -mx-4 px-4 sm:mx-0 sm:px-0">
+            {FILTER_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setFilter(opt.value)}
+                className={[
+                  'shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors',
+                  filter === opt.value
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-card border-border text-muted-foreground hover:text-foreground',
+                ].join(' ')}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {error && (
           <div className="mb-4 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">

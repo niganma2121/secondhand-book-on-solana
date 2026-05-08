@@ -13,7 +13,7 @@ pub struct ConfirmReceipt<'info>{
     pub seller:SystemAccount<'info>,
     #[account(
         mut,
-        seeds=[BOOK_SEED,escrow.seller.as_ref(),escrow.asset.as_ref()],
+        seeds=[BOOK_SEED,escrow.asset.as_ref()],
         bump
     )]
     pub book:Account<'info,Book>,
@@ -72,16 +72,22 @@ pub fn confirm_receipt(ctx:Context<ConfirmReceipt>)->Result<()>{
         book_key.as_ref(),
         &[bump]
     ];
-    let signer_seeds=&[seeds];
+    let escrow_signer_seeds=&[seeds];
+    let book_seeds:&[&[u8]]=&[
+        BOOK_SEED,
+        ctx.accounts.book.asset.as_ref(),
+        &[ctx.accounts.book.bump]
+    ];
+    let book_signer_seeds=&[book_seeds];
     let seller_cpi_ctx=CpiContext::new_with_signer(
         ctx.accounts.system_program.to_account_info(),
         seller_cpi_accounts,
-        signer_seeds
+        escrow_signer_seeds
     );
     let platform_cpi_ctx=CpiContext::new_with_signer(
         ctx.accounts.system_program.to_account_info(),
         platform_cpi_accounts,
-        signer_seeds
+        escrow_signer_seeds
     );
     let fee=price*PLATFORM_FEE_BPS/10000;
     let seller_amount=price-fee;
@@ -97,13 +103,15 @@ pub fn confirm_receipt(ctx:Context<ConfirmReceipt>)->Result<()>{
         &ctx.accounts.asset.to_account_info(),
         &ctx.accounts.collection.to_account_info(),
         &signer,
-        &ctx.accounts.escrow.to_account_info(),
+        &ctx.accounts.book.to_account_info(),
         &ctx.accounts.buyer.to_account_info(),
         &ctx.accounts.system_program.to_account_info(),
-        signer_seeds
+        book_signer_seeds
     )?;
 
     //修改状态
+    ctx.accounts.book.owner=ctx.accounts.buyer.key();
+    ctx.accounts.book.seller=ctx.accounts.buyer.key();
     ctx.accounts.book.status=BookStatus::Sold;
     ctx.accounts.escrow.state=EscrowState::Released;
 

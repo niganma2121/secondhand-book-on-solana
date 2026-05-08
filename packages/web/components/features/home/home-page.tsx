@@ -110,13 +110,14 @@ export function HomePage() {
             {/* 徽章 */}
             <div className="animate-home-hero-badge inline-flex items-center gap-2.5 rounded-full border border-primary/25 bg-primary/10 px-4 py-2 text-xs font-medium text-primary md:px-5 md:py-2.5 md:text-sm mb-6 md:mb-8">
               <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-primary" />
-              {"Solana Devnet · 安全透明"}
+              {"Solana 区块链 · 安全透明"}
             </div>
 
             <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold leading-[1.12] tracking-tight">
               <span className="text-foreground">{"让每一本书都有"}</span>
               <br />
-              <span className="text-primary">{"可追溯的故事"}</span>
+              <span className="text-primary">{'\xa0'}{"可追溯"}</span>
+                <span className={"text-foreground"}>{"的故事"}</span>
             </h1>
 
             <p className="mt-5 md:mt-7 text-muted-foreground text-base md:text-lg leading-relaxed max-w-md">

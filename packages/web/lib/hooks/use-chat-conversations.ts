@@ -76,6 +76,7 @@ function rowToChatMessage(row: ChatMessageRow, me: string): ChatMessage {
     text,
     imageUrl,
     time: formatMsgTime(normalizeTs(row.timestamp)),
+    isRead: row.is_read,
   }
 }
 
@@ -84,7 +85,7 @@ type WsChatEnvelope = {
   from?: string
   to?: string
   timestamp?: number
-  content?: MessageContentJson
+  content?: MessageContentJson | { type: 'ReadReceipt'; payload?: { message_id?: string; messageId?: string }; message_id?: string }
 }
 
 function mapWsToChatMessage(m: WsChatEnvelope, me: string): ChatMessage | null {
@@ -102,21 +103,69 @@ function mapWsToChatMessage(m: WsChatEnvelope, me: string): ChatMessage | null {
   if (c.type === 'Delivered' || c.type === 'Typing' || c.type === 'System') {
     return null
   }
+  if (c.type === 'ReadReceipt') {
+    return null
+  }
   if (c.type === 'Error') {
     return null
   }
   const from = m.from === me ? 'me' : 'seller'
-  const base = mapContentToUi(c, from)
+  const base = mapContentToUi(c as MessageContentJson, from)
   return {
     id: String(m.id),
     from,
     ...base,
     time: formatMsgTime(normalizeTs(m.timestamp)),
+    isRead: false,
   }
 }
 
 function otherParty(me: string, from: string, to: string): string {
   return from === me ? to : from
+}
+
+function dedupMessagesById(messages: ChatMessage[]): ChatMessage[] {
+  const byId = new Map<string, ChatMessage>()
+  for (const m of messages) {
+    const prev = byId.get(m.id)
+    if (!prev) {
+      byId.set(m.id, m)
+      continue
+    }
+    byId.set(m.id, {
+      ...prev,
+      ...m,
+      // 一旦任一来源确认已读，则保留已读状态
+      isRead: Boolean(prev.isRead) || Boolean(m.isRead),
+    })
+  }
+  return Array.from(byId.values())
+}
+
+function parseIdBigInt(id: string | number | null | undefined): bigint | null {
+  if (id == null) return null
+  try {
+    return BigInt(String(id))
+  } catch {
+    return null
+  }
+}
+
+function mergeServerEcho(
+  existing: ChatMessage[],
+  incoming: ChatMessage,
+): ChatMessage[] {
+  if (incoming.from !== 'me') return dedupMessagesById([...existing, incoming])
+  const idx = existing.findIndex(
+    (m) =>
+      m.id.startsWith('local-') &&
+      m.from === 'me' &&
+      (m.text ?? '') === (incoming.text ?? ''),
+  )
+  if (idx < 0) return dedupMessagesById([...existing, incoming])
+  const copy = [...existing]
+  copy[idx] = { ...incoming, isRead: copy[idx]?.isRead ?? incoming.isRead }
+  return dedupMessagesById(copy)
 }
 
 export function useChatConversations() {
@@ -131,6 +180,7 @@ export function useChatConversations() {
   const [wsError, setWsError] = useState<string | null>(null)
 
   const wsRef = useRef<WebSocket | null>(null)
+  const activePeerRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!usingBackend || !user || !isAuthenticated) return
@@ -221,6 +271,37 @@ export function useChatConversations() {
           const me = user.pubkey
           try {
             const raw = JSON.parse(ev.data as string) as WsChatEnvelope
+            if (raw.content?.type === 'ReadReceipt' && raw.from && raw.to) {
+              const receipt = raw.content as {
+                payload?: { message_id?: string; messageId?: string }
+                message_id?: string
+              }
+              const readId = parseIdBigInt(
+                receipt.payload?.message_id
+                ?? receipt.payload?.messageId
+                ?? receipt.message_id
+              )
+              if (readId != null && readId > 0n) {
+                const peer = otherParty(me, raw.from, raw.to)
+                setConversations((prev) =>
+                  prev.map((c) => {
+                    if (c.sellerAddr !== peer) return c
+                    return {
+                      ...c,
+                      messages: c.messages.map((m) => {
+                        if (m.from !== 'me') return m
+                        const mid = parseIdBigInt(m.id)
+                        if (mid == null) return m
+                        return mid <= readId ? { ...m, isRead: true } : m
+                      }),
+                    }
+                  }),
+                )
+                // 兜底：用数据库权威状态对齐，避免偶发回执丢失/乱序导致 UI 不一致
+                void ensurePeerMessagesLoaded(peer)
+              }
+              return
+            }
             if (raw.id != null && raw.id > 0) {
               const cur = Number(window.localStorage.getItem(LAST_SYNC_MSG_ID_KEY) ?? '0')
               if (raw.id > cur) {
@@ -233,9 +314,17 @@ export function useChatConversations() {
 
             const peer = otherParty(me, raw.from!, raw.to!)
             const snippet = ui.text?.trim() || (ui.imageUrl ? '[图片]' : '')
+            const incomingFromPeer = ui.from === 'seller'
+            const readingThisConversation = incomingFromPeer && activePeerRef.current === peer
+            if (readingThisConversation) {
+              ui.isRead = true
+              void ensurePeerMessagesLoaded(peer)
+            }
 
             setConversations((prev) => {
               const idx = prev.findIndex((c) => c.sellerAddr === peer)
+              const prevMsgs = idx >= 0 ? prev[idx]!.messages : []
+              const nextMsgs = mergeServerEcho(prevMsgs, ui)
               const nextConv: ChatConversation = {
                 id: `conv-${peer}`,
                 sellerName: shortPubkey(peer),
@@ -244,8 +333,10 @@ export function useChatConversations() {
                 bookCover: idx >= 0 ? prev[idx]!.bookCover : '/placeholder.svg',
                 lastMsg: snippet || '[消息]',
                 lastTime: '刚刚',
-                unread: idx >= 0 ? prev[idx]!.unread : 0,
-                messages: [...(idx >= 0 ? prev[idx]!.messages : []), ui],
+                unread: idx >= 0
+                  ? prev[idx]!.unread + (incomingFromPeer && !readingThisConversation ? 1 : 0)
+                  : (incomingFromPeer && !readingThisConversation ? 1 : 0),
+                messages: nextMsgs,
               }
 
               if (idx >= 0) {
@@ -284,10 +375,15 @@ export function useChatConversations() {
       if (!usingBackend || !user) return
       try {
         const { messages } = await fetchChatMessages(peerPubkey)
-        const mapped = messages.map((r) => rowToChatMessage(r, user.pubkey))
+        let mapped = dedupMessagesById(messages.map((r) => rowToChatMessage(r, user.pubkey)))
+        // 进入会话后，对方发给我的消息在当前端应立即视为已读，
+        // 避免“先拉取未读快照，再标记已读”带来的 UI 回滚。
+        mapped = mapped.map((m) =>
+          m.from === 'seller' ? { ...m, isRead: true } : m,
+        )
         setConversations((prev) =>
           prev.map((c) =>
-            c.sellerAddr === peerPubkey ? { ...c, messages: mapped } : c,
+            c.sellerAddr === peerPubkey ? { ...c, messages: mapped, unread: 0 } : c,
           ),
         )
       } catch {
@@ -296,6 +392,30 @@ export function useChatConversations() {
     },
     [usingBackend, user],
   )
+
+  const markConversationReadNow = useCallback(
+    async (peerPubkey: string) => {
+      activePeerRef.current = peerPubkey
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.sellerAddr === peerPubkey
+            ? {
+              ...c,
+              unread: 0,
+              messages: c.messages.map((m) =>
+                m.from === 'seller' ? { ...m, isRead: true } : m,
+              ),
+            }
+            : c,
+        ),
+      )
+    },
+    [],
+  )
+
+  const clearActiveConversation = useCallback(() => {
+    activePeerRef.current = null
+  }, [])
 
   const sendChatText = useCallback(
     (peerPubkey: string, text: string) => {
@@ -316,25 +436,24 @@ export function useChatConversations() {
         },
       }
       ws.send(JSON.stringify(cmd))
-      const optimistic: ChatMessage = {
+      const t = text.trim()
+      const localMsg: ChatMessage = {
         id: `local-${Date.now()}`,
         from: 'me',
-        text: text.trim(),
-        time: new Date().toLocaleTimeString('zh-CN', {
-          hour: '2-digit',
-          minute: '2-digit',
-        }),
+        text: t,
+        time: '刚刚',
+        isRead: false,
       }
-      const t = text.trim()
       setConversations((prev) => {
         const idx = prev.findIndex((c) => c.sellerAddr === peerPubkey)
         if (idx >= 0) {
+          const nextMessages = dedupMessagesById([...(prev[idx]!.messages ?? []), localMsg])
           const copy = [...prev]
           copy[idx] = {
             ...copy[idx]!,
-            messages: [...copy[idx]!.messages, optimistic],
             lastMsg: t,
             lastTime: '刚刚',
+            messages: nextMessages,
           }
           return copy
         }
@@ -347,7 +466,7 @@ export function useChatConversations() {
           lastMsg: t,
           lastTime: '刚刚',
           unread: 0,
-          messages: [optimistic],
+          messages: [localMsg],
         }
         return [conv, ...prev]
       })
@@ -395,6 +514,8 @@ export function useChatConversations() {
     wsError,
     usingBackend,
     ensurePeerMessagesLoaded,
+    markConversationReadNow,
+    clearActiveConversation,
     sendChatText,
     openConversationWithPeer,
   }

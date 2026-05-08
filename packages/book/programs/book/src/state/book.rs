@@ -5,6 +5,7 @@ use anchor_lang::prelude::*;
 #[derive(InitSpace)]
 pub struct Book {
     pub asset: Pubkey,  //NFT地址
+    pub owner: Pubkey,  //当前拥有者
     pub seller: Pubkey, //卖家
     pub price: u64,     //价格
     //0:上架中锁定中,1:已售卖,2:仲裁中

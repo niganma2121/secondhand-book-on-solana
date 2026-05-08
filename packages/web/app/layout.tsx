@@ -36,6 +36,7 @@ export default function RootLayout({
   return (
     <html
       lang="zh-CN"
+      suppressHydrationWarning
       className={cn(
         'bg-background dark',
         process.env.NODE_ENV === 'development' && 'theme-dev',

@@ -9,6 +9,27 @@ use tracing::{error, info};
 use crate::db::DBService;
 
 impl ChatService {
+    pub async fn send_transient_message(
+        &self,
+        from: &Pubkey,
+        to: &Pubkey,
+        content: MessageContent,
+    ) -> Result<()> {
+        if let Some(connection) = self.dash_map.get(to) {
+            let msg = ChatMessage::new(
+                0,
+                *from,
+                *to,
+                SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as i64,
+                content,
+            );
+            if let Err(e) = connection.tx.send(msg).await {
+                error!("无法向用户:{}推送瞬时消息:{}", to, e);
+            }
+        }
+        Ok(())
+    }
+
     //一对一转发
     pub async fn handle_command(
         &self,

@@ -14,8 +14,8 @@ impl DBService {
     ) -> Result<(), sqlx::Error> {
         sqlx::query!(
             "INSERT INTO escrows
-                (escrow_pda, asset, seller, buyer, price, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $6)",
+                (escrow_pda, asset, seller, buyer, cancelled_by, price, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, NULL, $5, $6, $6)",
             escrow_pda,
             asset,
             seller,
@@ -48,6 +48,25 @@ impl DBService {
         Ok(())
     }
 
+    pub async fn update_escrow_cancelled(
+        &self,
+        escrow_pda: &str,
+        cancelled_by: &str,
+        updated_at: i64,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            "UPDATE escrows
+             SET state = 'Cancelled', cancelled_by = $2, updated_at = $3
+             WHERE escrow_pda = $1",
+            escrow_pda,
+            cancelled_by,
+            updated_at
+        )
+        .execute(&self.db_pool)
+        .await?;
+        Ok(())
+    }
+
     // 卖家发货，写入 shipping_commitment
     pub async fn update_escrow_shipped(
         &self,
@@ -73,7 +92,7 @@ impl DBService {
     pub async fn get_escrow(&self, escrow_pda: &str) -> Result<Option<EscrowRow>, sqlx::Error> {
         sqlx::query_as!(
             EscrowRow,
-            "SELECT escrow_pda, asset, seller, buyer, price, state,
+            "SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
                     shipping_commitment, created_at, updated_at
              FROM escrows
              WHERE escrow_pda = $1",
@@ -90,7 +109,7 @@ impl DBService {
     ) -> Result<Option<EscrowRow>, sqlx::Error> {
         sqlx::query_as!(
             EscrowRow,
-            "SELECT escrow_pda, asset, seller, buyer, price, state,
+            "SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
                     shipping_commitment, created_at, updated_at
              FROM escrows
              WHERE asset = $1
@@ -109,7 +128,7 @@ impl DBService {
     ) -> Result<Vec<EscrowRow>, sqlx::Error> {
         sqlx::query_as!(
             EscrowRow,
-            "SELECT escrow_pda, asset, seller, buyer, price, state,
+            "SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
                     shipping_commitment, created_at, updated_at
              FROM escrows
              WHERE buyer = $1
@@ -131,7 +150,7 @@ impl DBService {
     ) -> Result<Vec<EscrowRow>, sqlx::Error> {
         sqlx::query_as!(
             EscrowRow,
-            "SELECT escrow_pda, asset, seller, buyer, price, state,
+            "SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
                     shipping_commitment, created_at, updated_at
              FROM escrows
              WHERE seller = $1

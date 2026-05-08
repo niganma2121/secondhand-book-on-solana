@@ -5,6 +5,7 @@ export type EscrowOrder = {
   asset: string
   seller: string
   buyer: string
+  cancelled_by?: string | null
   price: number
   state: string
   shipping_commitment?: number[] | null

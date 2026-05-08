@@ -76,3 +76,105 @@ export async function broadcastCreateEscrowAuto(input: {
     body: JSON.stringify(input),
   })
 }
+
+export async function buildShipEscrow(input: {
+  seller: string
+  buyer: string
+  asset: string
+  shipping_commitment: number[]
+}) {
+  return apiFetch<UnsignedTxResponse>('/escrow/ship', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
+export async function broadcastShipEscrow(input: {
+  signed_tx: string
+  escrow_pda: string
+  shipping_commitment: number[]
+}) {
+  return apiFetch<BroadcastResponse>('/escrow/ship/broadcast', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
+export async function buildConfirmEscrow(input: {
+  buyer: string
+  seller: string
+  asset: string
+  collection: string
+}) {
+  return apiFetch<UnsignedTxResponse>('/escrow/confirm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
+export async function broadcastConfirmEscrow(input: {
+  signed_tx: string
+  escrow_pda: string
+  asset: string
+  seller: string
+  buyer: string
+}) {
+  return apiFetch<BroadcastResponse>('/escrow/confirm/broadcast', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
+export async function buildCancelEscrow(input: {
+  signer: string
+  buyer: string
+  seller: string
+  asset: string
+  collection: string
+}) {
+  return apiFetch<UnsignedTxResponse>('/escrow/cancel', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
+export async function broadcastCancelEscrow(input: {
+  signed_tx: string
+  escrow_pda: string
+  asset: string
+}) {
+  return apiFetch<BroadcastResponse>('/escrow/cancel/broadcast', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
+export async function buildOpenDispute(input: {
+  signer: string
+  buyer: string
+  seller: string
+  asset: string
+}) {
+  return apiFetch<UnsignedTxResponse>('/escrow/dispute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
+export async function broadcastOpenDispute(input: {
+  signed_tx: string
+  escrow_pda: string
+}) {
+  return apiFetch<BroadcastResponse>('/escrow/dispute/broadcast', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}

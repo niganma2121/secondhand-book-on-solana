@@ -13,7 +13,8 @@ pub struct CreateEscrow<'info>{
         mut,
         constraint=book.status==BookStatus::Listed @ AppError::InvalidStatus,
         has_one=seller,
-        seeds=[BOOK_SEED,seller.key().as_ref(),book.asset.as_ref()],
+        constraint=book.owner==seller.key() @ AppError::UnauthorizedSeller,
+        seeds=[BOOK_SEED,book.asset.as_ref()],
         bump
     )]
     pub book:Account<'info,Book>,
@@ -56,16 +57,12 @@ pub fn create_escrow(ctx:Context<CreateEscrow>)->Result<()>{
     transfer(cpi_ctx,price)?;
 
     //冻结NFT
-    let buyer_key=ctx.accounts.buyer.key();
-    let book_key=ctx.accounts.book.key();
-
-    let seeds:&[&[u8]]=&[
-        ESCROW_SEED,
-        buyer_key.as_ref(),
-        book_key.as_ref(),
-        &[ctx.bumps.escrow]
+    let book_seeds:&[&[u8]]=&[
+        BOOK_SEED,
+        ctx.accounts.book.asset.as_ref(),
+        &[ctx.accounts.book.bump]
     ];
-    let signer_seeds=&[seeds];
+    let book_signer_seeds=&[book_seeds];
 
     //冻结NFT
     freeze_asset(
@@ -73,8 +70,9 @@ pub fn create_escrow(ctx:Context<CreateEscrow>)->Result<()>{
         &ctx.accounts.asset.to_account_info(),
         &ctx.accounts.collection.to_account_info(),
         &ctx.accounts.buyer.to_account_info(),
-        &ctx.accounts.escrow.to_account_info(),
-        signer_seeds
+        &ctx.accounts.book.to_account_info(),
+        &ctx.accounts.system_program.to_account_info(),
+        book_signer_seeds
     )?;
     let escrow=&mut ctx.accounts.escrow;
     escrow.seller=ctx.accounts.seller.key();

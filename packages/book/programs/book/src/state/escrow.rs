@@ -61,7 +61,7 @@ pub enum EscrowState{
     Paid,//买家支付
     Shipped,//卖家发货,防止买家在快递过程中随便取消
     Released,//交易完成
-    Cancelled,//已取消
+    Cancelled,//交易取消
     Disputed//进入仲裁
 }
 

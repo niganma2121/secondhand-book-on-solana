@@ -104,6 +104,7 @@ pub struct EscrowRow {
     pub asset: String,
     pub seller: String,
     pub buyer: String,
+    pub cancelled_by: Option<String>,
     pub price: i64,
     pub state: String,
     pub shipping_commitment: Option<Vec<u8>>,
@@ -199,6 +200,19 @@ pub struct EscrowShippingCipherRow {
     pub buyer_nonce: Option<String>,
     pub buyer_alg: Option<String>,
     pub encryption_key_version: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct UserShippingAddressRow {
+    pub id: i64,
+    pub user_pubkey: String,
+    pub buyer_ciphertext: String,
+    pub buyer_nonce: String,
+    pub buyer_alg: String,
+    pub encryption_key_version: String,
+    pub is_default: bool,
     pub created_at: i64,
     pub updated_at: i64,
 }

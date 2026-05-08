@@ -4,11 +4,12 @@ use mpl_core::types::{FreezeDelegate, Plugin};
 
 //冻结
 pub fn freeze_asset<'info>(
+    mpl_core_program: &AccountInfo<'info>,
     asset: &AccountInfo<'info>,
     collection: &AccountInfo<'info>,
     payer: &AccountInfo<'info>,
     authority: &AccountInfo<'info>,
-    mpl_core_program: &AccountInfo<'info>,
+    system_program: &AccountInfo<'info>,
     signer_seeds: &[&[&[u8]]],
 ) -> Result<()> {
     UpdatePluginV1CpiBuilder::new(mpl_core_program)
@@ -16,6 +17,7 @@ pub fn freeze_asset<'info>(
         .collection(Some(collection))
         .payer(payer)
         .authority(Some(authority))
+        .system_program(system_program)
         .plugin(Plugin::FreezeDelegate(FreezeDelegate { frozen: true }))
         .invoke_signed(signer_seeds)?;
 
@@ -27,6 +29,7 @@ pub fn thaw_asset<'info>(
     collection: &AccountInfo<'info>,
     payer: &AccountInfo<'info>,
     authority: &AccountInfo<'info>,
+    system_program: &AccountInfo<'info>,
     signer_seeds: &[&[&[u8]]],
 ) -> Result<()> {
     UpdatePluginV1CpiBuilder::new(mpl_core_program)
@@ -34,6 +37,7 @@ pub fn thaw_asset<'info>(
         .collection(Some(collection))
         .payer(payer)
         .authority(Some(authority))
+        .system_program(system_program)
         .plugin(Plugin::FreezeDelegate(FreezeDelegate { frozen: false }))
         .invoke_signed(signer_seeds)?;
 
@@ -41,12 +45,12 @@ pub fn thaw_asset<'info>(
 }
 
 pub fn transfer_asset<'info>(
+    mpl_core_program: &AccountInfo<'info>,
     asset: &AccountInfo<'info>,
     collection: &AccountInfo<'info>,
     payer: &AccountInfo<'info>,
     authority: &AccountInfo<'info>,
     new_owner: &AccountInfo<'info>,
-    mpl_core_program: &AccountInfo<'info>,
     system_program: &AccountInfo<'info>,
     signer_seeds: &[&[&[u8]]],
 ) -> Result<()> {
@@ -78,6 +82,7 @@ pub fn nft_to_buyer<'info>(
         collection,
         payer,
         escrow,
+        system_program,
         signer_seeds,
     )?;
     transfer_asset(
@@ -99,6 +104,7 @@ pub fn nft_to_seller<'info>(
     collection: &AccountInfo<'info>,
     payer: &AccountInfo<'info>,
     escrow: &AccountInfo<'info>,
+    system_program: &AccountInfo<'info>,
     signer_seeds: &[&[&[u8]]],
 ) -> Result<()> {
     thaw_asset(
@@ -107,6 +113,7 @@ pub fn nft_to_seller<'info>(
         collection,
         payer,
         escrow,
+        system_program,
         signer_seeds,
     )?;
     Ok(())

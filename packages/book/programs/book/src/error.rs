@@ -43,6 +43,9 @@ pub enum AppError {
     #[msg("提交的返回金额不能大于商品的价格")]
     InvalidRefund,
 
+    #[msg("托管账户余额不足，无法完成退款")]
+    InsufficientEscrowLamports,
+
     #[msg("未授权的仲裁员")]
     UnauthorizedArbitrator,
 

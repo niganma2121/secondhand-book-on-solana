@@ -8,10 +8,9 @@ impl AnchorService {
         db: &DBService,
         now: i64,
     ) -> Result<BroadcastResponse, ClientError> {
-        let seller = parse(&req.seller)?;
         let buyer = parse(&req.buyer)?;
         let asset = parse(&req.asset)?;
-        let book_pda = self.book_pda(&seller, &asset);
+        let book_pda = self.book_pda(&asset);
         let escrow_pda = self.escrow_pda(&buyer, &book_pda);
         let tx = deserialize_signed_tx(&req.signed_tx)?;
         let sig = self
@@ -35,7 +34,7 @@ impl AnchorService {
             warn!("托管创建成功,数据库错误:{e}");
         }
 
-        if let Err(e) = db.update_book_status(&req.asset, "LOCKED", now).await {
+        if let Err(e) = db.update_book_status(&req.asset, "InEscrow", now).await {
             warn!("数据库书籍状态更新失败:{e}")
         }
         Ok(BroadcastResponse {
@@ -84,7 +83,10 @@ impl AnchorService {
             .await
             .map_err(|e| ClientError::BroadcastFailed(e.to_string()))?;
 
-        if let Err(e) = db.update_escrow_state(&req.asset, "Completed", now).await {
+        if let Err(e) = db
+            .update_escrow_state(&req.escrow_pda, "Released", now)
+            .await
+        {
             warn!("数据库:更新托管状态出错:{e}");
         }
         if let Err(e) = db.update_book_status(&req.asset, "Sold", now).await {
@@ -104,6 +106,7 @@ impl AnchorService {
         &self,
         req: BroadcastCancelEscrowRequest,
         db: &DBService,
+        cancelled_by: &str,
         now: i64,
     ) -> Result<BroadcastResponse, ClientError> {
         let tx = deserialize_signed_tx(&req.signed_tx)?;
@@ -114,11 +117,14 @@ impl AnchorService {
             .await
             .map_err(|e| ClientError::BroadcastFailed(e.to_string()))?;
 
-        if let Err(e) = db.update_escrow_state(&req.escrow_pda, "Canceled", now).await {
+        if let Err(e) = db
+            .update_escrow_cancelled(&req.escrow_pda, cancelled_by, now)
+            .await
+        {
             warn!("数据库:更新托管状态失败:{e}")
         }
 
-        if let Err(e) = db.update_book_status(&req.escrow_pda, "Listed", now).await {
+        if let Err(e) = db.update_book_status(&req.asset, "Listed", now).await {
             warn!("数据库:更新书籍状态失败:{e}")
         }
 

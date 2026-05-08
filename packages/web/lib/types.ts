@@ -54,6 +54,10 @@ export interface MyBook {
   author: string
   cover: string
   price: number
+  /** 卖家上架时填写的人民币价格（快照） */
+  priceCny?: number
+  /** 上架时汇率快照：1 SOL ≈ ? CNY */
+  fxCnyPerSol?: number
   condition: BookCondition
   category: BookCategory
   tokenId: string
@@ -69,6 +73,7 @@ export interface ChatMessage {
   text?: string
   imageUrl?: string
   time: string
+  isRead?: boolean
 }
 
 export interface ChatConversation {

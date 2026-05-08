@@ -36,6 +36,12 @@ pub enum ClientError {
 
     #[error("请求过于频繁，请稍后再试")]
     RateLimited,
+
+    #[error("请求参数错误:{0}")]
+    BadRequest(String),
+
+    #[error("无权限执行该操作")]
+    Forbidden,
 }
 impl IntoResponse for ClientError {
     fn into_response(self) -> Response {
@@ -51,6 +57,8 @@ impl IntoResponse for ClientError {
             ClientError::DbError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             ClientError::InvalidImageType(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             ClientError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
+            ClientError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            ClientError::Forbidden => (StatusCode::FORBIDDEN, self.to_string()),
         };
         (status, Json(serde_json::json!({ "error": msg }))).into_response()
     }

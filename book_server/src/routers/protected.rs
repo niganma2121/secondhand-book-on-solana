@@ -14,12 +14,16 @@ use crate::client::{
 };
 use crate::handlers::chat::{
     issue_ws_ticket_handler, list_chat_conversations_handler, list_chat_messages_handler,
+    mark_chat_conversation_read_handler,
 };
 use crate::handlers::me::{
+    create_my_shipping_address_handler, delete_my_shipping_address_handler,
+    list_my_shipping_addresses_handler, set_default_my_shipping_address_handler,
     list_bought_books_handler, list_buyer_escrows_handler, list_favorites_handler,
     list_my_books_handler, list_seller_escrows_handler, toggle_favorite_handler,
     get_order_shipping_cipher_handler, upsert_order_shipping_cipher_handler,
-    upsert_order_shipping_cipher_by_asset_handler, update_my_profile_handler,
+    update_my_shipping_address_handler, upsert_order_shipping_cipher_by_asset_handler,
+    update_my_profile_handler,
 };
 use crate::handlers::transactions::list_my_transactions_handler;
 use crate::handlers::encryption::{
@@ -29,7 +33,7 @@ use crate::me::submit_review_handler;
 use crate::state::AppState;
 use axum::Router;
 use axum::middleware::from_fn_with_state;
-use axum::routing::{get, patch, post};
+use axum::routing::{delete, get, patch, post};
 
 ///访问需要登陆的路由
 pub fn api_protected_router(state: AppState) -> Router<AppState> {
@@ -100,10 +104,17 @@ pub fn me_router() -> Router<AppState> {
         .route("/orders/{escrow_pda}/shipping-cipher", get(get_order_shipping_cipher_handler))
         .route("/orders/{escrow_pda}/shipping-cipher", post(upsert_order_shipping_cipher_handler))
         .route("/orders/by-asset/{asset}/shipping-cipher", post(upsert_order_shipping_cipher_by_asset_handler))
+        .route("/shipping-addresses", get(list_my_shipping_addresses_handler))
+        .route("/shipping-addresses", post(create_my_shipping_address_handler))
+        .route("/shipping-addresses/{id}", patch(update_my_shipping_address_handler))
+        .route("/shipping-addresses/{id}", delete(delete_my_shipping_address_handler))
+        .route("/shipping-addresses/{id}/default", post(set_default_my_shipping_address_handler))
         .route("/bought", get(list_bought_books_handler))
         .route("/reviews", post(submit_review_handler)) // 加这行
         .route("/chat/conversations", get(list_chat_conversations_handler))
         .route("/chat/{peer}/messages", get(list_chat_messages_handler))
+        .route("/chat/{peer}/messages/read", post(mark_chat_conversation_read_handler))
+        .route("/chat/{peer}/read", post(mark_chat_conversation_read_handler))
         .route("/encryption-backup", get(get_my_encryption_backup_handler))
         .route("/encryption-backup", post(upsert_my_encryption_backup_handler))
 }

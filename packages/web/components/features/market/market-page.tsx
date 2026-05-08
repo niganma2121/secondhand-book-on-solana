@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useOpenWalletConnect } from '@/lib/hooks/use-open-wallet-connect'
 import type { Book } from '@/lib/types'
@@ -16,6 +17,7 @@ import { fetchBookDetail, type BookDetailResponse } from '@/lib/api/book-detail'
 import { buildCreateEscrow, broadcastCreateEscrowAuto, signEscrowTxWithWallet } from '@/lib/api/escrow'
 import { fetchUserEncryptionPublicKey } from '@/lib/api/encryption'
 import { upsertOrderShippingCipherByAsset } from '@/lib/api/shipping-cipher'
+import { fetchMyShippingAddresses, type ShippingAddressPayload } from '@/lib/api/shipping-addresses'
 
 const SORT_OPTIONS = [
   { label: '最新上架', value: 'newest' as const },
@@ -27,6 +29,7 @@ const SORT_OPTIONS = [
 interface BuyModalProps {
   book: Book
   onClose: () => void
+  onPurchased?: () => void
 }
 
 interface DetailPanelProps {
@@ -35,15 +38,144 @@ interface DetailPanelProps {
   onBuy?: (book: Book) => void
 }
 
+function formatBuyErrorMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err ?? '')
+  const normalized = raw.toLowerCase()
+
+  if (
+    normalized.includes('attempt to debit an account') ||
+    normalized.includes('insufficient') ||
+    normalized.includes('insufficient funds') ||
+    normalized.includes('no record of a prior credit')
+  ) {
+    return '余额不足，无法完成购买。请先补充 SOL 后重试。'
+  }
+  if (
+    normalized.includes('user rejected') ||
+    normalized.includes('rejected') ||
+    normalized.includes('declined') ||
+    normalized.includes('cancelled') ||
+    normalized.includes('canceled')
+  ) {
+    return '你已取消钱包签名，本次购买未提交。'
+  }
+  if (
+    normalized.includes('blockhash not found') ||
+    normalized.includes('timeout') ||
+    normalized.includes('timed out') ||
+    normalized.includes('node is behind') ||
+    normalized.includes('rpc')
+  ) {
+    return '链上网络繁忙或连接异常，请稍后重试。'
+  }
+  if (
+    normalized.includes('system_program is not set') ||
+    normalized.includes('program failed to complete') ||
+    normalized.includes('sbf program panicked') ||
+    normalized.includes('bad gateway') ||
+    normalized.includes(' 502')
+  ) {
+    return '购买请求已签名，但服务端处理交易时发生异常。请稍后重试或联系管理员排查后端配置。'
+  }
+
+  return '购买失败，请稍后重试。'
+}
+
+type ShippingAddress = {
+  id: string
+  label: string
+  name: string
+  phone?: string
+  region: string
+  provinceCode: string
+  cityCode: string
+  districtCode: string
+  detail: string
+}
+
+type DecryptedShippingAddress = Omit<ShippingAddress, 'id'> & { id?: string }
+type ShippingProfileStore = {
+  addresses: ShippingAddress[]
+  defaultId: string | null
+}
+
 // ─── Buy Modal (unchanged) ────────────────────────────────────────────────────
 
-function BuyModal({ book, onClose }: BuyModalProps) {
+function BuyModal({ book, onClose, onPurchased }: BuyModalProps) {
   const { publicKey, signTransaction } = useWallet()
   const openWalletConnect = useOpenWalletConnect()
-  const [step, setStep] = useState<'confirm' | 'signing' | 'address' | 'done'>('confirm')
+  const [step, setStep] = useState<'confirm' | 'address' | 'signing' | 'done'>('confirm')
   const [shippingPlaintext, setShippingPlaintext] = useState('')
+  const [dbShippingAddresses, setDbShippingAddresses] = useState<ShippingAddress[]>([])
+  const [selectedDbAddressId, setSelectedDbAddressId] = useState<string | null>(null)
+  const [defaultShippingPlaintext, setDefaultShippingPlaintext] = useState('')
+  const [addressSource, setAddressSource] = useState<'default' | 'manual'>('manual')
   const [addressSaving, setAddressSaving] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [cancelHintOpen, setCancelHintOpen] = useState(false)
+
+  useEffect(() => {
+    if (!cancelHintOpen) return
+    const timer = window.setTimeout(() => setCancelHintOpen(false), 3000)
+    return () => window.clearTimeout(timer)
+  }, [cancelHintOpen])
+
+  function parseLocalShippingProfile(pubkey: string): ShippingProfileStore {
+    const raw = localStorage.getItem(`bookchain:shipping-profile:${pubkey}`)
+    if (!raw) return { addresses: [], defaultId: null }
+    try {
+      const parsed = JSON.parse(raw) as {
+        addresses?: ShippingAddress[]
+        defaultId?: string | null
+        name?: string
+        phone?: string
+        region?: string
+        provinceCode?: string
+        cityCode?: string
+        districtCode?: string
+        detail?: string
+      }
+      if (Array.isArray(parsed.addresses) && parsed.addresses.length > 0) {
+        const addresses = parsed.addresses
+          .filter((item) => Boolean(item?.id && item?.name && item?.detail && (item?.region || item?.provinceCode)))
+          .map((item) => ({
+            ...item,
+            region: item.region ?? '',
+            provinceCode: item.provinceCode ?? '',
+            cityCode: item.cityCode ?? '',
+            districtCode: item.districtCode ?? '',
+            phone: item.phone ?? '',
+          }))
+        const defaultId = addresses.some((x) => x.id === parsed.defaultId)
+          ? (parsed.defaultId ?? null)
+          : (addresses[0]?.id ?? null)
+        return { addresses, defaultId }
+      }
+      if (
+        parsed.name &&
+        parsed.provinceCode &&
+        parsed.cityCode &&
+        parsed.districtCode &&
+        parsed.detail
+      ) {
+        const legacy: ShippingAddress = {
+          id: 'legacy-default',
+          label: '默认地址',
+          name: parsed.name,
+          phone: parsed.phone ?? '',
+          region: parsed.region ?? '',
+          provinceCode: parsed.provinceCode,
+          cityCode: parsed.cityCode,
+          districtCode: parsed.districtCode,
+          detail: parsed.detail,
+        }
+        return { addresses: [legacy], defaultId: legacy.id }
+      }
+      return { addresses: [], defaultId: null }
+    } catch {
+      return { addresses: [], defaultId: null }
+    }
+  }
 
   function bytesToBase64(bytes: Uint8Array) {
     let binary = ''
@@ -59,14 +191,55 @@ function BuyModal({ book, onClose }: BuyModalProps) {
   }
 
   async function sha256(data: Uint8Array) {
-    return new Uint8Array(await crypto.subtle.digest('SHA-256', data))
+    const view = new Uint8Array(data)
+    return new Uint8Array(await crypto.subtle.digest('SHA-256', view))
   }
 
-  async function loadLocalCommPrivateKey() {
-    if (!publicKey) return null
-    const key = localStorage.getItem(`bookchain:comm-key:${publicKey.toBase58()}`)
+  async function loadLocalCommPrivateKey(pubkey: string) {
+    const key = localStorage.getItem(`bookchain:comm-key:${pubkey}`)
     if (!key) return null
     return crypto.subtle.importKey('pkcs8', base64ToBytes(key), { name: 'X25519' } as EcKeyImportParams, false, ['deriveBits'])
+  }
+
+  async function decryptShippingForMe(payload: ShippingAddressPayload, pubkey: string) {
+    const key = await loadLocalCommPrivateKey(pubkey)
+    if (!key) throw new Error('本地通讯私钥不存在，请先在个人中心恢复后再试')
+    const parsed = JSON.parse(payload.buyer_ciphertext) as { epk: string; ct: string }
+    const ephPub = await crypto.subtle.importKey(
+      'raw',
+      base64ToBytes(parsed.epk),
+      { name: 'X25519' } as EcKeyImportParams,
+      false,
+      [],
+    )
+    const shared = new Uint8Array(await crypto.subtle.deriveBits(
+      { name: 'X25519', public: ephPub } as EcdhKeyDeriveParams,
+      key,
+      256,
+    ))
+    const iv = base64ToBytes(payload.buyer_nonce)
+    const keySeed = new Uint8Array(shared.length + iv.length)
+    keySeed.set(shared, 0)
+    keySeed.set(iv, shared.length)
+    const aesRaw = await sha256(keySeed)
+    const aes = await crypto.subtle.importKey('raw', aesRaw, { name: 'AES-GCM' }, false, ['decrypt'])
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aes, base64ToBytes(parsed.ct))
+    const decoded = JSON.parse(new TextDecoder().decode(plain)) as DecryptedShippingAddress
+    return {
+      id: String(payload.id),
+      label: decoded.label ?? '默认地址',
+      name: decoded.name ?? '',
+      phone: decoded.phone ?? '',
+      region: decoded.region ?? '',
+      provinceCode: decoded.provinceCode ?? '',
+      cityCode: decoded.cityCode ?? '',
+      districtCode: decoded.districtCode ?? '',
+      detail: decoded.detail ?? '',
+    } satisfies ShippingAddress
+  }
+
+  function formatAddressPlaintext(addr: ShippingAddress) {
+    return [addr.name, addr.phone, addr.region, addr.detail].filter(Boolean).join('，')
   }
 
   async function encryptShippingForSeller(sellerEncPubB64: string, plain: string) {
@@ -93,8 +266,9 @@ function BuyModal({ book, onClose }: BuyModalProps) {
     keySeed.set(iv, shared.length)
     const aesRaw = await sha256(keySeed)
     const aes = await crypto.subtle.importKey('raw', aesRaw, { name: 'AES-GCM' }, false, ['encrypt'])
+    const plainBytes = new TextEncoder().encode(plain)
     const ct = new Uint8Array(
-      await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aes, new TextEncoder().encode(plain)),
+      await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aes, new Uint8Array(plainBytes)),
     )
     const ephPub = new Uint8Array(await crypto.subtle.exportKey('raw', eph.publicKey))
     return {
@@ -128,7 +302,14 @@ function BuyModal({ book, onClose }: BuyModalProps) {
         asset: book.id,
         collection,
       })
-      const signedTx = await signEscrowTxWithWallet(built.tx, signTransaction)
+      let signedTx = ''
+      try {
+        signedTx = await signEscrowTxWithWallet(built.tx, signTransaction)
+      } catch {
+        setStep('confirm')
+        setCancelHintOpen(true)
+        return
+      }
       await broadcastCreateEscrowAuto({
         signed_tx: signedTx,
         asset: book.id,
@@ -136,23 +317,26 @@ function BuyModal({ book, onClose }: BuyModalProps) {
         buyer: publicKey.toBase58(),
         price: Math.round(book.price * 1_000_000_000),
       })
-      setStep('address')
+      onPurchased?.()
+      setStep('done')
     } catch (e) {
-      setStep('confirm')
-      setErrorMsg(e instanceof Error ? e.message : '购买失败，请稍后重试')
+      console.error('[market-buy] purchase failed', e)
+      setStep('address')
+      setErrorMsg(formatBuyErrorMessage(e))
     }
   }
 
-  async function handleSubmitAddress() {
+  async function handleSubmitAddressAndBuy() {
     if (!shippingPlaintext.trim()) return
     setAddressSaving(true)
     setErrorMsg(null)
     try {
-      const localPriv = await loadLocalCommPrivateKey()
-      if (!localPriv) throw new Error('未找到本地通讯私钥，请先到个人中心完成自动恢复。')
-      // 校验本地私钥可用（不直接使用，只用于提示更明确）
-      void localPriv
       const sellerPub = await fetchUserEncryptionPublicKey(book.seller)
+      if (!sellerPub.encryption_public_key?.trim()) {
+        // 卖家未初始化加密能力时，不阻塞下单流程；保持静默下单避免打断
+        await handleBuy()
+        return
+      }
       const encrypted = await encryptShippingForSeller(
         sellerPub.encryption_public_key,
         shippingPlaintext.trim(),
@@ -161,7 +345,7 @@ function BuyModal({ book, onClose }: BuyModalProps) {
         ...encrypted,
         encryption_key_version: 'v1',
       })
-      setStep('done')
+      await handleBuy()
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : '收货地址提交失败')
     } finally {
@@ -171,15 +355,60 @@ function BuyModal({ book, onClose }: BuyModalProps) {
 
   useEffect(() => {
     if (step !== 'address' || !publicKey) return
-    const key = `bookchain:shipping-profile:${publicKey.toBase58()}`
-    const raw = localStorage.getItem(key)
-    if (!raw) return
-    try {
-      const parsed = JSON.parse(raw) as { name?: string; phone?: string; region?: string; detail?: string }
-      const merged = [parsed.name, parsed.phone, parsed.region, parsed.detail].filter(Boolean).join('，')
-      if (merged.trim()) setShippingPlaintext(merged)
-    } catch {
-      // ignore malformed local profile
+    let cancelled = false
+    ;(async () => {
+      const localProfile = parseLocalShippingProfile(publicKey.toBase58())
+      if (cancelled) return
+      if (localProfile.addresses.length > 0) {
+        const current =
+          localProfile.addresses.find((x) => x.id === localProfile.defaultId) ??
+          localProfile.addresses[0]
+        const plain = current ? formatAddressPlaintext(current) : ''
+        setDbShippingAddresses(localProfile.addresses)
+        setSelectedDbAddressId(current?.id ?? null)
+        setDefaultShippingPlaintext(plain)
+        setAddressSource('default')
+        setShippingPlaintext(plain)
+        return
+      }
+      try {
+        const remote = await fetchMyShippingAddresses()
+        if (cancelled) return
+        if (remote.addresses.length > 0) {
+          const decrypted = await Promise.all(
+            remote.addresses.map((row) => decryptShippingForMe(row, publicKey.toBase58())),
+          )
+          if (cancelled) return
+          const defaultRow = remote.addresses.find((x) => x.is_default)
+          const resolvedDefaultId = String(defaultRow?.id ?? decrypted[0]?.id ?? '')
+          const current =
+            decrypted.find((x) => x.id === resolvedDefaultId) ??
+            decrypted[0]
+          const plain = current ? formatAddressPlaintext(current) : ''
+          setDbShippingAddresses(decrypted)
+          setSelectedDbAddressId(current?.id ?? null)
+          setDefaultShippingPlaintext(plain)
+          if (plain) {
+            setAddressSource('default')
+            setShippingPlaintext(plain)
+          } else {
+            setAddressSource('manual')
+            setShippingPlaintext('')
+          }
+          return
+        }
+      } catch {
+        // 远端地址读取失败时保留手动填写模式
+      }
+      if (cancelled) return
+      setDbShippingAddresses([])
+      setSelectedDbAddressId(null)
+      setDefaultShippingPlaintext('')
+      setAddressSource('manual')
+      setShippingPlaintext('')
+    })()
+    return () => {
+      cancelled = true
     }
   }, [step, publicKey])
 
@@ -190,111 +419,178 @@ function BuyModal({ book, onClose }: BuyModalProps) {
       >
         <div className="absolute inset-0 bg-background/70 backdrop-blur-sm" />
         <div
-            className="relative z-10 w-full sm:max-w-sm bg-card border border-border rounded-t-2xl sm:rounded-2xl p-5 shadow-2xl"
+            className="relative z-10 w-full sm:max-w-lg max-h-[90vh] overflow-y-auto bg-card border border-border rounded-t-2xl sm:rounded-2xl p-5 sm:p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
         >
           {step === 'done' ? (
-              <div className="flex flex-col items-center gap-4 py-4">
+              <div className="flex flex-col items-center gap-4 py-5">
             <span className="w-14 h-14 rounded-full bg-primary/15 flex items-center justify-center">
               <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">
                 <path d="M6 14l6 6 10-10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-primary" />
               </svg>
             </span>
-                <p className="font-semibold text-foreground">购买成功！</p>
-                <p className="text-xs text-muted-foreground text-center">NFT 所有权已转移至你的钱包，链上确认约需 0.4 秒</p>
-                <Button onClick={onClose} className="w-full bg-primary text-primary-foreground rounded-lg">关闭</Button>
+                <p className="text-lg font-semibold text-foreground">下单成功！</p>
+                <p className="text-sm text-muted-foreground text-center">订单已创建并进入托管，待卖家发货后你可确认收货完成最终交割。</p>
+                <Button onClick={onClose} className="w-full h-11 text-base bg-primary text-primary-foreground rounded-lg">关闭</Button>
               </div>
           ) : step === 'address' ? (
               <>
-                <h3 className="font-semibold text-base text-foreground mb-4">填写收货地址（端到端加密）</h3>
-                <textarea
-                  value={shippingPlaintext}
-                  onChange={(e) => setShippingPlaintext(e.target.value)}
-                  placeholder="例如：张三，138xxxx，浙江省杭州市西湖区 xx 路 xx 号"
-                  className="w-full min-h-28 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
-                />
-                <p className="mt-2 text-xs text-muted-foreground">
+                <h3 className="font-semibold text-lg text-foreground mb-4">确认收货地址（签名前）</h3>
+                <div className="mb-3 grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant={addressSource === 'default' ? 'default' : 'outline'}
+                    disabled={!defaultShippingPlaintext || addressSaving}
+                    onClick={() => {
+                      setAddressSource('default')
+                      setShippingPlaintext(defaultShippingPlaintext)
+                    }}
+                    className="h-10 text-sm rounded-lg"
+                  >
+                    使用已选地址
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={addressSource === 'manual' ? 'default' : 'outline'}
+                    disabled={addressSaving}
+                    onClick={() => {
+                      setAddressSource('manual')
+                      if (shippingPlaintext === defaultShippingPlaintext) setShippingPlaintext('')
+                    }}
+                    className="h-10 text-sm rounded-lg"
+                  >
+                    手动填写新地址
+                  </Button>
+                </div>
+                {!defaultShippingPlaintext ? (
+                  <p className="mb-2 text-xs text-muted-foreground">未检测到默认地址，请直接填写新地址。</p>
+                ) : null}
+                {dbShippingAddresses.length > 0 ? (
+                  <div className="mb-3 rounded-lg border border-border/60 bg-secondary/20 p-2.5">
+                    <p className="mb-2 text-xs font-medium text-foreground">已保存地址（解密后本地展示）</p>
+                    <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+                      {dbShippingAddresses.map((item) => {
+                        const plain = formatAddressPlaintext(item)
+                        const active = selectedDbAddressId === item.id
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedDbAddressId(item.id)
+                              setAddressSource('default')
+                              setShippingPlaintext(plain)
+                              setDefaultShippingPlaintext(plain)
+                            }}
+                            className={[
+                              'w-full rounded-md border px-2 py-2 text-left text-xs transition-colors',
+                              active
+                                ? 'border-primary bg-primary/10 text-foreground'
+                                : 'border-border bg-background text-muted-foreground hover:text-foreground',
+                            ].join(' ')}
+                          >
+                            <p className="font-medium text-foreground">{item.label || '地址'}</p>
+                            <p className="mt-0.5 truncate">{plain}</p>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+                {addressSource === 'manual' ? (
+                  <textarea
+                    value={shippingPlaintext}
+                    onChange={(e) => setShippingPlaintext(e.target.value)}
+                    placeholder="例如：张三，浙江省杭州市西湖区 xx 路 xx 号"
+                    className="w-full min-h-36 rounded-lg border border-border bg-background px-3 py-2.5 text-base outline-none focus:border-primary"
+                  />
+                ) : null}
+                <p className="mt-2 text-sm text-muted-foreground">
                   地址会在本地加密后再提交，后端仅保存密文。
                 </p>
-                {errorMsg ? <p className="mt-2 text-xs text-red-500">{errorMsg}</p> : null}
+                {errorMsg ? <p className="mt-2 text-sm text-red-500">{errorMsg}</p> : null}
                 <div className="mt-4 flex gap-2">
                   <Button
                     variant="outline"
-                    onClick={onClose}
-                    className="flex-1 border-border text-foreground rounded-lg"
+                    onClick={() => {
+                      setErrorMsg(null)
+                      setStep('confirm')
+                    }}
+                    className="flex-1 h-11 text-base border-border text-foreground rounded-lg"
                     disabled={addressSaving}
                   >
-                    稍后填写
+                    返回
                   </Button>
                   <Button
-                    onClick={handleSubmitAddress}
-                    className="flex-1 bg-primary text-primary-foreground rounded-lg"
+                    onClick={handleSubmitAddressAndBuy}
+                    className="flex-1 h-11 text-base bg-primary text-primary-foreground rounded-lg"
                     disabled={addressSaving || !shippingPlaintext.trim()}
                   >
-                    {addressSaving ? '加密提交中...' : '提交地址'}
+                    {addressSaving ? '处理中...' : '确认地址并签名购买'}
                   </Button>
                 </div>
               </>
+          ) : step === 'signing' ? (
+              <div className="flex min-h-[420px] flex-col items-center justify-center gap-4">
+                <span className="w-14 h-14 rounded-full bg-primary/15 flex items-center justify-center">
+                  <span className="w-6 h-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                </span>
+                <p className="text-lg font-semibold text-foreground">等待钱包签名...</p>
+                <p className="text-sm text-muted-foreground text-center">
+                  收货地址已加密确认，接下来请在钱包中确认购买签名。
+                </p>
+              </div>
           ) : (
-              <>
-                <h3 className="font-semibold text-base text-foreground mb-4">确认购买</h3>
-                <div className="flex gap-3 mb-5">
-                  <div className="relative w-16 h-20 rounded-lg overflow-hidden shrink-0">
+              <div className="flex min-h-[500px] flex-col">
+                <h3 className="font-semibold text-lg text-foreground mb-4">确认购买</h3>
+                <div className="flex gap-4 mb-5">
+                  <div className="relative w-20 h-28 rounded-lg overflow-hidden shrink-0">
                     <Image src={book.cover} alt={book.title} fill className="object-cover" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm text-foreground truncate">{book.title}</p>
-                    <p className="text-xs text-muted-foreground">{book.author}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Token ID: {book.tokenId}</p>
-                    <p className="text-xs text-muted-foreground">品相: {book.condition}</p>
+                    <p className="font-semibold text-base text-foreground break-words leading-6">{book.title}</p>
+                    <p className="text-sm text-muted-foreground mt-1">{book.author}</p>
+                    <p className="text-sm text-muted-foreground mt-2">Token ID: {book.tokenId}</p>
+                    <p className="text-sm text-muted-foreground mt-1">品相: {book.condition}</p>
                   </div>
                 </div>
-                <div className="bg-secondary/50 rounded-lg p-3 mb-4 space-y-1.5 text-xs">
+                <div className="bg-secondary/50 rounded-lg p-4 mb-6 space-y-2 text-sm">
                   <div className="flex justify-between text-muted-foreground">
                     <span>书籍价格</span>
-                    <span className="text-foreground font-mono">{book.price} SOL</span>
-                  </div>
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>平台手续费 (2%)</span>
-                    <span className="text-foreground font-mono">{(book.price * 0.02).toFixed(4)} SOL</span>
+                    <span className="text-foreground font-mono text-base">{book.price} SOL</span>
                   </div>
                   <div className="flex justify-between text-muted-foreground">
                     <span>链上 Gas</span>
                     <span className="text-foreground font-mono">~0.000005 SOL</span>
                   </div>
-                  <div className="border-t border-border pt-1.5 flex justify-between font-semibold">
-                    <span className="text-foreground">合计</span>
-                    <span className="text-primary font-mono">{(book.price * 1.02).toFixed(4)} SOL</span>
-                  </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="mt-auto flex gap-2">
                   <Button
                       variant="outline"
                       onClick={onClose}
-                      className="flex-1 border-border text-foreground rounded-lg"
-                      disabled={step === 'signing'}
+                      className="flex-1 h-11 text-base border-border text-foreground rounded-lg"
                   >
                     取消
                   </Button>
                   <Button
-                      onClick={handleBuy}
-                      className="flex-1 bg-primary text-primary-foreground rounded-lg"
-                      disabled={step === 'signing'}
+                      onClick={() => {
+                        setErrorMsg(null)
+                        setStep('address')
+                      }}
+                      className="flex-1 h-11 text-base bg-primary text-primary-foreground rounded-lg"
                   >
-                    {step === 'signing' ? (
-                        <span className="flex items-center gap-2">
-                    <span className="w-4 h-4 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin" />
-                    签名中...
-                  </span>
-                    ) : (
-                        '确认购买'
-                    )}
+                    确认购买
                   </Button>
                 </div>
-                {errorMsg ? <p className="mt-3 text-xs text-red-500">{errorMsg}</p> : null}
-              </>
+                {errorMsg ? <p className="mt-3 text-sm text-red-500">{errorMsg}</p> : null}
+              </div>
           )}
         </div>
+        {cancelHintOpen ? (
+          <div className="fixed top-20 left-1/2 z-[90] -translate-x-1/2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-xs text-destructive shadow-sm">
+            已取消操作
+          </div>
+        ) : null}
       </div>
   )
 }
@@ -586,7 +882,7 @@ function BookDetailPanel({ asset, onClose, onBuy }: DetailPanelProps) {
                         </p>
                         {typeof detail.book.price_cny === 'number' && detail.book.price_cny > 0 && (
                           <p className="text-xs text-muted-foreground mt-1">
-                            约 ¥{detail.book.price_cny.toFixed(2)}
+                            ¥{detail.book.price_cny.toFixed(2)}
                             {typeof detail.book.fx_cny_per_sol === 'number' && detail.book.fx_cny_per_sol > 0
                               ? `（上架汇率 1 SOL≈¥${detail.book.fx_cny_per_sol.toFixed(2)}）`
                               : ''}
@@ -783,10 +1079,17 @@ function BookCard({
   const [favorited, setFavorited] = useState(false)
 
   return (
-      <button
-          type="button"
+      <div
+          role="button"
+          tabIndex={0}
           onClick={() => onOpenDetail(book.id)}
-          className="bg-card border border-border rounded-xl overflow-hidden hover:border-primary/30 transition-colors group flex flex-col text-left"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              onOpenDetail(book.id)
+            }
+          }}
+          className="bg-card border border-border rounded-xl overflow-hidden hover:border-primary/30 transition-colors group flex flex-col text-left cursor-pointer"
       >
         <div className="relative aspect-[3/4] w-full overflow-hidden bg-secondary">
           <Image
@@ -836,9 +1139,15 @@ function BookCard({
           </div>
           <div className="flex items-center justify-between mt-auto pt-1 gap-2">
             <div className="leading-tight">
-              <p className="text-primary font-mono font-bold text-sm">{book.price} SOL</p>
-              {typeof book.priceCny === 'number' && book.priceCny > 0 && (
-                <p className="text-[10px] text-muted-foreground">约 ¥{book.priceCny.toFixed(2)}</p>
+              {typeof book.priceCny === 'number' && book.priceCny > 0 ? (
+                <>
+                  <p className="text-primary font-mono font-bold text-base">
+                    ¥{book.priceCny.toFixed(2)}
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-0.5">{book.price} SOL</p>
+                </>
+              ) : (
+                <p className="text-primary font-mono font-bold text-base">{book.price} SOL</p>
               )}
             </div>
             {isOwner ? (
@@ -868,13 +1177,16 @@ function BookCard({
             )}
           </div>
         </div>
-      </button>
+      </div>
   )
 }
 
 // ─── MarketPage ───────────────────────────────────────────────────────────────
 
 export function MarketPage() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
   const { publicKey } = useWallet()
   const {
     categories: apiCategories,
@@ -902,15 +1214,29 @@ export function MarketPage() {
   const [categoryKey, setCategoryKey] = useState<string | null>(null)
   const [conditionDb, setConditionDb] = useState<string | null>(null)
   const [sort, setSort] = useState<(typeof SORT_OPTIONS)[number]['value']>('newest')
+  const [marketRefreshKey, setMarketRefreshKey] = useState(0)
   const [buyingBook, setBuyingBook] = useState<Book | null>(null)
   const [detailAsset, setDetailAsset] = useState<string | null>(null)
+  const sellerFilter = searchParams.get('seller')?.trim() ?? ''
+
+  function clearSellerFilter() {
+    const params = new URLSearchParams(searchParams.toString())
+    params.delete('seller')
+    const next = params.toString()
+    router.replace(next ? `${pathname}?${next}` : pathname)
+  }
 
   const { books: filtered, loading } = useMarketBooks({
     keyword: search,
     categoryKey,
     conditionDb,
     sortBy: sort,
+    refreshKey: marketRefreshKey,
   })
+  const displayedBooks = useMemo(
+    () => (sellerFilter ? filtered.filter((b) => b.seller === sellerFilter) : filtered),
+    [filtered, sellerFilter],
+  )
 
   return (
       <div className="pb-24 md:pb-10">
@@ -918,8 +1244,23 @@ export function MarketPage() {
           {/* 页面标题 */}
           <div className="mb-5">
             <h1 className="text-xl font-bold text-foreground">书籍市场</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">共 {filtered.length} 本书籍在售</p>
+            <p className="text-sm text-muted-foreground mt-0.5">共 {displayedBooks.length} 本书籍在售</p>
           </div>
+          {sellerFilter ? (
+            <div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-primary">
+              <span>
+                正在查看卖家 {sellerFilter.slice(0, 4)}...{sellerFilter.slice(-4)} 的在售书籍
+              </span>
+              <button
+                type="button"
+                onClick={clearSellerFilter}
+                className="shrink-0 rounded p-0.5 text-primary/80 transition-colors hover:bg-primary/15 hover:text-primary"
+                aria-label="清除卖家筛选"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ) : null}
 
           {/* 搜索 */}
           <div className="relative mb-4">
@@ -1024,11 +1365,11 @@ export function MarketPage() {
           {/* 书籍网格 */}
           {loading ? (
               <div className="text-center py-20 text-muted-foreground text-sm">加载中…</div>
-          ) : filtered.length === 0 ? (
+          ) : displayedBooks.length === 0 ? (
               <div className="text-center py-20 text-muted-foreground text-sm">未找到相关书籍</div>
           ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-                {filtered.map((book, index) => (
+                {displayedBooks.map((book, index) => (
                     <BookCard
                         key={book.id}
                         book={book}
@@ -1044,7 +1385,11 @@ export function MarketPage() {
 
         {/* 购买弹窗 */}
         {buyingBook && (
-            <BuyModal book={buyingBook} onClose={() => setBuyingBook(null)} />
+            <BuyModal
+              book={buyingBook}
+              onClose={() => setBuyingBook(null)}
+              onPurchased={() => setMarketRefreshKey((v) => v + 1)}
+            />
         )}
 
         {/* 详情面板：点击卡片触发 */}

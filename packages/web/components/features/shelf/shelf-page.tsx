@@ -10,7 +10,6 @@ import type { MyBook } from '@/lib/types'
 import { useMyBooks } from '@/lib/hooks/use-my-books'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { useSolCnyRate } from '@/lib/hooks/use-sol-cny-rate'
 import { fetchBookDetail } from '@/lib/api/book-detail'
 import {
   broadcastDelistBook,
@@ -43,7 +42,14 @@ function ShelfBookCard({ book, type }: { book: MyBook; type: ShelfTab }) {
   const [resultDialogOpen, setResultDialogOpen] = useState(false)
   const [resultMsg, setResultMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null)
   const [cancelHintOpen, setCancelHintOpen] = useState(false)
-  const { cnyPerSol, loading: rateLoading } = useSolCnyRate()
+  const [snapshotPriceCny, setSnapshotPriceCny] = useState<number | null>(
+    typeof book.priceCny === 'number' && Number.isFinite(book.priceCny) && book.priceCny > 0
+      ? book.priceCny
+      : null,
+  )
+  const snapshotFx = typeof book.fxCnyPerSol === 'number' && Number.isFinite(book.fxCnyPerSol) && book.fxCnyPerSol > 0
+    ? book.fxCnyPerSol
+    : null
 
   function normalizeCnyInput(raw: string): string {
     const cleaned = raw.replace(/[^\d.]/g, '')
@@ -148,6 +154,9 @@ function ShelfBookCard({ book, type }: { book: MyBook; type: ShelfTab }) {
         new_price: lamports,
       })
       setPriceSol(next)
+      if (snapshotFx && Number.isFinite(snapshotFx) && snapshotFx > 0) {
+        setSnapshotPriceCny(next * snapshotFx)
+      }
       setPriceDialogOpen(false)
       openResult('success', '广播成功')
     } catch {
@@ -182,7 +191,21 @@ function ShelfBookCard({ book, type }: { book: MyBook; type: ShelfTab }) {
 
         <div className="flex items-center justify-between mt-auto">
           <div>
-            <span className="text-primary font-mono font-bold text-sm">{priceSol} SOL</span>
+            {snapshotPriceCny != null ? (
+              <>
+                <span className="text-primary font-mono font-bold text-base">
+                  ¥{snapshotPriceCny.toFixed(2)}
+                </span>
+                <p className="text-sm text-muted-foreground mt-0.5">{priceSol} SOL</p>
+              </>
+            ) : (
+              <span className="text-primary font-mono font-bold text-base">{priceSol} SOL</span>
+            )}
+            {snapshotFx != null && (
+              <p className="text-xs text-muted-foreground mt-0.5">
+                上架瞬时汇率：1 SOL ≈ ¥{snapshotFx.toFixed(2)}
+              </p>
+            )}
             {book.purchasedAt && (
               <p className="text-[10px] text-muted-foreground">
                 {type === 'listed' ? `上架于 ${book.listedAt}` : `购入于 ${book.purchasedAt}`}
@@ -198,8 +221,8 @@ function ShelfBookCard({ book, type }: { book: MyBook; type: ShelfTab }) {
                 variant="outline"
                 onClick={() => {
                   setDraftPriceSol(String(priceSol))
-                  if (cnyPerSol && Number.isFinite(cnyPerSol) && cnyPerSol > 0) {
-                    setDraftPriceCny((priceSol * cnyPerSol).toFixed(2))
+                  if (snapshotFx && Number.isFinite(snapshotFx) && snapshotFx > 0) {
+                    setDraftPriceCny((priceSol * snapshotFx).toFixed(2))
                     setPriceMode('cny')
                   } else {
                     setDraftPriceCny('')
@@ -281,8 +304,8 @@ function ShelfBookCard({ book, type }: { book: MyBook; type: ShelfTab }) {
                   const v = normalizeCnyInput(e.target.value)
                   setDraftPriceCny(v)
                   const n = Number.parseFloat(v)
-                  if (cnyPerSol && Number.isFinite(n) && n > 0) {
-                    const sol = n / cnyPerSol
+                  if (snapshotFx && Number.isFinite(n) && n > 0) {
+                    const sol = n / snapshotFx
                     setDraftPriceSol(sol.toFixed(9).replace(/\.?0+$/, ''))
                   } else {
                     setDraftPriceSol('')
@@ -294,9 +317,9 @@ function ShelfBookCard({ book, type }: { book: MyBook; type: ShelfTab }) {
                     setDraftPriceCny(n.toFixed(2))
                   }
                 }}
-                placeholder={rateLoading ? '正在获取汇率…' : '例如 88.00'}
+                placeholder={snapshotFx ? '例如 88.00' : '缺少上架汇率快照'}
                 className="w-full h-10 rounded-md border border-border bg-input px-3 text-sm"
-                disabled={!cnyPerSol || rateLoading}
+                disabled={!snapshotFx}
               />
             ) : (
               <input
@@ -305,8 +328,8 @@ function ShelfBookCard({ book, type }: { book: MyBook; type: ShelfTab }) {
                   const v = e.target.value
                   setDraftPriceSol(v)
                   const n = Number.parseFloat(v)
-                  if (cnyPerSol && Number.isFinite(n) && n > 0) {
-                    setDraftPriceCny((n * cnyPerSol).toFixed(2))
+                  if (snapshotFx && Number.isFinite(n) && n > 0) {
+                    setDraftPriceCny((n * snapshotFx).toFixed(2))
                   } else if (v.trim() === '') {
                     setDraftPriceCny('')
                   }
@@ -315,12 +338,12 @@ function ShelfBookCard({ book, type }: { book: MyBook; type: ShelfTab }) {
                 className="w-full h-10 rounded-md border border-border bg-input px-3 text-sm"
               />
             )}
-            {cnyPerSol ? (
+            {snapshotFx ? (
               <p className="text-xs text-muted-foreground">
-                参考汇率：1 SOL ≈ ¥{cnyPerSol.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}
+                上架瞬时汇率：1 SOL ≈ ¥{snapshotFx.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}
               </p>
             ) : (
-              <p className="text-xs text-muted-foreground">当前未获取到汇率，仅支持 SOL 输入。</p>
+              <p className="text-xs text-muted-foreground">缺少上架瞬时汇率快照，仅支持 SOL 输入。</p>
             )}
             <p className="text-xs text-muted-foreground">
               链上实际提交：{draftPriceSol || '—'} SOL

@@ -8,9 +8,9 @@ impl AnchorService {
     }
 
     // 获取PDA
-    pub(crate) fn book_pda(&self, seller: &Pubkey, asset: &Pubkey) -> Pubkey {
+    pub(crate) fn book_pda(&self, asset: &Pubkey) -> Pubkey {
         Pubkey::find_program_address(
-            &[BOOK_SEED, seller.as_ref(), asset.as_ref()],
+            &[BOOK_SEED, asset.as_ref()],
             &Pubkey::from(self.program_id.to_bytes()),
         )
         .0

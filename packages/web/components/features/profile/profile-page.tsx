@@ -18,12 +18,60 @@ import { updateMyProfile } from '@/lib/api/profile'
 import {
   fetchEncryptionTemplates,
   fetchMyEncryptionBackup,
+  fetchUserEncryptionPublicKey,
   upsertMyEncryptionBackup,
   type EncryptionTemplate,
   type MyEncryptionBackup,
 } from '@/lib/api/encryption'
+import {
+  createMyShippingAddress,
+  deleteMyShippingAddress,
+  fetchMyShippingAddresses,
+  setDefaultMyShippingAddress,
+  updateMyShippingAddress,
+  type ShippingAddressPayload,
+} from '@/lib/api/shipping-addresses'
 
 type ProfileTab = 'shelf' | 'sold'
+type ShippingAddress = {
+  id: string
+  label: string
+  name: string
+  phone: string
+  region: string
+  provinceCode: string
+  cityCode: string
+  districtCode: string
+  detail: string
+}
+type ShippingProfileStore = {
+  addresses: ShippingAddress[]
+  defaultId: string | null
+}
+
+function dedupeShippingAddressesById(addresses: ShippingAddress[]) {
+  const seen = new Set<string>()
+  const result: ShippingAddress[] = []
+  for (const item of addresses) {
+    const id = item.id?.trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    result.push({ ...item, id })
+  }
+  return result
+}
+
+function createLocalAddressId(existingIds: Set<string>) {
+  let next =
+    globalThis.crypto?.randomUUID?.() ??
+    `addr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  while (existingIds.has(next)) {
+    next =
+      globalThis.crypto?.randomUUID?.() ??
+      `addr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  }
+  return next
+}
 
 const STATUS_LABEL: Record<MyBook['status'], { text: string; cls: string }> = {
   listed: { text: '在售', cls: 'text-primary bg-primary/10' },
@@ -55,6 +103,51 @@ function MiniBookCard({ book }: { book: MyBook }) {
   )
 }
 
+function ProfileAccessState({
+  title,
+  description,
+  actionLabel,
+  onAction,
+  loading = false,
+  errorText = null,
+  actionVariant = 'primary',
+}: {
+  title: string
+  description: string
+  actionLabel: string
+  onAction: () => void
+  loading?: boolean
+  errorText?: string | null
+  actionVariant?: 'primary' | 'verify'
+}) {
+  const actionClassName =
+    actionVariant === 'verify'
+      ? 'bg-amber-500 text-amber-950 hover:bg-amber-400 animate-wallet-verify-breathe'
+      : 'bg-primary text-primary-foreground'
+  return (
+    <div className="pb-24 md:pb-10 min-h-[60vh] flex flex-col items-center justify-center px-6 gap-6">
+      <div className="w-20 h-20 rounded-3xl bg-card border border-border/60 flex items-center justify-center">
+        <svg width="36" height="36" viewBox="0 0 36 36" fill="none" aria-hidden="true" className="text-muted-foreground">
+          <circle cx="18" cy="13" r="6" stroke="currentColor" strokeWidth="1.8" />
+          <path d="M5 32c0-7.18 5.82-13 13-13s13 5.82 13 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+      </div>
+      <div className="text-center">
+        <p className="font-bold text-lg text-foreground">{title}</p>
+        <p className="text-sm text-muted-foreground mt-1 leading-relaxed">{description}</p>
+      </div>
+      {errorText ? <p className="text-xs text-destructive text-center max-w-[300px]">{errorText}</p> : null}
+      <Button
+        onClick={onAction}
+        className={`${actionClassName} h-11 px-8 rounded-xl font-semibold`}
+        disabled={loading}
+      >
+        {loading ? '处理中...' : actionLabel}
+      </Button>
+    </div>
+  )
+}
+
 export function ProfilePage() {
   const { publicKey, disconnect, signMessage } = useWallet()
   const openWalletConnect = useOpenWalletConnect()
@@ -62,7 +155,6 @@ export function ProfilePage() {
   const [addressDialogOpen, setAddressDialogOpen] = useState(false)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
   const [securityDialogOpen, setSecurityDialogOpen] = useState(false)
-  const [privacyDialogOpen, setPrivacyDialogOpen] = useState(false)
   const [templates, setTemplates] = useState<EncryptionTemplate[]>([])
   const [backupPayload, setBackupPayload] = useState<MyEncryptionBackup | null>(null)
   const [backupVersion, setBackupVersion] = useState<string | null>(null)
@@ -70,25 +162,33 @@ export function ProfilePage() {
   const [addressActionLoading, setAddressActionLoading] = useState(false)
   const [addressError, setAddressError] = useState<string | null>(null)
   const [addressHint, setAddressHint] = useState<string | null>(null)
+  const [pendingDeleteShippingId, setPendingDeleteShippingId] = useState<string | null>(null)
   const autoProvisionTriedRef = useRef(false)
   const [shippingName, setShippingName] = useState('')
   const [shippingPhone, setShippingPhone] = useState('')
+  const [shippingLabel, setShippingLabel] = useState('')
   const [shippingProvinceCode, setShippingProvinceCode] = useState('')
   const [shippingCityCode, setShippingCityCode] = useState('')
   const [shippingDistrictCode, setShippingDistrictCode] = useState('')
   const [shippingDetail, setShippingDetail] = useState('')
+  const [shippingAddresses, setShippingAddresses] = useState<ShippingAddress[]>([])
+  const [selectedShippingId, setSelectedShippingId] = useState<string | null>(null)
+  const [defaultShippingId, setDefaultShippingId] = useState<string | null>(null)
+  const [addressFormMode, setAddressFormMode] = useState<'hidden' | 'create' | 'edit'>('hidden')
   const [profileNameDraft, setProfileNameDraft] = useState('')
   const [profileAvatarPreview, setProfileAvatarPreview] = useState<string | null>(null)
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileError, setProfileError] = useState<string | null>(null)
   const [securityAutoLock, setSecurityAutoLock] = useState(true)
   const [securityHideAddress, setSecurityHideAddress] = useState(true)
-  const [privacyMaskPhone, setPrivacyMaskPhone] = useState(true)
-  const [privacyOnlyOrderParties, setPrivacyOnlyOrderParties] = useState(true)
   const avatarFileRef = useRef<HTMLInputElement>(null)
   const {
     user,
     isAuthenticated,
+    sessionStatus,
+    login,
+    authLoading,
+    authError,
     refreshSession,
   } = useAuth()
 
@@ -148,9 +248,135 @@ export function ProfilePage() {
     .filter(Boolean)
     .join(' ')
 
+  function resetShippingForm() {
+    setShippingLabel('')
+    setShippingName('')
+    setShippingPhone('')
+    setShippingProvinceCode('')
+    setShippingCityCode('')
+    setShippingDistrictCode('')
+    setShippingDetail('')
+  }
+
+  function fillShippingForm(address: ShippingAddress) {
+    setShippingLabel(address.label)
+    setShippingName(address.name)
+    setShippingPhone(address.phone)
+    setShippingProvinceCode(address.provinceCode)
+    setShippingCityCode(address.cityCode)
+    setShippingDistrictCode(address.districtCode)
+    setShippingDetail(address.detail)
+  }
+
+  function toLocalStorageProfile(addresses: ShippingAddress[], defaultId: string | null) {
+    if (!profileShippingStorageKey) return
+    localStorage.setItem(
+      profileShippingStorageKey,
+      JSON.stringify({
+        addresses,
+        defaultId,
+      } satisfies ShippingProfileStore),
+    )
+  }
+
+  function toBackendAddressId(id: string | null): number | null {
+    if (!id) return null
+    const n = Number(id)
+    if (!Number.isInteger(n) || n <= 0) return null
+    return n
+  }
+
+  function normalizeShippingProfile(raw: string): ShippingProfileStore {
+    const parsed = JSON.parse(raw) as {
+      addresses?: ShippingAddress[]
+      defaultId?: string | null
+      name?: string
+      phone?: string
+      region?: string
+      provinceCode?: string
+      cityCode?: string
+      districtCode?: string
+      detail?: string
+    }
+    if (Array.isArray(parsed.addresses)) {
+      const addresses = dedupeShippingAddressesById(parsed.addresses
+        .filter((item) =>
+          Boolean(item?.id && item?.name && item?.provinceCode && item?.cityCode && item?.districtCode && item?.detail),
+        )
+        .map((item) => ({
+          ...item,
+          phone: item.phone ?? '',
+        })))
+      const defaultId = addresses.some((x) => x.id === parsed.defaultId) ? (parsed.defaultId ?? null) : (addresses[0]?.id ?? null)
+      return { addresses, defaultId }
+    }
+    if (parsed.name && parsed.provinceCode && parsed.cityCode && parsed.districtCode && parsed.detail) {
+      const legacy: ShippingAddress = {
+        id: `legacy-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        label: '默认地址',
+        name: parsed.name,
+        phone: parsed.phone ?? '',
+        region: parsed.region ?? '',
+        provinceCode: parsed.provinceCode,
+        cityCode: parsed.cityCode,
+        districtCode: parsed.districtCode,
+        detail: parsed.detail,
+      }
+      return { addresses: [legacy], defaultId: legacy.id }
+    }
+    return { addresses: [], defaultId: null }
+  }
+
+  async function refreshShippingAddressesFromSource() {
+    if (!isAuthenticated) return
+    if (apiConfigured) {
+      const addressRes = await fetchMyShippingAddresses().catch(() => ({ addresses: [] as ShippingAddressPayload[] }))
+      if (addressRes.addresses.length > 0) {
+        const mapped = dedupeShippingAddressesById(await Promise.all(
+          addressRes.addresses.map(async (row) => {
+            const plain = await decryptShippingForMe(row, addr)
+            return { id: String(row.id), ...plain }
+          }),
+        ))
+        const defaultId = String(addressRes.addresses.find((x) => x.is_default)?.id ?? mapped[0]?.id ?? '')
+        const resolvedDefault = mapped.find((x) => x.id === defaultId)?.id ?? mapped[0]?.id ?? null
+        setShippingAddresses(mapped)
+        setSelectedShippingId(resolvedDefault)
+        setDefaultShippingId(resolvedDefault)
+        const current = mapped.find((x) => x.id === resolvedDefault) ?? mapped[0]
+        if (current) fillShippingForm(current)
+        else resetShippingForm()
+        toLocalStorageProfile(mapped, resolvedDefault)
+      } else {
+        setShippingAddresses([])
+        setSelectedShippingId(null)
+        setDefaultShippingId(null)
+        resetShippingForm()
+        toLocalStorageProfile([], null)
+      }
+      return
+    }
+    if (profileShippingStorageKey) {
+      const raw = localStorage.getItem(profileShippingStorageKey)
+      const normalized = raw ? normalizeShippingProfile(raw) : { addresses: [], defaultId: null }
+      setShippingAddresses(normalized.addresses)
+      setSelectedShippingId(normalized.defaultId)
+      setDefaultShippingId(normalized.defaultId)
+      const current = normalized.addresses.find((x) => x.id === normalized.defaultId) ?? normalized.addresses[0]
+      if (current) fillShippingForm(current)
+      else resetShippingForm()
+    }
+  }
+
   useEffect(() => {
     setProfileNameDraft(user?.username ?? '')
   }, [user?.username])
+
+  useEffect(() => {
+    if (!addressHint) return
+    const timer = window.setTimeout(() => setAddressHint(null), 2000)
+    return () => window.clearTimeout(timer)
+  }, [addressHint])
 
   function bytesToBase64(bytes: Uint8Array) {
     let binary = ''
@@ -167,6 +393,89 @@ export function ProfilePage() {
 
   function fillMessageTemplate(tpl: string, pubkey: string) {
     return tpl.replaceAll('{pubkey}', pubkey).replaceAll('{origin}', window.location.origin)
+  }
+
+  async function sha256(data: Uint8Array) {
+    return new Uint8Array(await crypto.subtle.digest('SHA-256', data))
+  }
+
+  async function loadLocalCommPrivateKey(pubkey: string) {
+    const key = localStorage.getItem(`bookchain:comm-key:${pubkey}`)
+    if (!key) return null
+    return crypto.subtle.importKey('pkcs8', base64ToBytes(key), { name: 'X25519' } as EcKeyImportParams, false, ['deriveBits'])
+  }
+
+  async function encryptShippingForSelf(selfEncPubB64: string, plain: string) {
+    const selfPub = await crypto.subtle.importKey(
+      'raw',
+      base64ToBytes(selfEncPubB64),
+      { name: 'X25519' } as EcKeyImportParams,
+      false,
+      [],
+    )
+    const eph = (await crypto.subtle.generateKey(
+      { name: 'X25519' } as EcKeyGenParams,
+      true,
+      ['deriveBits'],
+    )) as CryptoKeyPair
+    const shared = new Uint8Array(await crypto.subtle.deriveBits(
+      { name: 'X25519', public: selfPub } as EcdhKeyDeriveParams,
+      eph.privateKey,
+      256,
+    ))
+    const iv = crypto.getRandomValues(new Uint8Array(12))
+    const keySeed = new Uint8Array(shared.length + iv.length)
+    keySeed.set(shared, 0)
+    keySeed.set(iv, shared.length)
+    const aesRaw = await sha256(keySeed)
+    const aes = await crypto.subtle.importKey('raw', aesRaw, { name: 'AES-GCM' }, false, ['encrypt'])
+    const ct = new Uint8Array(
+      await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aes, new TextEncoder().encode(plain)),
+    )
+    const ephPub = new Uint8Array(await crypto.subtle.exportKey('raw', eph.publicKey))
+    return {
+      buyer_ciphertext: JSON.stringify({ epk: bytesToBase64(ephPub), ct: bytesToBase64(ct) }),
+      buyer_nonce: bytesToBase64(iv),
+      buyer_alg: 'x25519_aesgcm_v1',
+      encryption_key_version: 'v1',
+    }
+  }
+
+  async function decryptShippingForMe(payload: ShippingAddressPayload, pubkey: string) {
+    const key = await loadLocalCommPrivateKey(pubkey)
+    if (!key) throw new Error('本地通讯私钥不存在，请先完成自动恢复')
+    const parsed = JSON.parse(payload.buyer_ciphertext) as { epk: string; ct: string }
+    const ephPub = await crypto.subtle.importKey(
+      'raw',
+      base64ToBytes(parsed.epk),
+      { name: 'X25519' } as EcKeyImportParams,
+      false,
+      [],
+    )
+    const shared = new Uint8Array(await crypto.subtle.deriveBits(
+      { name: 'X25519', public: ephPub } as EcdhKeyDeriveParams,
+      key,
+      256,
+    ))
+    const iv = base64ToBytes(payload.buyer_nonce)
+    const keySeed = new Uint8Array(shared.length + iv.length)
+    keySeed.set(shared, 0)
+    keySeed.set(iv, shared.length)
+    const aesRaw = await sha256(keySeed)
+    const aes = await crypto.subtle.importKey('raw', aesRaw, { name: 'AES-GCM' }, false, ['decrypt'])
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aes, base64ToBytes(parsed.ct))
+    const decoded = JSON.parse(new TextDecoder().decode(plain)) as Partial<ShippingAddress>
+    // 后端记录必须以数据库 id 为准，避免历史本地 id 覆盖导致删除无法命中后端接口。
+    return {
+      label: decoded.label ?? '默认地址',
+      name: decoded.name ?? '',
+      phone: decoded.phone ?? '',
+      region: decoded.region ?? '',
+      provinceCode: decoded.provinceCode ?? '',
+      cityCode: decoded.cityCode ?? '',
+      districtCode: decoded.districtCode ?? '',
+      detail: decoded.detail ?? '',
+    } satisfies Omit<ShippingAddress, 'id'>
   }
 
   async function deriveAesKey(signature: Uint8Array, salt: Uint8Array) {
@@ -208,6 +517,7 @@ export function ProfilePage() {
       setAddressHint('已自动创建加密备份，可在新设备通过钱包签名恢复。')
       setBackupPayload(saved)
     } catch (err) {
+      autoProvisionTriedRef.current = false
       setAddressError(err instanceof Error ? err.message : '自动创建加密备份失败')
     } finally {
       setAddressActionLoading(false)
@@ -232,6 +542,7 @@ export function ProfilePage() {
       localStorage.setItem(localCommKeyStorageKey, bytesToBase64(new Uint8Array(plain)))
       setAddressHint('已自动恢复本地通讯密钥。')
     } catch (err) {
+      autoProvisionTriedRef.current = false
       setAddressError(err instanceof Error ? err.message : '自动恢复密钥失败')
     } finally {
       setAddressActionLoading(false)
@@ -249,12 +560,15 @@ export function ProfilePage() {
       setAddressLoading(true)
       setAddressError(null)
       try {
-        const [tplRes, backupRes] = await Promise.all([
+        const [tplRes, backupRes, addressRes] = await Promise.all([
           fetchEncryptionTemplates(),
           fetchMyEncryptionBackup().catch((err) => {
             if (err instanceof ApiError && err.status === 404) return null
             throw err
           }),
+          isAuthenticated && apiConfigured
+            ? fetchMyShippingAddresses().catch(() => ({ addresses: [] as ShippingAddressPayload[] }))
+            : Promise.resolve({ addresses: [] as ShippingAddressPayload[] }),
         ])
         if (cancelled) return
         setTemplates(tplRes.templates)
@@ -265,26 +579,7 @@ export function ProfilePage() {
           setBackupPayload(null)
           setBackupVersion(null)
         }
-        if (profileShippingStorageKey) {
-          const raw = localStorage.getItem(profileShippingStorageKey)
-          if (raw) {
-            const parsed = JSON.parse(raw) as {
-              name?: string
-              phone?: string
-              region?: string
-              provinceCode?: string
-              cityCode?: string
-              districtCode?: string
-              detail?: string
-            }
-            setShippingName(parsed.name ?? '')
-            setShippingPhone(parsed.phone ?? '')
-            setShippingProvinceCode(parsed.provinceCode ?? '')
-            setShippingCityCode(parsed.cityCode ?? '')
-            setShippingDistrictCode(parsed.districtCode ?? '')
-            setShippingDetail(parsed.detail ?? '')
-          }
-        }
+        await refreshShippingAddressesFromSource()
       } catch (err) {
         if (cancelled) return
         setAddressError(err instanceof Error ? err.message : '地址配置加载失败')
@@ -298,21 +593,234 @@ export function ProfilePage() {
     }
   }, [isAuthenticated])
 
-  function handleSaveShippingProfile() {
+  async function handleSaveShippingProfile() {
     if (!profileShippingStorageKey) return
-    localStorage.setItem(
-      profileShippingStorageKey,
-      JSON.stringify({
-        name: shippingName.trim(),
-        phone: shippingPhone.trim(),
-        region: shippingRegionText,
-        provinceCode: shippingProvinceCode,
-        cityCode: shippingCityCode,
-        districtCode: shippingDistrictCode,
-        detail: shippingDetail.trim(),
-      }),
-    )
-    setAddressHint('收货信息已保存。下单时会自动带入，你也可以按订单修改。')
+    const phone = shippingPhone.trim()
+    if (!/^\d{11}$/.test(phone)) {
+      setAddressError('手机号必须为11位数字')
+      return
+    }
+    const existingIds = new Set(shippingAddresses.map((x) => x.id))
+    const nextAddress: ShippingAddress = {
+      id: selectedShippingId ?? createLocalAddressId(existingIds),
+      label: shippingLabel.trim() || `地址 ${shippingAddresses.length + 1}`,
+      name: shippingName.trim(),
+      phone,
+      region: shippingRegionText,
+      provinceCode: shippingProvinceCode,
+      cityCode: shippingCityCode,
+      districtCode: shippingDistrictCode,
+      detail: shippingDetail.trim(),
+    }
+    const nextAddresses = selectedShippingId
+      ? shippingAddresses.map((x) => (x.id === selectedShippingId ? nextAddress : x))
+      : [nextAddress, ...shippingAddresses]
+    const dedupedNextAddresses = dedupeShippingAddressesById(nextAddresses)
+    const nextProfile: ShippingProfileStore = {
+      addresses: dedupedNextAddresses,
+      defaultId: addressFormMode === 'create' ? nextAddress.id : (defaultShippingId ?? nextAddress.id),
+    }
+    setAddressActionLoading(true)
+    setAddressError(null)
+    try {
+      if (isAuthenticated && apiConfigured) {
+        const selfPub = await fetchUserEncryptionPublicKey(addr)
+        const encryptedPayload = {
+          label: nextAddress.label,
+          name: nextAddress.name,
+          phone: nextAddress.phone,
+          region: nextAddress.region,
+          provinceCode: nextAddress.provinceCode,
+          cityCode: nextAddress.cityCode,
+          districtCode: nextAddress.districtCode,
+          detail: nextAddress.detail,
+        }
+        const encrypted = await encryptShippingForSelf(
+          selfPub.encryption_public_key,
+          JSON.stringify(encryptedPayload),
+        )
+        const backendId = toBackendAddressId(selectedShippingId)
+        if (addressFormMode === 'edit' && backendId) {
+          await updateMyShippingAddress(backendId, {
+            ...encrypted,
+          })
+        } else if (addressFormMode === 'edit' && !backendId) {
+          throw new Error('当前地址不是数据库记录，无法直接修改。请删除后重新新增。')
+        } else {
+          await createMyShippingAddress({
+            ...encrypted,
+            is_default: true,
+          })
+        }
+        const latest = await fetchMyShippingAddresses()
+        const mapped = dedupeShippingAddressesById(await Promise.all(
+          latest.addresses.map(async (row) => {
+            const plain = await decryptShippingForMe(row, addr)
+            return { id: String(row.id), ...plain }
+          }),
+        ))
+        const defaultId = String(latest.addresses.find((x) => x.is_default)?.id ?? mapped[0]?.id ?? '')
+        const resolvedDefault = mapped.find((x) => x.id === defaultId)?.id ?? mapped[0]?.id ?? null
+        setShippingAddresses(mapped)
+        setDefaultShippingId(resolvedDefault)
+        setSelectedShippingId(resolvedDefault)
+        toLocalStorageProfile(mapped, resolvedDefault)
+      } else {
+        toLocalStorageProfile(dedupedNextAddresses, nextProfile.defaultId)
+        setShippingAddresses(dedupedNextAddresses)
+        setDefaultShippingId(nextProfile.defaultId)
+      }
+      setAddressHint(selectedShippingId ? '地址已更新。' : '地址已新增并设为默认。')
+      setAddressFormMode('hidden')
+    } catch (err) {
+      setAddressError(err instanceof Error ? err.message : '地址保存失败')
+    } finally {
+      setAddressActionLoading(false)
+    }
+  }
+
+  async function handleDeleteShippingAddressById(id: string) {
+    if (!profileShippingStorageKey) return
+    setAddressActionLoading(true)
+    setAddressError(null)
+    try {
+      const backendId = toBackendAddressId(id)
+      if (isAuthenticated && apiConfigured && backendId) {
+        await deleteMyShippingAddress(backendId)
+        const latest = await fetchMyShippingAddresses()
+        const mapped = dedupeShippingAddressesById(await Promise.all(
+          latest.addresses.map(async (row) => {
+            const plain = await decryptShippingForMe(row, addr)
+            return { id: String(row.id), ...plain }
+          }),
+        ))
+        const defaultId = String(latest.addresses.find((x) => x.is_default)?.id ?? mapped[0]?.id ?? '')
+        const resolvedDefault = mapped.find((x) => x.id === defaultId)?.id ?? mapped[0]?.id ?? null
+        setShippingAddresses(mapped)
+        setDefaultShippingId(resolvedDefault)
+        setSelectedShippingId(resolvedDefault)
+        if (mapped[0]) fillShippingForm(mapped[0])
+        else resetShippingForm()
+        toLocalStorageProfile(mapped, resolvedDefault)
+      } else {
+        const nextAddresses = shippingAddresses.filter((x) => x.id !== id)
+        const nextDefaultId = nextAddresses[0]?.id ?? null
+        toLocalStorageProfile(nextAddresses, nextDefaultId)
+        setShippingAddresses(nextAddresses)
+        setSelectedShippingId(nextDefaultId)
+        setDefaultShippingId(nextDefaultId)
+        if (nextAddresses[0]) fillShippingForm(nextAddresses[0])
+        else resetShippingForm()
+      }
+      setAddressHint('地址已删除。')
+      if (selectedShippingId === id) setAddressFormMode('hidden')
+    } catch (err) {
+      setAddressError(err instanceof Error ? err.message : '删除地址失败')
+    } finally {
+      setAddressActionLoading(false)
+    }
+  }
+
+  function requestDeleteShippingAddress(id: string) {
+    setPendingDeleteShippingId(id)
+  }
+
+  function confirmDeleteShippingAddress() {
+    if (!pendingDeleteShippingId) return
+    void handleDeleteShippingAddressById(pendingDeleteShippingId)
+    setPendingDeleteShippingId(null)
+  }
+
+  function handleCreateNewAddress() {
+    setSelectedShippingId(null)
+    resetShippingForm()
+    setAddressFormMode('create')
+    setAddressHint(null)
+  }
+
+  function handleEditShippingAddress(id: string) {
+    const target = shippingAddresses.find((x) => x.id === id)
+    if (!target) return
+    setSelectedShippingId(id)
+    fillShippingForm(target)
+    setAddressFormMode('edit')
+  }
+
+  async function handleSetDefaultShippingAddress(id: string) {
+    if (!profileShippingStorageKey) return
+    setAddressActionLoading(true)
+    setAddressError(null)
+    try {
+      const backendId = toBackendAddressId(id)
+      if (isAuthenticated && apiConfigured && backendId) {
+        await setDefaultMyShippingAddress(backendId)
+      }
+      toLocalStorageProfile(shippingAddresses, id)
+      setDefaultShippingId(id)
+      setAddressHint('已设置为默认地址。')
+    } catch (err) {
+      setAddressError(err instanceof Error ? err.message : '设置默认地址失败')
+    } finally {
+      setAddressActionLoading(false)
+    }
+  }
+
+  async function handleOpenAddressDialog() {
+    if (!isAuthenticated || !publicKey || !signMessage || !localCommKeyStorageKey) return
+    setAddressFormMode('hidden')
+    setSelectedShippingId(null)
+    if (localStorage.getItem(localCommKeyStorageKey)) {
+      setAddressHint('已从本地加载通讯密钥。')
+      await refreshShippingAddressesFromSource()
+      setAddressDialogOpen(true)
+      return
+    }
+    if (backupPayload) {
+      await restoreBackup()
+      await refreshShippingAddressesFromSource()
+      setAddressDialogOpen(true)
+      return
+    }
+    if (templates[0]) {
+      await createBackup(templates[0])
+      await refreshShippingAddressesFromSource()
+      setAddressDialogOpen(true)
+      return
+    }
+    try {
+      const [tplRes, backupRes] = await Promise.all([
+        fetchEncryptionTemplates(),
+        fetchMyEncryptionBackup().catch((err) => {
+          if (err instanceof ApiError && err.status === 404) return null
+          throw err
+        }),
+      ])
+      setTemplates(tplRes.templates)
+      if (backupRes) {
+        setBackupPayload(backupRes)
+        await restoreBackup()
+        await refreshShippingAddressesFromSource()
+        setAddressDialogOpen(true)
+        return
+      }
+      const fallbackTpl = tplRes.templates[0]
+      if (fallbackTpl) {
+        await createBackup(fallbackTpl)
+        await refreshShippingAddressesFromSource()
+        setAddressDialogOpen(true)
+      } else {
+        setAddressError('未找到可用加密模板，请稍后重试。')
+        setAddressDialogOpen(true)
+      }
+    } catch (err) {
+      setAddressError(err instanceof Error ? err.message : '初始化通讯密钥失败')
+      setAddressDialogOpen(true)
+    }
+  }
+
+  async function handleVerifyLogin() {
+    if (!publicKey || !signMessage) return
+    await login({ publicKey, signMessage })
   }
 
   async function handleSaveMyProfile() {
@@ -339,41 +847,35 @@ export function ProfilePage() {
   }
 
   useEffect(() => {
-    if (!isAuthenticated || !publicKey || !signMessage) return
-    if (addressLoading || addressActionLoading) return
-    if (autoProvisionTriedRef.current) return
-    autoProvisionTriedRef.current = true
-    if (backupPayload) {
-      void restoreBackup()
-      return
+    if (!isAuthenticated || !publicKey) {
+      autoProvisionTriedRef.current = false
     }
-    const tpl = templates[0]
-    if (tpl) void createBackup(tpl)
-  }, [isAuthenticated, publicKey, signMessage, addressLoading, addressActionLoading, backupPayload, templates])
+  }, [isAuthenticated, publicKey])
 
-  // 未连接钱包
   if (!publicKey) {
     return (
-      <div className="pb-24 md:pb-10 min-h-[60vh] flex flex-col items-center justify-center px-6 gap-6">
-        <div className="w-20 h-20 rounded-3xl bg-card border border-border/60 flex items-center justify-center">
-          <svg width="36" height="36" viewBox="0 0 36 36" fill="none" aria-hidden="true" className="text-muted-foreground">
-            <circle cx="18" cy="13" r="6" stroke="currentColor" strokeWidth="1.8" />
-            <path d="M5 32c0-7.18 5.82-13 13-13s13 5.82 13 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
-        </div>
-        <div className="text-center">
-          <p className="font-bold text-lg text-foreground">连接钱包</p>
-          <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
-            连接 Phantom 或 Solflare 钱包<br />查看你的链上书架与交易记录
-          </p>
-        </div>
-        <Button
-          onClick={openWalletConnect}
-          className="bg-primary text-primary-foreground h-11 px-8 rounded-xl font-semibold"
-        >
-          连接钱包
-        </Button>
-      </div>
+      <ProfileAccessState
+        title="连接钱包"
+        description={'连接 Phantom 或 Solflare 钱包\n查看你的链上书架与交易记录'}
+        actionLabel="连接钱包"
+        onAction={openWalletConnect}
+      />
+    )
+  }
+
+  if (sessionStatus !== 'authenticated') {
+    return (
+      <ProfileAccessState
+        title="验证登录"
+        description={'已连接钱包，请先完成签名验证\n验证后可访问个人中心与收货地址'}
+        actionLabel="验证登录"
+        actionVariant="verify"
+        onAction={() => {
+          void handleVerifyLogin()
+        }}
+        loading={authLoading}
+        errorText={authError}
+      />
     )
   }
 
@@ -448,30 +950,45 @@ export function ProfilePage() {
           </div>
         </div>
 
-        {/* 快捷操作 */}
-        <div className="grid grid-cols-3 gap-2.5">
+        {/* 常用入口（移动端优先） */}
+        <div className="grid grid-cols-2 gap-2.5 md:hidden">
           {[
             {
               icon: (
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                  <path d="M10 3v14M3 10h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  <rect x="3" y="3" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" />
+                  <path d="M6.5 8h7M6.5 11h7M6.5 14h4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                  <circle cx="14.8" cy="13.8" r="1.1" fill="currentColor" />
                 </svg>
               ),
-              label: '上架书籍',
-              desc: '铸造 NFT',
-              href: routes.list,
+              label: '订单',
+              desc: '待发货/待收货/已完成',
+              href: routes.pending,
               accent: true,
             },
             {
               icon: (
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                  <rect x="2" y="6" width="16" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-                  <path d="M6 6V4a4 4 0 018 0v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  <rect x="3" y="3" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" />
+                  <path d="M6.5 8h7M6.5 11h4.5M6.5 14h6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
                 </svg>
               ),
-              label: '逛书市',
-              desc: '发现好书',
-              href: routes.market,
+              label: '链上记录',
+              desc: '查看交易流水',
+              href: routes.transactions,
+              accent: false,
+            },
+            {
+              icon: (
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <rect x="3" y="4" width="11" height="13" rx="1.2" stroke="currentColor" strokeWidth="1.5" />
+                  <path d="M6 8h5M6 11h5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                  <path d="M14.5 6.5l2 1-2 1M14.5 11.5l2 1-2 1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                </svg>
+              ),
+              label: '书架',
+              desc: '管理在售书籍',
+              href: routes.shelf,
               accent: false,
             },
             {
@@ -485,7 +1002,7 @@ export function ProfilePage() {
                 </svg>
               ),
               label: '聊天',
-              desc: '与卖家沟通',
+              desc: '会话与未读',
               href: routes.chat,
               accent: false,
             },
@@ -573,11 +1090,12 @@ export function ProfilePage() {
               desc: backupVersion
                 ? '已保存收货信息'
                 : '填写默认收货信息，下单可自动带入',
-              onClick: () => setAddressDialogOpen(true),
+              onClick: () => {
+                void handleOpenAddressDialog()
+              },
             },
             { label: '订单提醒', icon: '🔔', desc: '买家提交地址后，可在订单里直接查看' },
             { label: '安全设置', icon: '🔒', desc: '自动锁定与隐私保护开关', onClick: () => setSecurityDialogOpen(true) },
-            { label: '隐私设置', icon: '🛡️', desc: '手机号脱敏与订单可见范围', onClick: () => setPrivacyDialogOpen(true) },
             { label: '帮助与反馈', icon: '💬', desc: '联系支持团队' },
             { label: '关于 BookChain', icon: '📖', desc: '版本 0.1.0 · Solana Devnet' },
           ].map((item) => (
@@ -606,21 +1124,83 @@ export function ProfilePage() {
           断开钱包连接
         </button>
 
-        <Dialog open={addressDialogOpen} onOpenChange={setAddressDialogOpen}>
+        <Dialog
+          open={addressDialogOpen}
+          onOpenChange={(open) => {
+            setAddressDialogOpen(open)
+            if (!open) {
+              setAddressFormMode('hidden')
+              setSelectedShippingId(null)
+            }
+          }}
+        >
           <DialogContent className="max-w-[min(92vw,640px)]">
             <DialogHeader>
               <DialogTitle>收货地址</DialogTitle>
               <DialogDescription>
-                填写你的默认收货信息。我们采用加密存储，保护您的隐私，只有您自己和卖家能够查看您的收货地址。
+                填写你的收货信息。地址将采用加密存储，保护您的隐私，只有您自己和卖家能够查看您的收货地址。
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3 text-sm">
               {addressLoading && <p className="text-xs text-muted-foreground">正在准备地址安全能力…</p>}
               {addressActionLoading && <p className="text-xs text-muted-foreground">正在初始化安全能力，请稍候…</p>}
-              {addressHint && <p className="text-xs text-primary">{addressHint}</p>}
               {addressError && <p className="text-xs text-destructive">{addressError}</p>}
               <div className="rounded-xl border border-border/60 p-3 space-y-2">
-                <p className="text-xs font-semibold text-foreground">默认收货信息</p>
+                <p className="text-xs font-semibold text-foreground">地址列表</p>
+                {shippingAddresses.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">暂无地址，请先新增。</p>
+                ) : (
+                  <div className="space-y-2">
+                    {shippingAddresses.map((item, index) => {
+                      const isDefault = defaultShippingId === item.id
+                      return (
+                        <div key={`${item.id}-${index}`} className="rounded-md border border-border bg-background px-2.5 py-2 text-xs">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="font-medium text-foreground">
+                              {item.label}
+                              {isDefault ? <span className="ml-1.5 text-primary">（默认）</span> : null}
+                            </p>
+                            <div className="flex items-center gap-1.5">
+                              <Button size="sm" variant="outline" onClick={() => handleEditShippingAddress(item.id)}>
+                                修改
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => { requestDeleteShippingAddress(item.id) }}
+                              >
+                                删除
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => { void handleSetDefaultShippingAddress(item.id) }}
+                                disabled={isDefault}
+                              >
+                                设为默认
+                              </Button>
+                            </div>
+                          </div>
+                          <p className="mt-0.5 text-muted-foreground">{[item.name, item.region, item.detail].filter(Boolean).join('，')}</p>
+                          <p className="mt-0.5 text-muted-foreground">手机号：{item.phone}</p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+                <div className="pt-1">
+                  <Button size="sm" variant="outline" onClick={handleCreateNewAddress}>新增地址</Button>
+                </div>
+              </div>
+              {addressFormMode !== 'hidden' && (
+                <div className="rounded-xl border border-border/60 p-3 space-y-2">
+                  <p className="text-xs font-semibold text-foreground">{addressFormMode === 'edit' ? '修改地址' : '新增地址'}</p>
+                <input
+                  value={shippingLabel}
+                  onChange={(e) => setShippingLabel(e.target.value)}
+                  placeholder="地址标签（如：家 / 公司）"
+                  className="w-full h-9 rounded-md bg-input border border-border px-2 text-xs"
+                />
                 <input
                   value={shippingName}
                   onChange={(e) => setShippingName(e.target.value)}
@@ -629,8 +1209,8 @@ export function ProfilePage() {
                 />
                 <input
                   value={shippingPhone}
-                  onChange={(e) => setShippingPhone(e.target.value)}
-                  placeholder="手机号"
+                  onChange={(e) => setShippingPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                  placeholder="手机号（11位）"
                   className="w-full h-9 rounded-md bg-input border border-border px-2 text-xs"
                 />
                 <div className="grid grid-cols-3 gap-2">
@@ -685,20 +1265,57 @@ export function ProfilePage() {
                   size="sm"
                   disabled={
                     !shippingName.trim() ||
-                    !shippingPhone.trim() ||
+                    !/^\d{11}$/.test(shippingPhone.trim()) ||
                     !shippingProvinceCode ||
                     !shippingCityCode ||
                     !shippingDistrictCode ||
                     !shippingDetail.trim()
                   }
-                  onClick={handleSaveShippingProfile}
+                  onClick={() => { void handleSaveShippingProfile() }}
                 >
-                  保存收货信息
+                  {addressFormMode === 'edit' ? '更新地址' : '保存地址'}
                 </Button>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setAddressFormMode('hidden')}>
+                    取消
+                  </Button>
+                  {addressFormMode === 'edit' ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        if (selectedShippingId) requestDeleteShippingAddress(selectedShippingId)
+                      }}
+                      disabled={!selectedShippingId}
+                    >
+                      删除地址
+                    </Button>
+                  ) : null}
+                </div>
               </div>
+              )}
             </div>
             <div className="flex justify-end">
               <Button variant="outline" onClick={() => setAddressDialogOpen(false)}>关闭</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={Boolean(pendingDeleteShippingId)} onOpenChange={(open) => { if (!open) setPendingDeleteShippingId(null) }}>
+          <DialogContent className="max-w-[min(92vw,420px)]">
+            <DialogHeader>
+              <DialogTitle>确认删除地址？</DialogTitle>
+              <DialogDescription>
+                删除后不可恢复。若删除的是默认地址，系统会自动选择下一条地址为默认地址。
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setPendingDeleteShippingId(null)} disabled={addressActionLoading}>
+                取消
+              </Button>
+              <Button variant="destructive" onClick={confirmDeleteShippingAddress} disabled={addressActionLoading}>
+                {addressActionLoading ? '删除中...' : '确认删除'}
+              </Button>
             </div>
           </DialogContent>
         </Dialog>
@@ -771,24 +1388,11 @@ export function ProfilePage() {
           </DialogContent>
         </Dialog>
 
-        <Dialog open={privacyDialogOpen} onOpenChange={setPrivacyDialogOpen}>
-          <DialogContent className="max-w-[min(92vw,520px)]">
-            <DialogHeader>
-              <DialogTitle>隐私设置</DialogTitle>
-              <DialogDescription>交易地址与联系方式的显示策略。</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3 text-sm">
-              <label className="flex items-center justify-between gap-2">
-                <span>手机号默认脱敏显示</span>
-                <input type="checkbox" checked={privacyMaskPhone} onChange={(e) => setPrivacyMaskPhone(e.target.checked)} />
-              </label>
-              <label className="flex items-center justify-between gap-2">
-                <span>仅订单相关双方可见完整地址</span>
-                <input type="checkbox" checked={privacyOnlyOrderParties} onChange={(e) => setPrivacyOnlyOrderParties(e.target.checked)} />
-              </label>
-            </div>
-          </DialogContent>
-        </Dialog>
+        {addressHint ? (
+          <div className="fixed top-4 left-1/2 z-[120] -translate-x-1/2 rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-xs text-primary shadow-sm">
+            {addressHint}
+          </div>
+        ) : null}
 
       </div>
     </div>

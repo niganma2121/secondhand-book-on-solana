@@ -14,6 +14,7 @@ pub mod message;
 pub mod sync;
 pub mod encryption;
 pub mod shipping_cipher;
+pub mod shipping_address;
 
 pub use types::*;
 pub use message::*;
@@ -25,6 +26,7 @@ pub use favorite::*;
 pub use sync::*;
 pub use encryption::*;
 pub use shipping_cipher::*;
+pub use shipping_address::*;
 #[derive(Clone)]
 pub struct DBService{
     db_pool:PgPool

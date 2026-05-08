@@ -115,19 +115,23 @@ impl DBService {
         &self,
         to_pubkey: &str,
         from_pubkey: &str,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            "UPDATE messages
-             SET is_read = TRUE
-             WHERE to_pubkey = $1
-               AND from_pubkey = $2
-               AND is_read = FALSE",
+    ) -> Result<Option<i64>, sqlx::Error> {
+        let row = sqlx::query!(
+            "WITH updated AS (
+                UPDATE messages
+                SET is_read = TRUE
+                WHERE to_pubkey = $1
+                  AND from_pubkey = $2
+                  AND is_read = FALSE
+                RETURNING id
+             )
+             SELECT MAX(id) AS max_id FROM updated",
             to_pubkey,
             from_pubkey
         )
-        .execute(&self.db_pool)
+        .fetch_one(&self.db_pool)
         .await?;
-        Ok(())
+        Ok(row.max_id)
     }
 
     // 查用户总未读消息数

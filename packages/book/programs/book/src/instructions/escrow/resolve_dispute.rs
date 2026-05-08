@@ -1,6 +1,6 @@
 use crate::event::DisputeResolvedEvent;
 use crate::{nft_to_buyer, nft_to_seller, ArbitrationResult, BookStatus, Escrow, VoteChoice};
-use crate::{ADMIN_SIGNER,ARBITRATORS,Book, AppError, EscrowState, BOOK_SEED, ESCROW_SEED};
+use crate::{ADMIN_SIGNER, ARBITRATORS,Book, AppError, EscrowState, BOOK_SEED, ESCROW_SEED};
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer};
 
@@ -15,7 +15,7 @@ pub struct ResolveDispute<'info> {
     #[account(
         constraint=admin_signer.key()==ADMIN_SIGNER @ AppError::AdminUnmatch
     )]
-    pub admin_signer:Signer<'info>,//后端签名
+    pub admin_signer:Signer<'info>,//后端签名,承担NFT转移相关payer
     #[account(
         mut,
         constraint=escrow.state==EscrowState::Disputed @ AppError::InvalidEscrowState,
@@ -28,7 +28,7 @@ pub struct ResolveDispute<'info> {
 
     #[account(
         mut,
-        seeds=[BOOK_SEED,escrow.seller.as_ref(),escrow.asset.as_ref()],
+        seeds=[BOOK_SEED,escrow.asset.as_ref()],
         bump=book.bump
     )]
     pub book: Account<'info, Book>,
@@ -114,7 +114,13 @@ pub fn resolve_dispute(
 
     //仲裁完成,执行裁决
     let seeds: &[&[u8]] = &[ESCROW_SEED, buyer_key.as_ref(), book_key.as_ref(), &[bump]];
-    let signer_seeds = &[seeds];
+    let escrow_signer_seeds = &[seeds];
+    let book_seeds: &[&[u8]] = &[
+        BOOK_SEED,
+        ctx.accounts.book.asset.as_ref(),
+        &[ctx.accounts.book.bump],
+    ];
+    let book_signer_seeds = &[book_seeds];
 
     //买家胜出
     if buyer_votes >= 2 {
@@ -132,7 +138,7 @@ pub fn resolve_dispute(
                         from: ctx.accounts.escrow.to_account_info(),
                         to: ctx.accounts.buyer.to_account_info(),
                     },
-                    signer_seeds,
+                    escrow_signer_seeds,
                 ),
                 refund_amount,
             )?;
@@ -141,7 +147,7 @@ pub fn resolve_dispute(
         //剩余打款给卖家
         let seller_amount = price - refund_amount;
         if seller_amount > 0 {
-            transfer_seller(&ctx, signer_seeds, seller_amount)?;
+            transfer_seller(&ctx, escrow_signer_seeds, seller_amount)?;
         }
 
         let mpl_core_program=ctx.accounts.mpl_core_program.to_account_info();
@@ -152,10 +158,13 @@ pub fn resolve_dispute(
                 &mpl_core_program,
                 &ctx.accounts.asset.to_account_info(),
                 &ctx.accounts.collection.to_account_info(),
-                &ctx.accounts.arbitrator.to_account_info(),
-                &ctx.accounts.escrow.to_account_info(),
-                signer_seeds
+                &ctx.accounts.admin_signer.to_account_info(),
+                &ctx.accounts.book.to_account_info(),
+                &ctx.accounts.system_program.to_account_info(),
+                book_signer_seeds
             )?;
+            ctx.accounts.book.owner = ctx.accounts.seller.key();
+            ctx.accounts.book.seller = ctx.accounts.seller.key();
             ctx.accounts.book.status = BookStatus::Listed;
         } else {
             //书给买家
@@ -164,12 +173,14 @@ pub fn resolve_dispute(
                 &ctx.accounts.mpl_core_program.to_account_info(),
                 &ctx.accounts.asset.to_account_info(),
                 &ctx.accounts.collection.to_account_info(),
-                &ctx.accounts.buyer.to_account_info(),
-                &ctx.accounts.escrow.to_account_info(),
+                &ctx.accounts.admin_signer.to_account_info(),
+                &ctx.accounts.book.to_account_info(),
                 &ctx.accounts.buyer.to_account_info(),
                 &ctx.accounts.system_program.to_account_info(),
-                signer_seeds
+                book_signer_seeds
             )?;
+            ctx.accounts.book.owner = ctx.accounts.buyer.key();
+            ctx.accounts.book.seller = ctx.accounts.buyer.key();
             ctx.accounts.book.status = BookStatus::Sold;
         }
     } else {
@@ -179,17 +190,19 @@ pub fn resolve_dispute(
         dispute.refund_amount = 0;
         escrow.state = EscrowState::Released;
         //正常打款给卖家
-        transfer_seller(&ctx, signer_seeds, price)?;
+        transfer_seller(&ctx, escrow_signer_seeds, price)?;
         nft_to_buyer(
             &ctx.accounts.mpl_core_program.to_account_info(),
             &ctx.accounts.asset.to_account_info(),
             &ctx.accounts.collection.to_account_info(),
-            &ctx.accounts.buyer.to_account_info(),
-            &ctx.accounts.escrow.to_account_info(),
+            &ctx.accounts.admin_signer.to_account_info(),
+            &ctx.accounts.book.to_account_info(),
             &ctx.accounts.buyer.to_account_info(),
             &ctx.accounts.system_program.to_account_info(),
-            signer_seeds
+            book_signer_seeds
         )?;
+        ctx.accounts.book.owner = ctx.accounts.buyer.key();
+        ctx.accounts.book.seller = ctx.accounts.buyer.key();
         ctx.accounts.book.status=BookStatus::Sold;
     }
 

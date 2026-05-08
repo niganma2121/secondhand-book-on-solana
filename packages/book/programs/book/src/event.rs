@@ -23,6 +23,12 @@ pub struct DelistBookEvent{
     pub seller: Pubkey,
 }
 
+#[event]
+pub struct UpdateMetadataEvent{
+    pub book: Pubkey,
+    pub owner: Pubkey,
+}
+
 
 /*Escrow部分*/
 #[event]

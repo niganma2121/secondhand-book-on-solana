@@ -1,19 +1,15 @@
 use anchor_lang::prelude::*;
-use anchor_lang::system_program::{transfer, Transfer};
 use crate::{nft_to_seller, BookStatus, Escrow};
 use crate::Book;
-use crate::{ADMIN_SIGNER,AppError,EscrowState,ESCROW_SEED,BOOK_SEED};
+use crate::{AppError,EscrowState,ESCROW_SEED,BOOK_SEED};
 use crate::event::EscrowCancelledEvent;
 
 #[derive(Accounts)]
 pub struct CancelEscrow<'info>{
     #[account(mut)]
     pub signer:Signer<'info>,
+    #[account(mut)]
     pub buyer:SystemAccount<'info>,
-    #[account(
-        constraint=admin_signer.key()==ADMIN_SIGNER @ AppError::AdminUnmatch
-    )]
-    pub admin_signer:Signer<'info>,
     #[account(
         mut,
         has_one=buyer @ AppError::UnmatchedBuyer,
@@ -29,7 +25,7 @@ pub struct CancelEscrow<'info>{
     pub escrow:Account<'info,Escrow>,
     #[account(
         mut,
-        seeds=[BOOK_SEED,escrow.seller.as_ref(),escrow.asset.as_ref()],
+        seeds=[BOOK_SEED,escrow.asset.as_ref()],
         bump=book.bump
     )]
     pub book:Account<'info,Book>,
@@ -49,29 +45,12 @@ pub struct CancelEscrow<'info>{
 }
 
 pub fn cancel_escrow(ctx:Context<CancelEscrow>)->Result<()>{
-    let price=ctx.accounts.escrow.price;
-
-    //返还钱给买家
-    let buyer_key=ctx.accounts.buyer.key();
-    let book_key=ctx.accounts.escrow.book;
-    let bump=ctx.accounts.escrow.bump;
-    let cpi_accounts=Transfer{
-        from:ctx.accounts.escrow.to_account_info(),
-        to:ctx.accounts.buyer.to_account_info()
-    };
-    let seeds:&[&[u8]]=&[
-        ESCROW_SEED,
-        buyer_key.as_ref(),
-        book_key.as_ref(),
-        &[bump]
+    let book_seeds:&[&[u8]]=&[
+        BOOK_SEED,
+        ctx.accounts.book.asset.as_ref(),
+        &[ctx.accounts.book.bump]
     ];
-    let signer_seeds=&[seeds];
-    let cpi_ctx=CpiContext::new_with_signer(
-        ctx.accounts.system_program.to_account_info(),
-        cpi_accounts,
-        signer_seeds
-    );
-    transfer(cpi_ctx,price)?;
+    let book_signer_seeds=&[book_seeds];
 
     //解冻NFT
     nft_to_seller(
@@ -79,20 +58,22 @@ pub fn cancel_escrow(ctx:Context<CancelEscrow>)->Result<()>{
         &ctx.accounts.asset.to_account_info(),
         &ctx.accounts.collection.to_account_info(),
         &ctx.accounts.signer.to_account_info(),
-        &ctx.accounts.escrow.to_account_info(),
-        signer_seeds
+        &ctx.accounts.book.to_account_info(),
+        &ctx.accounts.system_program.to_account_info(),
+        book_signer_seeds
     )?;
 
+    let escrow_pda=ctx.accounts.escrow.key();
     let escrow=&mut ctx.accounts.escrow;
     //修改状态
     escrow.state=EscrowState::Cancelled;
     ctx.accounts.book.status=BookStatus::Listed;
 
     emit!(EscrowCancelledEvent{
-        escrow:ctx.accounts.escrow.key(),
+        escrow:escrow_pda,
         cancelled_by:ctx.accounts.signer.key(),
         buyer:ctx.accounts.buyer.key(),
-        price:ctx.accounts.escrow.price
+        price:escrow.price
     });
     Ok(())
 }

@@ -24,6 +24,13 @@ pub mod book {
     pub fn update_book_price(ctx:Context<UpdateBookPrice>,new_price:u64)->Result<()>{
         instructions::update_book_price(ctx,new_price)
     }
+    pub fn update_book_metadata(
+        ctx:Context<UpdateBookMetadata>,
+        metadata_id:String,
+        metadata_hash:[u8;32]
+    )->Result<()>{
+        instructions::update_book_metadata(ctx,metadata_id,metadata_hash)
+    }
     pub fn delist_book(ctx:Context<DelistBook>)->Result<()>{
         instructions::delist_book(ctx)
     }

@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useState, useRef, useEffect } from 'react'
 import { routes } from '@/config/routes'
 import type { ChatConversation, ChatMessage } from '@/lib/types'
@@ -23,6 +24,7 @@ type ChatPageProps = {
 }
 
 export function ChatPage({ initialPeerQuery }: ChatPageProps) {
+  const router = useRouter()
   const [selected, setSelected] = useState<ChatConversation | null>(null)
   const [inputVal, setInputVal] = useState('')
   const [newChatOpen, setNewChatOpen] = useState(false)
@@ -36,6 +38,8 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
     usingBackend,
     sendChatText,
     ensurePeerMessagesLoaded,
+    markConversationReadNow,
+    clearActiveConversation,
     openConversationWithPeer,
     wsConnected,
     wsError,
@@ -44,16 +48,39 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const imgInputRef = useRef<HTMLInputElement>(null)
+  const activeConversation = selected
+    ? (conversations.find((c) => c.id === selected.id) ?? selected)
+    : null
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [selected?.id, selected?.messages.length])
+  }, [activeConversation?.id, activeConversation?.messages.length])
 
   useEffect(() => {
     if (selected && usingBackend && isAuthenticated) {
       void ensurePeerMessagesLoaded(selected.sellerAddr)
+      void markConversationReadNow(selected.sellerAddr)
     }
+  }, [
+    selected?.sellerAddr,
+    usingBackend,
+    isAuthenticated,
+    ensurePeerMessagesLoaded,
+    markConversationReadNow,
+  ])
+
+  useEffect(() => {
+    if (!selected || !usingBackend || !isAuthenticated) return
+    const timer = window.setInterval(() => {
+      void ensurePeerMessagesLoaded(selected.sellerAddr)
+    }, 8000)
+    return () => window.clearInterval(timer)
   }, [selected?.sellerAddr, usingBackend, isAuthenticated, ensurePeerMessagesLoaded])
+
+  useEffect(() => {
+    if (selected) return
+    clearActiveConversation()
+  }, [selected, clearActiveConversation])
 
   useEffect(() => {
     if (!initialPeerQuery) {
@@ -111,6 +138,7 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
       text: text?.trim(),
       imageUrl,
       time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+      isRead: false,
     }
     const snippet = imageUrl ? '[图片]' : (text?.trim() ?? '')
     setConversations((prev) =>
@@ -160,7 +188,7 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
 
   // ── 对话详情 ─────────────────────────────────────────────────
   if (selected) {
-    const conv = conversations.find((c) => c.id === selected.id) ?? selected
+    const conv = activeConversation
 
     return (
       // 关键：外层固定高度，内部 flex-col，消息区 flex-1 min-h-0 overflow-y-auto，输入区 shrink-0
@@ -169,7 +197,10 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
         {/* 顶栏 */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-border/60 bg-card/80 backdrop-blur-md shrink-0">
           <button
-            onClick={() => setSelected(null)}
+            onClick={() => {
+              setSelected(null)
+              clearActiveConversation()
+            }}
             className="text-muted-foreground hover:text-foreground transition-colors p-1 -ml-1"
             aria-label="返回列表"
           >
@@ -185,10 +216,14 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
             <p className="text-[10px] text-muted-foreground font-mono">{conv.sellerAddr}</p>
           </div>
           <Link
-            href={routes.market}
+            href={`${routes.market}?seller=${encodeURIComponent(conv.sellerAddr)}`}
             className="text-xs text-primary border border-primary/30 px-2.5 py-1 rounded-lg hover:bg-primary/10 transition-colors shrink-0"
+            onClick={(e) => {
+              e.preventDefault()
+              router.push(`${routes.market}?seller=${encodeURIComponent(conv.sellerAddr)}`)
+            }}
           >
-            查看书籍
+            查看Ta在售书籍
           </Link>
         </div>
 
@@ -210,41 +245,51 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
                   <span className="text-xs font-bold text-primary">{conv.sellerName[0]}</span>
                 </div>
               )}
+              <div className="max-w-[72%]">
+                <div
+                  className={[
+                    msg.imageUrl
+                      ? 'rounded-2xl overflow-hidden border border-border/40'
+                      : 'px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed',
+                    msg.from === 'me'
+                      ? msg.imageUrl
+                        ? 'rounded-tr-sm'
+                        : 'bg-primary text-primary-foreground rounded-tr-sm'
+                      : msg.imageUrl
+                      ? 'rounded-tl-sm'
+                      : 'bg-card border border-border/60 text-foreground rounded-tl-sm',
+                  ].join(' ')}
+                >
+                  {msg.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={msg.imageUrl}
+                      alt="图片消息"
+                      className="max-w-[220px] max-h-[280px] object-cover block"
+                    />
+                  ) : (
+                    msg.text
+                  )}
+                  {msg.imageUrl && msg.text && (
+                    <p
+                      className={[
+                        'text-sm px-3 py-2',
+                        msg.from === 'me' ? 'text-primary-foreground bg-primary' : 'text-foreground',
+                      ].join(' ')}
+                    >
+                      {msg.text}
+                    </p>
+                  )}
+                </div>
+              </div>
               <div
                 className={[
-                  'max-w-[72%]',
-                  msg.imageUrl
-                    ? 'rounded-2xl overflow-hidden border border-border/40'
-                    : 'px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed',
-                  msg.from === 'me'
-                    ? msg.imageUrl
-                      ? 'rounded-tr-sm'
-                      : 'bg-primary text-primary-foreground rounded-tr-sm'
-                    : msg.imageUrl
-                    ? 'rounded-tl-sm'
-                    : 'bg-card border border-border/60 text-foreground rounded-tl-sm',
+                  'shrink-0 self-end pb-1 text-[10px]',
+                  msg.isRead ? 'text-muted-foreground' : 'text-primary',
+                  msg.from === 'me' ? 'text-right' : 'text-left',
                 ].join(' ')}
               >
-                {msg.imageUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={msg.imageUrl}
-                    alt="图片消息"
-                    className="max-w-[220px] max-h-[280px] object-cover block"
-                  />
-                ) : (
-                  msg.text
-                )}
-                {msg.imageUrl && msg.text && (
-                  <p
-                    className={[
-                      'text-sm px-3 py-2',
-                      msg.from === 'me' ? 'text-primary-foreground bg-primary' : 'text-foreground',
-                    ].join(' ')}
-                  >
-                    {msg.text}
-                  </p>
-                )}
+                {msg.isRead ? '已读' : '未读'}
               </div>
             </div>
           ))}
@@ -417,7 +462,10 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
           {conversations.map((conv) => (
             <button
               key={conv.id}
-              onClick={() => setSelected(conv)}
+              onClick={() => {
+                setSelected(conv)
+                void markConversationReadNow(conv.sellerAddr)
+              }}
               className="flex items-center gap-3 p-3.5 bg-card border border-border/50 rounded-2xl hover:border-primary/30 transition-all duration-150 text-left active:scale-[0.99]"
             >
               <div className="relative shrink-0">

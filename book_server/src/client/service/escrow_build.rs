@@ -10,7 +10,7 @@ impl AnchorService {
         let seller = parse(&req.seller)?;
         let asset = parse(&req.asset)?;
         let collection = parse(&req.collection)?;
-        let book_pda = self.book_pda(&seller, &asset);
+        let book_pda = self.book_pda(&asset);
         let escrow_pda = self.escrow_pda(&buyer, &book_pda);
         let program = self.get_program()?;
 
@@ -47,7 +47,7 @@ impl AnchorService {
         let seller = parse(&req.seller)?;
         let asset = parse(&req.asset)?;
         let collection = parse(&req.collection)?;
-        let book_pda = self.book_pda(&seller, &asset);
+        let book_pda = self.book_pda(&asset);
         let escrow_pda = self.escrow_pda(&buyer, &book_pda);
         let platform_fee_account = self.admin_keypair.pubkey();
         let program = self.get_program()?;
@@ -85,7 +85,7 @@ impl AnchorService {
         let seller = parse(&req.seller)?;
         let buyer = parse(&req.buyer)?;
         let asset = parse(&req.asset)?;
-        let book_pda = self.book_pda(&seller, &asset);
+        let book_pda = self.book_pda(&asset);
         let escrow_pda = self.escrow_pda(&buyer, &book_pda);
         let program = self.get_program()?;
 
@@ -114,12 +114,10 @@ impl AnchorService {
         req: CancelEscrowRequest,
     ) -> Result<UnsignedTxResponse, ClientError> {
         let signer = parse(&req.signer)?;
-        let seller = parse(&req.seller)?;
         let buyer = parse(&req.buyer)?;
         let asset = parse(&req.asset)?;
         let collection = parse(&req.collection)?;
-        let admin = self.admin_keypair.pubkey();
-        let book_pda = self.book_pda(&seller, &asset);
+        let book_pda = self.book_pda(&asset);
         let escrow_pda = self.escrow_pda(&buyer, &book_pda);
         let program = self.get_program()?;
 
@@ -128,7 +126,6 @@ impl AnchorService {
             .accounts(accounts::CancelEscrow {
                 signer,
                 buyer,
-                admin_signer: admin,
                 escrow: escrow_pda,
                 book: book_pda,
                 asset,
@@ -141,9 +138,7 @@ impl AnchorService {
 
         let block_hash = self.get_blockhash().await?;
         let msg = Message::new_with_blockhash(ix.as_ref(), Some(&signer), &block_hash);
-        let mut tx = Transaction::new_unsigned(msg);
-
-        tx.partial_sign(&[self.admin_keypair.as_ref()], block_hash);
+        let tx = Transaction::new_unsigned(msg);
 
         Ok(UnsignedTxResponse {
             tx: serialize_tx(&tx)?,
@@ -157,9 +152,8 @@ impl AnchorService {
     ) -> Result<UnsignedTxResponse, ClientError> {
         let signer = parse(&req.signer)?;
         let buyer = parse(&req.buyer)?;
-        let seller = parse(&req.seller)?;
         let asset = parse(&req.asset)?;
-        let book_pda = self.book_pda(&seller, &asset);
+        let book_pda = self.book_pda(&asset);
         let escrow_pda = self.escrow_pda(&buyer, &book_pda);
         let program = self.get_program()?;
 
@@ -192,7 +186,7 @@ impl AnchorService {
         let asset = parse(&req.asset)?;
         let collection = parse(&req.collection)?;
         let admin = self.admin_keypair.pubkey();
-        let book_pda = self.book_pda(&seller, &asset);
+        let book_pda = self.book_pda(&asset);
         let escrow_pda = self.escrow_pda(&buyer, &book_pda);
         let program = self.get_program()?;
 
@@ -225,7 +219,6 @@ impl AnchorService {
         let block_hash = self.get_blockhash().await?;
         let msg = Message::new_with_blockhash(ix.as_ref(), Some(&arbitrator), &block_hash);
         let mut tx = Transaction::new_unsigned(msg);
-
         tx.partial_sign(&[self.admin_keypair.as_ref()], block_hash);
         Ok(UnsignedTxResponse {
             tx: serialize_tx(&tx)?,
