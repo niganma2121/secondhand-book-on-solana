@@ -11,6 +11,14 @@ import { DayButton, DayPicker, getDefaultClassNames } from 'react-day-picker'
 import { cn } from '@/lib/utils'
 import { Button, buttonVariants } from '@/components/ui/button'
 
+/** 避免 `toLocale*` 在 Node 与浏览器默认语言不一致导致 hydration 报错 */
+function calendarDayKey(date: Date) {
+  const y = date.getFullYear()
+  const m = date.getMonth() + 1
+  const d = date.getDate()
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+}
+
 function Calendar({
   className,
   classNames,
@@ -37,7 +45,7 @@ function Calendar({
       captionLayout={captionLayout}
       formatters={{
         formatMonthDropdown: (date) =>
-          date.toLocaleString('default', { month: 'short' }),
+          date.toLocaleString('zh-CN', { month: 'short' }),
         ...formatters,
       }}
       classNames={{
@@ -190,7 +198,7 @@ function CalendarDayButton({
       ref={ref}
       variant="ghost"
       size="icon"
-      data-day={day.date.toLocaleDateString()}
+      data-day={calendarDayKey(day.date)}
       data-selected-single={
         modifiers.selected &&
         !modifiers.range_start &&

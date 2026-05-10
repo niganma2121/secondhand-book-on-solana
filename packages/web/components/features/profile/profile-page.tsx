@@ -19,10 +19,15 @@ import {
   fetchEncryptionTemplates,
   fetchMyEncryptionBackup,
   fetchUserEncryptionPublicKey,
-  upsertMyEncryptionBackup,
   type EncryptionTemplate,
   type MyEncryptionBackup,
 } from '@/lib/api/encryption'
+import {
+  base64ToBytes,
+  bytesToBase64,
+  commKeyLocalStorageKey,
+  ensureCommKeyReady,
+} from '@/lib/encryption/comm-key-provision'
 import {
   createMyShippingAddress,
   deleteMyShippingAddress,
@@ -113,7 +118,8 @@ function ProfileAccessState({
   actionVariant = 'primary',
 }: {
   title: string
-  description: string
+  /** 省略则不展示副文案 */
+  description?: string
   actionLabel: string
   onAction: () => void
   loading?: boolean
@@ -134,7 +140,9 @@ function ProfileAccessState({
       </div>
       <div className="text-center">
         <p className="font-bold text-lg text-foreground">{title}</p>
-        <p className="text-sm text-muted-foreground mt-1 leading-relaxed">{description}</p>
+        {description?.trim() ? (
+          <p className="text-sm text-muted-foreground mt-1 leading-relaxed whitespace-pre-line">{description}</p>
+        ) : null}
       </div>
       {errorText ? <p className="text-xs text-destructive text-center max-w-[300px]">{errorText}</p> : null}
       <Button
@@ -163,7 +171,6 @@ export function ProfilePage() {
   const [addressError, setAddressError] = useState<string | null>(null)
   const [addressHint, setAddressHint] = useState<string | null>(null)
   const [pendingDeleteShippingId, setPendingDeleteShippingId] = useState<string | null>(null)
-  const autoProvisionTriedRef = useRef(false)
   const [shippingName, setShippingName] = useState('')
   const [shippingPhone, setShippingPhone] = useState('')
   const [shippingLabel, setShippingLabel] = useState('')
@@ -215,7 +222,7 @@ export function ProfilePage() {
   ]
 
   const apiConfigured = !env.useMockData && Boolean(env.apiBaseUrl)
-  const localCommKeyStorageKey = addr ? `bookchain:comm-key:${addr}` : ''
+  const localCommKeyStorageKey = addr ? commKeyLocalStorageKey(addr) : ''
   const profileShippingStorageKey = addr ? `bookchain:shipping-profile:${addr}` : ''
   const provinceMap = areaList.province_list as Record<string, string>
   const cityMap = areaList.city_list as Record<string, string>
@@ -378,29 +385,12 @@ export function ProfilePage() {
     return () => window.clearTimeout(timer)
   }, [addressHint])
 
-  function bytesToBase64(bytes: Uint8Array) {
-    let binary = ''
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
-    return btoa(binary)
-  }
-
-  function base64ToBytes(base64: string) {
-    const binary = atob(base64)
-    const bytes = new Uint8Array(binary.length)
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-    return bytes
-  }
-
-  function fillMessageTemplate(tpl: string, pubkey: string) {
-    return tpl.replaceAll('{pubkey}', pubkey).replaceAll('{origin}', window.location.origin)
-  }
-
   async function sha256(data: Uint8Array) {
     return new Uint8Array(await crypto.subtle.digest('SHA-256', data))
   }
 
   async function loadLocalCommPrivateKey(pubkey: string) {
-    const key = localStorage.getItem(`bookchain:comm-key:${pubkey}`)
+    const key = localStorage.getItem(commKeyLocalStorageKey(pubkey))
     if (!key) return null
     return crypto.subtle.importKey('pkcs8', base64ToBytes(key), { name: 'X25519' } as EcKeyImportParams, false, ['deriveBits'])
   }
@@ -478,77 +468,6 @@ export function ProfilePage() {
     } satisfies Omit<ShippingAddress, 'id'>
   }
 
-  async function deriveAesKey(signature: Uint8Array, salt: Uint8Array) {
-    const merged = new Uint8Array(signature.length + salt.length)
-    merged.set(signature, 0)
-    merged.set(salt, signature.length)
-    const digest = await crypto.subtle.digest('SHA-256', merged)
-    return crypto.subtle.importKey('raw', digest, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
-  }
-
-  async function createBackup(template: EncryptionTemplate) {
-    if (!publicKey || !signMessage || !localCommKeyStorageKey) return
-    setAddressActionLoading(true)
-    try {
-      const keyPair = (await crypto.subtle.generateKey(
-        { name: 'X25519' } as EcKeyGenParams,
-        true,
-        ['deriveBits'],
-      )) as CryptoKeyPair
-      const exportedPub = new Uint8Array(await crypto.subtle.exportKey('raw', keyPair.publicKey))
-      const exportedPriv = new Uint8Array(await crypto.subtle.exportKey('pkcs8', keyPair.privateKey))
-      const salt = crypto.getRandomValues(new Uint8Array(16))
-      const iv = crypto.getRandomValues(new Uint8Array(12))
-      const msg = fillMessageTemplate(template.message_template, publicKey.toBase58())
-      const sig = await signMessage(new TextEncoder().encode(msg))
-      const aes = await deriveAesKey(sig, salt)
-      const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aes, exportedPriv)
-      await upsertMyEncryptionBackup({
-        backup_version: template.version,
-        encryption_public_key: bytesToBase64(exportedPub),
-        encrypted_private_key: bytesToBase64(new Uint8Array(encrypted)),
-        nonce: bytesToBase64(iv),
-        kdf_salt: bytesToBase64(salt),
-        kdf_params: template.kdf_params,
-      })
-      const saved = await fetchMyEncryptionBackup()
-      localStorage.setItem(localCommKeyStorageKey, bytesToBase64(exportedPriv))
-      setBackupVersion(saved.backup_version)
-      setAddressHint('已自动创建加密备份，可在新设备通过钱包签名恢复。')
-      setBackupPayload(saved)
-    } catch (err) {
-      autoProvisionTriedRef.current = false
-      setAddressError(err instanceof Error ? err.message : '自动创建加密备份失败')
-    } finally {
-      setAddressActionLoading(false)
-    }
-  }
-
-  async function restoreBackup() {
-    if (!publicKey || !signMessage || !backupPayload || !localCommKeyStorageKey) return
-    if (localStorage.getItem(localCommKeyStorageKey)) return
-    const tpl = templates.find((x) => x.version === backupPayload.backup_version)
-    if (!tpl) return
-    setAddressActionLoading(true)
-    try {
-      const msg = fillMessageTemplate(tpl.message_template, publicKey.toBase58())
-      const sig = await signMessage(new TextEncoder().encode(msg))
-      const aes = await deriveAesKey(sig, base64ToBytes(backupPayload.kdf_salt))
-      const plain = await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv: base64ToBytes(backupPayload.nonce) },
-        aes,
-        base64ToBytes(backupPayload.encrypted_private_key),
-      )
-      localStorage.setItem(localCommKeyStorageKey, bytesToBase64(new Uint8Array(plain)))
-      setAddressHint('已自动恢复本地通讯密钥。')
-    } catch (err) {
-      autoProvisionTriedRef.current = false
-      setAddressError(err instanceof Error ? err.message : '自动恢复密钥失败')
-    } finally {
-      setAddressActionLoading(false)
-    }
-  }
-
   useEffect(() => {
     if (!isAuthenticated) {
       setBackupVersion(null)
@@ -624,7 +543,14 @@ export function ProfilePage() {
     setAddressError(null)
     try {
       if (isAuthenticated && apiConfigured) {
-        const selfPub = await fetchUserEncryptionPublicKey(addr)
+        let selfPub = await fetchUserEncryptionPublicKey(addr)
+        if (!selfPub.encryption_public_key?.trim()) {
+          if (!signMessage) throw new Error('需要钱包消息签名以初始化通讯加密')
+          await ensureCommKeyReady({ walletAddress: addr, signMessage })
+          selfPub = await fetchUserEncryptionPublicKey(addr)
+        }
+        const encPub = selfPub.encryption_public_key
+        if (!encPub?.trim()) throw new Error('通讯加密公钥未就绪，请稍后重试')
         const encryptedPayload = {
           label: nextAddress.label,
           name: nextAddress.name,
@@ -635,10 +561,7 @@ export function ProfilePage() {
           districtCode: nextAddress.districtCode,
           detail: nextAddress.detail,
         }
-        const encrypted = await encryptShippingForSelf(
-          selfPub.encryption_public_key,
-          JSON.stringify(encryptedPayload),
-        )
+        const encrypted = await encryptShippingForSelf(encPub, JSON.stringify(encryptedPayload))
         const backendId = toBackendAddressId(selectedShippingId)
         if (addressFormMode === 'edit' && backendId) {
           await updateMyShippingAddress(backendId, {
@@ -647,9 +570,10 @@ export function ProfilePage() {
         } else if (addressFormMode === 'edit' && !backendId) {
           throw new Error('当前地址不是数据库记录，无法直接修改。请删除后重新新增。')
         } else {
+          const shouldSetDefault = shippingAddresses.length === 0
           await createMyShippingAddress({
             ...encrypted,
-            is_default: true,
+            is_default: shouldSetDefault,
           })
         }
         const latest = await fetchMyShippingAddresses()
@@ -670,7 +594,7 @@ export function ProfilePage() {
         setShippingAddresses(dedupedNextAddresses)
         setDefaultShippingId(nextProfile.defaultId)
       }
-      setAddressHint(selectedShippingId ? '地址已更新。' : '地址已新增并设为默认。')
+      setAddressHint(selectedShippingId ? '地址已更新。' : '地址已新增。')
       setAddressFormMode('hidden')
     } catch (err) {
       setAddressError(err instanceof Error ? err.message : '地址保存失败')
@@ -769,52 +693,31 @@ export function ProfilePage() {
     if (!isAuthenticated || !publicKey || !signMessage || !localCommKeyStorageKey) return
     setAddressFormMode('hidden')
     setSelectedShippingId(null)
-    if (localStorage.getItem(localCommKeyStorageKey)) {
-      setAddressHint('已从本地加载通讯密钥。')
-      await refreshShippingAddressesFromSource()
-      setAddressDialogOpen(true)
-      return
-    }
-    if (backupPayload) {
-      await restoreBackup()
-      await refreshShippingAddressesFromSource()
-      setAddressDialogOpen(true)
-      return
-    }
-    if (templates[0]) {
-      await createBackup(templates[0])
-      await refreshShippingAddressesFromSource()
-      setAddressDialogOpen(true)
-      return
-    }
+    setAddressActionLoading(true)
+    setAddressError(null)
     try {
-      const [tplRes, backupRes] = await Promise.all([
-        fetchEncryptionTemplates(),
-        fetchMyEncryptionBackup().catch((err) => {
-          if (err instanceof ApiError && err.status === 404) return null
-          throw err
-        }),
-      ])
-      setTemplates(tplRes.templates)
-      if (backupRes) {
-        setBackupPayload(backupRes)
-        await restoreBackup()
-        await refreshShippingAddressesFromSource()
-        setAddressDialogOpen(true)
-        return
-      }
-      const fallbackTpl = tplRes.templates[0]
-      if (fallbackTpl) {
-        await createBackup(fallbackTpl)
-        await refreshShippingAddressesFromSource()
-        setAddressDialogOpen(true)
+      const outcome = await ensureCommKeyReady({
+        walletAddress: addr,
+        signMessage,
+      })
+      if (outcome.status === 'skipped') {
+        setAddressHint('已从本地加载通讯密钥。')
+      } else if (outcome.status === 'restored') {
+        setBackupPayload(outcome.backup)
+        setBackupVersion(outcome.backup.backup_version)
+        setAddressHint('已自动恢复本地通讯密钥。')
       } else {
-        setAddressError('未找到可用加密模板，请稍后重试。')
-        setAddressDialogOpen(true)
+        setBackupPayload(outcome.backup)
+        setBackupVersion(outcome.backup.backup_version)
+        setAddressHint('已自动创建加密备份，可在新设备通过钱包签名恢复。')
       }
+      await refreshShippingAddressesFromSource()
+      setAddressDialogOpen(true)
     } catch (err) {
       setAddressError(err instanceof Error ? err.message : '初始化通讯密钥失败')
       setAddressDialogOpen(true)
+    } finally {
+      setAddressActionLoading(false)
     }
   }
 
@@ -846,20 +749,9 @@ export function ProfilePage() {
     }
   }
 
-  useEffect(() => {
-    if (!isAuthenticated || !publicKey) {
-      autoProvisionTriedRef.current = false
-    }
-  }, [isAuthenticated, publicKey])
-
   if (!publicKey) {
     return (
-      <ProfileAccessState
-        title="连接钱包"
-        description={'连接 Phantom 或 Solflare 钱包\n查看你的链上书架与交易记录'}
-        actionLabel="连接钱包"
-        onAction={openWalletConnect}
-      />
+      <ProfileAccessState title="连接钱包" actionLabel="连接钱包" onAction={openWalletConnect} />
     )
   }
 
@@ -886,8 +778,9 @@ export function ProfilePage() {
         {!apiConfigured && (
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200/90 leading-relaxed">
             连接后端认证：在 <span className="font-mono">.env.local</span> 设置{' '}
-            <span className="font-mono">NEXT_PUBLIC_API_URL</span>（如{' '}
-            <span className="font-mono">http://127.0.0.1:3005/api</span>）与{' '}
+            <span className="font-mono">NEXT_PUBLIC_API_URL</span>（须含{' '}
+            <span className="font-mono">:3005</span> 与 <span className="font-mono">/api</span>；本机示例{' '}
+            <span className="font-mono">http://127.0.0.1:3005/api</span>，手机访问时请用电脑局域网 IP 替换主机名）与{' '}
             <span className="font-mono">NEXT_PUBLIC_USE_MOCK_DATA=false</span>
             ，刷新页面后会再次请求 <span className="font-mono">GET /auth/getme</span>{' '}
             恢复会话。

@@ -1,5 +1,6 @@
 use super::*;
 use crate::client::utils::has_at_most_two_decimals;
+use crate::reconcile::{spawn_reconcile_book_asset, spawn_reconcile_tick};
 
 /// Book广播部分
 impl AnchorService {
@@ -85,6 +86,7 @@ impl AnchorService {
         );
 
         let collection = self.book_collection.to_string();
+        let mut db_miss = false;
         if let Err(e) = db
             .insert_book(
                 &req.asset,
@@ -107,6 +109,8 @@ impl AnchorService {
             .await
         {
             warn!("创建书成功广播,数据库内部错误:{e}");
+            db_miss = true;
+            spawn_reconcile_book_asset(db.clone(), self.clone(), req.asset.clone());
         }
 
         if !req.detail_urls.is_empty() {
@@ -119,12 +123,13 @@ impl AnchorService {
             }
             if let Err(e) = db.insert_book_images(&images).await {
                 warn!("图片入库失败: {e}");
+                db_miss = true;
             }
         }
-        Ok(BroadcastResponse {
-            signature: sig.to_string(),
-            msg: "书籍已上链并入库".into(),
-        })
+        if db_miss {
+            spawn_reconcile_tick(db.clone(), self.clone());
+        }
+        Ok(BroadcastResponse::new(sig.to_string(), "书籍已上链并入库"))
     }
 
     pub async fn broadcast_delist_book(
@@ -141,14 +146,12 @@ impl AnchorService {
             .await
             .map_err(|e| ClientError::BroadcastFailed(e.to_string()))?;
 
-        if let Err(e) = db.update_book_status(&req.asset, "Delisted", now).await {
-            warn!("书籍下架成功,数据库更新失败:{e}")
+        if let Err(e) = db.update_book_status(&req.asset, "DeListed", now).await {
+            warn!("书籍下架成功,数据库更新失败:{e}");
+            spawn_reconcile_tick(db.clone(), self.clone());
         }
 
-        Ok(BroadcastResponse {
-            signature: sig.to_string(),
-            msg: "书籍下架成功".to_string(),
-        })
+        Ok(BroadcastResponse::new(sig.to_string(), "书籍下架成功"))
     }
 
     pub async fn broadcast_update_price(
@@ -167,11 +170,9 @@ impl AnchorService {
 
         if let Err(e) = db.update_book_price(&req.asset, req.new_price as i64, now).await {
             warn!("书籍价格更新成功,数据库错误:{e}");
+            spawn_reconcile_tick(db.clone(), self.clone());
         }
 
-        Ok(BroadcastResponse {
-            signature: sig.to_string(),
-            msg: "价格已经更新".into(),
-        })
+        Ok(BroadcastResponse::new(sig.to_string(), "价格已经更新"))
     }
 }

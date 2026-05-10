@@ -19,6 +19,7 @@ import {
 } from '@/lib/api/auth'
 import { ApiError } from '@/lib/api/client'
 import { clearAccessToken, setAccessToken } from '@/lib/auth/token-store'
+import { ensureCommKeyReady } from '@/lib/encryption/comm-key-provision'
 import { env } from '@/lib/env'
 
 type SessionStatus = 'loading' | 'unauthenticated' | 'authenticated'
@@ -99,6 +100,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const me = await fetchMe()
       setUser(me)
       setSessionStatus('authenticated')
+      try {
+        await ensureCommKeyReady({ walletAddress: address, signMessage })
+      } catch (e) {
+        console.warn('[auth] 通讯密钥初始化未完成', e)
+      }
     } catch (e) {
       const msg =
         e instanceof ApiError

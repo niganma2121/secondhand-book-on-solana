@@ -20,6 +20,7 @@ use crate::handlers::me::{
     create_my_shipping_address_handler, delete_my_shipping_address_handler,
     list_my_shipping_addresses_handler, set_default_my_shipping_address_handler,
     list_bought_books_handler, list_buyer_escrows_handler, list_favorites_handler,
+    list_order_events_handler,
     list_my_books_handler, list_seller_escrows_handler, toggle_favorite_handler,
     get_order_shipping_cipher_handler, upsert_order_shipping_cipher_handler,
     update_my_shipping_address_handler, upsert_order_shipping_cipher_by_asset_handler,
@@ -100,6 +101,7 @@ pub fn me_router() -> Router<AppState> {
         .route("/favorites/{asset}", post(toggle_favorite_handler))
         .route("/orders/buying", get(list_buyer_escrows_handler))
         .route("/orders/selling", get(list_seller_escrows_handler))
+        .route("/orders/{escrow_pda}/events", get(list_order_events_handler))
         .route("/profile", patch(update_my_profile_handler))
         .route("/orders/{escrow_pda}/shipping-cipher", get(get_order_shipping_cipher_handler))
         .route("/orders/{escrow_pda}/shipping-cipher", post(upsert_order_shipping_cipher_handler))

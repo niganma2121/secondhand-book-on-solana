@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Analytics } from '@vercel/analytics/next'
 import { AuthProvider } from '@/components/providers/auth-provider'
+import { CommKeyBootstrap } from '@/components/providers/comm-key-bootstrap'
 import { SolanaProvider } from '@/components/providers/solana-provider'
 import { cn } from '@/lib/utils'
 import './globals.css'
@@ -44,7 +45,10 @@ export default function RootLayout({
     >
       <body className="font-sans antialiased">
         <SolanaProvider>
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <CommKeyBootstrap />
+            {children}
+          </AuthProvider>
         </SolanaProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>

@@ -45,38 +45,6 @@ impl DBService {
         Ok(())
     }
 
-    // 交易完成后更新计数，seller 和 buyer 各自递增
-    pub async fn increment_trade_counts(
-        &self,
-        seller: &str,
-        buyer:  &str,
-    ) -> Result<(), sqlx::Error> {
-        let mut tx = self.db_pool.begin().await?;
-
-        sqlx::query!(
-            "UPDATE users
-             SET trade_count = trade_count + 1,
-                 sell_count  = sell_count  + 1
-             WHERE pubkey = $1",
-            seller
-        )
-            .execute(&mut *tx)
-            .await?;
-
-        sqlx::query!(
-            "UPDATE users
-             SET trade_count = trade_count + 1,
-                 buy_count   = buy_count   + 1
-             WHERE pubkey = $1",
-            buyer
-        )
-            .execute(&mut *tx)
-            .await?;
-
-        tx.commit().await?;
-        Ok(())
-    }
-
     pub async fn upsert_user_encryption_pubkey(
         &self,
         pubkey: &str,

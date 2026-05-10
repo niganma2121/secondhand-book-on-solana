@@ -80,7 +80,7 @@ impl DBService {
         new_price: i64,
         updated_at: i64,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
+        let result = sqlx::query!(
             "UPDATE books SET price = $2, updated_at = $3 WHERE asset = $1",
             asset,
             new_price,
@@ -88,7 +88,53 @@ impl DBService {
         )
         .execute(&self.db_pool)
         .await?;
+        if result.rows_affected() == 0 {
+            return Err(sqlx::Error::RowNotFound);
+        }
         Ok(())
+    }
+
+    /// 与链上一致：仅更新 IPFS 元数据指针（对账用）
+    pub async fn update_book_metadata_mirror(
+        &self,
+        asset: &str,
+        metadata_url: &str,
+        metadata_hash: &[u8],
+        updated_at: i64,
+    ) -> Result<(), sqlx::Error> {
+        let result = sqlx::query(
+            "UPDATE books SET metadata_url = $2, metadata_hash = $3, updated_at = $4 WHERE asset = $1",
+        )
+        .bind(asset)
+        .bind(metadata_url)
+        .bind(metadata_hash)
+        .bind(updated_at)
+        .execute(&self.db_pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(sqlx::Error::RowNotFound);
+        }
+        Ok(())
+    }
+
+    /// 默认分类 key（链上补偿入库时用）
+    pub async fn pick_default_book_category_key(&self) -> Result<String, sqlx::Error> {
+        let row = sqlx::query_scalar::<_, String>(
+            "SELECT key FROM book_categories ORDER BY sort_order ASC LIMIT 1",
+        )
+        .fetch_optional(&self.db_pool)
+        .await?;
+        Ok(row.unwrap_or_else(|| "other".into()))
+    }
+
+    /// 近期更新过的书籍 asset（按时间与链上 Book 镜像对账）
+    pub async fn list_recent_book_assets(&self, limit: i64) -> Result<Vec<String>, sqlx::Error> {
+        sqlx::query_scalar!(
+            r#"SELECT asset FROM books ORDER BY updated_at DESC LIMIT $1"#,
+            limit
+        )
+        .fetch_all(&self.db_pool)
+        .await
     }
 
     // 更新书的状态（Listed / Locked / Sold / Delisted）
@@ -98,7 +144,7 @@ impl DBService {
         status: &str,
         updated_at: i64,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
+        let result = sqlx::query!(
             "UPDATE books SET status = $2, updated_at = $3 WHERE asset = $1",
             asset,
             status,
@@ -106,12 +152,30 @@ impl DBService {
         )
         .execute(&self.db_pool)
         .await?;
+        if result.rows_affected() == 0 {
+            return Err(sqlx::Error::RowNotFound);
+        }
         Ok(())
     }
 
     // ================================
     // 读操作
     // ================================
+
+    /// 按书籍状态列出 asset（用于链上对账）
+    pub async fn list_assets_by_book_status(
+        &self,
+        status: &str,
+        limit: i64,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        sqlx::query_scalar!(
+            r#"SELECT asset FROM books WHERE status = $1 ORDER BY updated_at DESC LIMIT $2"#,
+            status,
+            limit
+        )
+        .fetch_all(&self.db_pool)
+        .await
+    }
 
     // 单本书完整详情（category 为字典中文名，便于展示）
     pub async fn get_book_detail(&self, asset: &str) -> Result<Option<BookDetailRow>, sqlx::Error> {

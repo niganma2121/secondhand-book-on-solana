@@ -14,7 +14,11 @@ export function DesktopHeader() {
     <header className="sticky top-0 z-50 hidden md:block w-full border-b border-border/60 bg-card/80 backdrop-blur-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 flex h-14 items-center justify-between gap-4">
         <Link href={routes.home} className="flex items-center gap-2 shrink-0" aria-label="返回首页">
-          <span className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
+          {/* Dark Reader 等会向 SVG 注入属性，suppressHydrationWarning 抑制扩展导致的 hydration 告警 */}
+          <span
+            className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center"
+            suppressHydrationWarning
+          >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
               <rect x="1" y="2" width="8" height="10" rx="1" stroke="white" strokeWidth="1.4" />
               <path d="M3.5 5h4M3.5 7h4M3.5 9h2" stroke="white" strokeWidth="1.1" strokeLinecap="round" />

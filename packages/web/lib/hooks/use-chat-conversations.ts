@@ -281,7 +281,7 @@ export function useChatConversations() {
                 ?? receipt.payload?.messageId
                 ?? receipt.message_id
               )
-              if (readId != null && readId > 0n) {
+              if (readId != null && readId > BigInt(0)) {
                 const peer = otherParty(me, raw.from, raw.to)
                 setConversations((prev) =>
                   prev.map((c) => {

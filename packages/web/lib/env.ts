@@ -1,7 +1,8 @@
 /**
  * 浏览器可读环境变量（NEXT_PUBLIC_*）
  *
- * API 基址建议包含 `/api`，与 book_server 一致，例如 `http://127.0.0.1:3005/api`。
+ * API 基址须含协议、**端口（默认 3005）**、`/api`，例如 `http://127.0.0.1:3005/api`、
+ * `http://10.141.210.224:3005/api`。漏写端口会变成访问 80 → 连接被拒绝。
  * `authPrefix` 默认为 `/auth`（完整路径形如 `/api/auth/nonce`）。
  *
  * useMockData：
@@ -9,7 +10,14 @@
  * - 已配置 `NEXT_PUBLIC_API_URL` → 默认走真实接口（避免「填了 URL 却误留 MOCK=true」导致永远不接后端）
  * - 否则：未设置 MOCK 或与旧行为一致时默认 mock（纯前端预览）
  */
-const rawApiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '').trim() ?? ''
+const rawApiUrlInput = process.env.NEXT_PUBLIC_API_URL?.trim() ?? ''
+/** 未写 `http://` / `https://` 时浏览器会把地址当成相对路径，请求打到 Next 页面 → 返回 HTML 404 */
+const rawApiUrl = (() => {
+  let u = rawApiUrlInput.replace(/\/$/, '')
+  if (u.length === 0) return ''
+  if (!/^https?:\/\//i.test(u)) u = `http://${u}`
+  return u
+})()
 /** 与 Axum `nest("/api", …)` 对齐；只填 `http://127.0.0.1:3005` 时会自动补 `/api`，避免漏 `/api` 导致 404 */
 const apiBaseUrl = (() => {
   if (rawApiUrl.length === 0) return ''

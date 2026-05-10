@@ -10,6 +10,7 @@ export type BookDetailDto = {
   status: string
   name: string
   metadata_url: string
+  metadata_hash?: number[]
   cover_url?: string | null
   author?: string | null
   series?: string | null

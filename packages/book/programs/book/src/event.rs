@@ -24,9 +24,10 @@ pub struct DelistBookEvent{
 }
 
 #[event]
-pub struct UpdateMetadataEvent{
+pub struct RelistBookEvent{
     pub book: Pubkey,
     pub owner: Pubkey,
+    pub new_price: u64,
 }
 
 

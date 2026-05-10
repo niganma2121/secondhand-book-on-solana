@@ -413,7 +413,6 @@ export function ShelfPage() {
             </div>
             <div className="text-center">
               <p className="font-semibold text-foreground">请先连接钱包</p>
-              <p className="text-sm text-muted-foreground mt-1">连接 Phantom 或 Solflare 查看你的链上书架</p>
             </div>
             <Button
               onClick={openWalletConnect}

@@ -2,7 +2,9 @@ use crate::db::DBService;
 use crate::db::types::{EscrowActivityRow, EscrowRow, Page};
 
 impl DBService {
-    //买家买书
+    /// 买家买书：写入新托管行。
+    /// `escrow_pda` 由 [buyer, book] 确定性派生，取消订单后再买会得到相同 PDA；
+    /// 若该行已为 `Cancelled`，则复活为 `Paid` 并刷新价格时间；否则依赖唯一约束拒绝非法重复。
     pub async fn insert_escrow(
         &self,
         escrow_pda: &str,
@@ -12,19 +14,35 @@ impl DBService {
         price: i64,
         created_at: i64,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            "INSERT INTO escrows
-                (escrow_pda, asset, seller, buyer, cancelled_by, price, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, NULL, $5, $6, $6)",
-            escrow_pda,
-            asset,
-            seller,
-            buyer,
-            price,
-            created_at
+        let result = sqlx::query(
+            r#"INSERT INTO escrows
+                (escrow_pda, asset, seller, buyer, price, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $6)
+               ON CONFLICT (escrow_pda) DO UPDATE SET
+                   asset               = EXCLUDED.asset,
+                   seller              = EXCLUDED.seller,
+                   buyer               = EXCLUDED.buyer,
+                   price               = EXCLUDED.price,
+                   state               = 'Paid',
+                   cancelled_by        = NULL,
+                   shipping_commitment = NULL,
+                   trade_count_applied = false,
+                   updated_at          = EXCLUDED.updated_at
+               WHERE escrows.state = 'Cancelled'"#,
         )
+        .bind(escrow_pda)
+        .bind(asset)
+        .bind(seller)
+        .bind(buyer)
+        .bind(price)
+        .bind(created_at)
         .execute(&self.db_pool)
         .await?;
+        if result.rows_affected() == 0 {
+            // ON CONFLICT 命中但不满足 WHERE（例如旧状态不是 Cancelled）时会返回 0 行变更。
+            // 这里显式报错，交给上层走 db_miss + reconcile，避免“链上成功但库里无活跃托管”的静默失败。
+            return Err(sqlx::Error::RowNotFound);
+        }
         Ok(())
     }
 
@@ -54,7 +72,7 @@ impl DBService {
         cancelled_by: &str,
         updated_at: i64,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
+        let result = sqlx::query!(
             "UPDATE escrows
              SET state = 'Cancelled', cancelled_by = $2, updated_at = $3
              WHERE escrow_pda = $1",
@@ -64,6 +82,9 @@ impl DBService {
         )
         .execute(&self.db_pool)
         .await?;
+        if result.rows_affected() == 0 {
+            return Err(sqlx::Error::RowNotFound);
+        }
         Ok(())
     }
 
@@ -89,11 +110,55 @@ impl DBService {
         Ok(())
     }
 
+    /// Released 且未计过时：在同一事务内递增买卖双方成交次数并标记幂等。
+    pub async fn release_escrow_trade_counts_once(
+        &self,
+        escrow_pda: &str,
+        seller: &str,
+        buyer: &str,
+        updated_at: i64,
+    ) -> Result<(), sqlx::Error> {
+        let mut tx = self.db_pool.begin().await?;
+        let gate = sqlx::query!(
+            "SELECT escrow_pda FROM escrows
+             WHERE escrow_pda = $1 AND state = 'Released' AND trade_count_applied = false
+             FOR UPDATE",
+            escrow_pda
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if gate.is_none() {
+            tx.commit().await?;
+            return Ok(());
+        }
+        sqlx::query!(
+            "UPDATE users SET trade_count = trade_count + 1, sell_count = sell_count + 1 WHERE pubkey = $1",
+            seller
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!(
+            "UPDATE users SET trade_count = trade_count + 1, buy_count = buy_count + 1 WHERE pubkey = $1",
+            buyer
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!(
+            "UPDATE escrows SET trade_count_applied = true, updated_at = $2 WHERE escrow_pda = $1",
+            escrow_pda,
+            updated_at
+        )
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn get_escrow(&self, escrow_pda: &str) -> Result<Option<EscrowRow>, sqlx::Error> {
         sqlx::query_as!(
             EscrowRow,
             "SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
-                    shipping_commitment, created_at, updated_at
+                    shipping_commitment, trade_count_applied, created_at, updated_at
              FROM escrows
              WHERE escrow_pda = $1",
             escrow_pda
@@ -110,7 +175,7 @@ impl DBService {
         sqlx::query_as!(
             EscrowRow,
             "SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
-                    shipping_commitment, created_at, updated_at
+                    shipping_commitment, trade_count_applied, created_at, updated_at
              FROM escrows
              WHERE asset = $1
                AND state IN ('Paid', 'Shipped')",
@@ -129,7 +194,7 @@ impl DBService {
         sqlx::query_as!(
             EscrowRow,
             "SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
-                    shipping_commitment, created_at, updated_at
+                    shipping_commitment, trade_count_applied, created_at, updated_at
              FROM escrows
              WHERE buyer = $1
              ORDER BY created_at DESC
@@ -151,7 +216,7 @@ impl DBService {
         sqlx::query_as!(
             EscrowRow,
             "SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
-                    shipping_commitment, created_at, updated_at
+                    shipping_commitment, trade_count_applied, created_at, updated_at
              FROM escrows
              WHERE seller = $1
              ORDER BY created_at DESC
@@ -159,6 +224,24 @@ impl DBService {
             seller,
             page.limit,
             page.offset
+        )
+        .fetch_all(&self.db_pool)
+        .await
+    }
+
+    /// 对账：近期更新的托管记录（按更新时间倒序）
+    pub async fn list_escrows_for_reconcile(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<EscrowRow>, sqlx::Error> {
+        sqlx::query_as!(
+            EscrowRow,
+            "SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
+                    shipping_commitment, trade_count_applied, created_at, updated_at
+             FROM escrows
+             ORDER BY updated_at DESC
+             LIMIT $1",
+            limit
         )
         .fetch_all(&self.db_pool)
         .await

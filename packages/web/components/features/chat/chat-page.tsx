@@ -189,6 +189,9 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
   // ── 对话详情 ─────────────────────────────────────────────────
   if (selected) {
     const conv = activeConversation
+    if (!conv) {
+      return null
+    }
 
     return (
       // 关键：外层固定高度，内部 flex-col，消息区 flex-1 min-h-0 overflow-y-auto，输入区 shrink-0
@@ -385,9 +388,6 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
             )}
             {!wsError && isAuthenticated && !wsConnected && (
               <p className="text-xs text-muted-foreground">正在连接实时聊天…</p>
-            )}
-            {!isAuthenticated && (
-              <p className="text-xs text-muted-foreground">登录后可与后端实时同步消息（WebSocket + 短期握手票据）。</p>
             )}
           </div>
         )}

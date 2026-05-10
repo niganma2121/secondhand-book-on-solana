@@ -1,4 +1,8 @@
-import { apiFetch } from '@/lib/api/client'
+import { apiFetch, ApiError } from '@/lib/api/client'
+
+function sleep(ms: number) {
+  return new Promise<void>((r) => setTimeout(r, ms))
+}
 
 export type UpsertShippingCipherInput = {
   seller_ciphertext: string
@@ -41,6 +45,35 @@ export async function upsertOrderShippingCipherByAsset(asset: string, input: Ups
       body: JSON.stringify(input),
     },
   )
+}
+
+/**
+ * 托管广播成功后数据库可能晚一拍写入；链上已确认时对该错误退避重试，避免用户看到失败。
+ */
+export async function upsertOrderShippingCipherByAssetWhenEscrowReady(
+  asset: string,
+  input: UpsertShippingCipherInput,
+  opts?: { maxAttempts?: number },
+) {
+  const maxAttempts = opts?.maxAttempts ?? 10
+  let lastErr: unknown
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await upsertOrderShippingCipherByAsset(asset, input)
+    } catch (e) {
+      lastErr = e
+      const retry =
+        e instanceof ApiError &&
+        e.status === 400 &&
+        typeof e.message === 'string' &&
+        e.message.includes('无活跃订单')
+      if (!retry || attempt === maxAttempts) {
+        throw e
+      }
+      await sleep(Math.min(350 * 2 ** (attempt - 1), 5000))
+    }
+  }
+  throw lastErr
 }
 
 export async function fetchOrderShippingCipher(escrowPda: string) {

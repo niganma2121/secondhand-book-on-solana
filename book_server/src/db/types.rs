@@ -108,8 +108,26 @@ pub struct EscrowRow {
     pub price: i64,
     pub state: String,
     pub shipping_commitment: Option<Vec<u8>>,
+    /// 内部幂等标记，不暴露给订单 API 响应
+    #[serde(skip_serializing)]
+    pub trade_count_applied: bool,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct EscrowEventRow {
+    pub id: i64,
+    pub escrow_pda: String,
+    pub asset: String,
+    pub seller: String,
+    pub buyer: String,
+    pub from_state: Option<String>,
+    pub to_state: String,
+    pub action: String,
+    pub tx_signature: Option<String>,
+    pub actor_pubkey: Option<String>,
+    pub created_at: i64,
 }
 
 // 分页通用

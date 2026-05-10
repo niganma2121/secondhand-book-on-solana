@@ -176,7 +176,7 @@ export function WalletButton() {
           </Button>
           {!canSign && (
             <p className="text-[10px] text-amber-600/90 max-w-[220px] text-right leading-tight">
-              请换用 Phantom / Solflare 等支持「签署消息」的钱包
+              请换用 Phantom、MetaMask（Solana）等支持「签署消息」的钱包
             </p>
           )}
           {authError && (

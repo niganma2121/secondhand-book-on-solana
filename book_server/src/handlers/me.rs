@@ -69,6 +69,26 @@ pub async fn list_seller_escrows_handler(
     Ok(ok(json!({ "orders": orders })))
 }
 
+// GET /api/me/orders/:escrow_pda/events
+pub async fn list_order_events_handler(
+    State(state): State<AppState>,
+    Extension(pubkey): Extension<String>,
+    Path(escrow_pda): Path<String>,
+    Query(q): Query<PageQuery>,
+) -> HandlerResult {
+    let escrow = state
+        .db_service
+        .get_escrow(&escrow_pda)
+        .await?
+        .ok_or_else(|| bad_request("订单不存在"))?;
+    if escrow.buyer != pubkey && escrow.seller != pubkey {
+        return Err(bad_request("无权限查看该订单历史"));
+    }
+    let page = q.to_page();
+    let events = state.db_service.list_escrow_events(&escrow_pda, &page).await?;
+    Ok(ok(json!({ "events": events })))
+}
+
 // GET /api/me/books — 当前登录用户作为卖家上架的书籍（与 GET /api/users/:pubkey/books 数据源一致）
 pub async fn list_my_books_handler(
     State(state): State<AppState>,

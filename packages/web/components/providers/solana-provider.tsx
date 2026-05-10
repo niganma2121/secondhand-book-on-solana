@@ -1,9 +1,10 @@
 'use client'
 
-import { useMemo } from 'react'
+import { createSolanaClient } from '@metamask/connect-solana'
+import { useEffect, useMemo } from 'react'
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react'
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui'
-import { SolflareWalletAdapter } from '@solana/wallet-adapter-wallets'
+import { PhantomMobileFriendlyWalletAdapter } from '@/lib/wallet/phantom-mobile-friendly-adapter'
 import { clusterApiUrl } from '@solana/web3.js'
 
 // 引入官方 modal 样式
@@ -19,14 +20,27 @@ export function SolanaProvider({ children }: { children: React.ReactNode }) {
   const endpoint = useMemo(() => clusterApiUrl('devnet'), [])
 
   /**
-   * 显式挂上 Solflare Legacy Adapter。
-   * Phantom 已支持 Wallet Standard 自动发现，避免重复注册提示，不再显式注入 Phantom adapter。
-   * WalletProvider 会与 Standard 发现结果合并，同名一般会去重。
+   * MetaMask（Solana）：通过 Wallet Standard 注册，连接弹窗里会出现 MetaMask 选项。
+   * @see https://docs.metamask.io/metamask-connect/solana/guides/use-wallet-adapter/
    */
-  const wallets = useMemo(
-    () => [new SolflareWalletAdapter()],
-    [],
-  )
+  useEffect(() => {
+    void createSolanaClient({
+      dapp: {
+        name: 'Bookchain',
+        url: window.location.origin,
+      },
+      api: {
+        supportedNetworks: {
+          devnet: endpoint,
+        },
+      },
+    })
+  }, [endpoint])
+
+  /**
+   * Phantom 使用带移动端 Universal Link 的适配器；MetaMask（Solana）由 createSolanaClient 注册。
+   */
+  const wallets = useMemo(() => [new PhantomMobileFriendlyWalletAdapter()], [])
 
   return (
     <ConnectionProvider endpoint={endpoint}>

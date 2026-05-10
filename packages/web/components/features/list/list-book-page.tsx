@@ -672,7 +672,7 @@ export function ListBookPage() {
                   {step === 'building'
                     ? '正在上传中，请不要关闭此页面'
                     : step === 'signing'
-                      ? '请在 Phantom / Solflare 中确认签名弹窗'
+                      ? '请在钱包（Phantom / MetaMask）中确认签名弹窗'
                       : '正在 Solana Devnet 上铸造书籍 NFT'}
                 </p>
               </div>

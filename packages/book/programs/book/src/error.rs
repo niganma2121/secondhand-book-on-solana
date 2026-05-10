@@ -15,6 +15,12 @@ pub enum AppError {
     #[msg("元数据哈希验证失败,数据可能已被篡改")]
     MetadataHashMismatch,
 
+    #[msg("metadata_cid 不能为空")]
+    EmptyMetadataCid,
+
+    #[msg("metadata_cid 长度超过限制")]
+    MetadataCidTooLong,
+
     //EsCrow部分
     #[msg("书籍的元信息匹配")]
     InvalidAsset,

@@ -31,3 +31,4 @@ pub mod book_build;
 pub mod book_broadcast;
 pub mod escrow_build;
 pub mod escrow_broadcast;
+pub mod escrow_event_log;

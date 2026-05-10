@@ -6,9 +6,12 @@ type UnsignedTxResponse = {
   msg: string
 }
 
-type BroadcastResponse = {
+export type EscrowBroadcastResponse = {
   signature: string
   msg: string
+  /** 链上已成功时，数据库是否已与链上一致；未返回时可忽略 */
+  db_synced?: boolean
+  db_sync_note?: string
 }
 
 function base64ToUint8(base64: string): Uint8Array {
@@ -56,7 +59,7 @@ export async function broadcastCreateEscrow(input: {
   buyer: string
   price: number
 }) {
-  return apiFetch<BroadcastResponse>('/escrow/create/broadcast', {
+  return apiFetch<EscrowBroadcastResponse>('/escrow/create/broadcast', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -70,7 +73,7 @@ export async function broadcastCreateEscrowAuto(input: {
   buyer: string
   price: number
 }) {
-  return apiFetch<BroadcastResponse>('/escrow/create/broadcast', {
+  return apiFetch<EscrowBroadcastResponse>('/escrow/create/broadcast', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -95,7 +98,7 @@ export async function broadcastShipEscrow(input: {
   escrow_pda: string
   shipping_commitment: number[]
 }) {
-  return apiFetch<BroadcastResponse>('/escrow/ship/broadcast', {
+  return apiFetch<EscrowBroadcastResponse>('/escrow/ship/broadcast', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -122,7 +125,7 @@ export async function broadcastConfirmEscrow(input: {
   seller: string
   buyer: string
 }) {
-  return apiFetch<BroadcastResponse>('/escrow/confirm/broadcast', {
+  return apiFetch<EscrowBroadcastResponse>('/escrow/confirm/broadcast', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -148,7 +151,7 @@ export async function broadcastCancelEscrow(input: {
   escrow_pda: string
   asset: string
 }) {
-  return apiFetch<BroadcastResponse>('/escrow/cancel/broadcast', {
+  return apiFetch<EscrowBroadcastResponse>('/escrow/cancel/broadcast', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -172,7 +175,7 @@ export async function broadcastOpenDispute(input: {
   signed_tx: string
   escrow_pda: string
 }) {
-  return apiFetch<BroadcastResponse>('/escrow/dispute/broadcast', {
+  return apiFetch<EscrowBroadcastResponse>('/escrow/dispute/broadcast', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),

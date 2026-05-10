@@ -466,6 +466,67 @@
       "args": []
     },
     {
+      "name": "relist_book",
+      "discriminator": [
+        188,
+        204,
+        35,
+        126,
+        185,
+        253,
+        88,
+        227
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "book",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  111,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "book.asset",
+                "account": "Book"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "new_price",
+          "type": "u64"
+        },
+        {
+          "name": "metadata_id",
+          "type": "string"
+        },
+        {
+          "name": "metadata_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "resolve_dispute",
       "discriminator": [
         231,
@@ -636,63 +697,6 @@
       "args": [
         {
           "name": "shipping_commitment",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "update_book_metadata",
-      "discriminator": [
-        106,
-        165,
-        110,
-        8,
-        234,
-        134,
-        109,
-        160
-      ],
-      "accounts": [
-        {
-          "name": "owner",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "book",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  98,
-                  111,
-                  111,
-                  107
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "book.asset",
-                "account": "Book"
-              }
-            ]
-          }
-        }
-      ],
-      "args": [
-        {
-          "name": "metadata_id",
-          "type": "string"
-        },
-        {
-          "name": "metadata_hash",
           "type": {
             "array": [
               "u8",
@@ -885,16 +889,16 @@
       ]
     },
     {
-      "name": "UpdateMetadataEvent",
+      "name": "RelistBookEvent",
       "discriminator": [
-        132,
-        239,
-        86,
-        71,
-        222,
-        30,
-        15,
-        70
+        145,
+        166,
+        65,
+        211,
+        215,
+        225,
+        192,
+        33
       ]
     },
     {
@@ -934,66 +938,76 @@
     },
     {
       "code": 6004,
+      "name": "EmptyMetadataCid",
+      "msg": "metadata_cid 不能为空"
+    },
+    {
+      "code": 6005,
+      "name": "MetadataCidTooLong",
+      "msg": "metadata_cid 长度超过限制"
+    },
+    {
+      "code": 6006,
       "name": "InvalidAsset",
       "msg": "书籍的元信息匹配"
     },
     {
-      "code": 6005,
+      "code": 6007,
       "name": "BuyerUnmatched",
       "msg": "买家地址不匹配"
     },
     {
-      "code": 6006,
+      "code": 6008,
       "name": "SellerUnmatched",
       "msg": "卖家地址不匹配"
     },
     {
-      "code": 6007,
+      "code": 6009,
       "name": "BookUnmatched",
       "msg": "传入的书和托管的书不匹配"
     },
     {
-      "code": 6008,
+      "code": 6010,
       "name": "UnauthorizedBuyerOrSeller",
       "msg": "非交易双方不能进行此交易操作"
     },
     {
-      "code": 6009,
+      "code": 6011,
       "name": "UnmatchedBuyer",
       "msg": "托管订单和上传的买家不匹配"
     },
     {
-      "code": 6010,
+      "code": 6012,
       "name": "InvalidEscrowState",
       "msg": "托管状态不满足,不能进行此操作"
     },
     {
-      "code": 6011,
+      "code": 6013,
       "name": "InvalidVoteChoice",
       "msg": "无效的投票选项,请选择有效的选项"
     },
     {
-      "code": 6012,
+      "code": 6014,
       "name": "InvalidRefund",
       "msg": "提交的返回金额不能大于商品的价格"
     },
     {
-      "code": 6013,
+      "code": 6015,
       "name": "InsufficientEscrowLamports",
       "msg": "托管账户余额不足，无法完成退款"
     },
     {
-      "code": 6014,
+      "code": 6016,
       "name": "UnauthorizedArbitrator",
       "msg": "未授权的仲裁员"
     },
     {
-      "code": 6015,
+      "code": 6017,
       "name": "AlreadyVoted",
       "msg": "不能重复投票"
     },
     {
-      "code": 6016,
+      "code": 6018,
       "name": "AdminUnmatch",
       "msg": "管理员不匹配"
     }
@@ -1440,6 +1454,26 @@
       }
     },
     {
+      "name": "RelistBookEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "book",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_price",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "Ship",
       "docs": [
         "卖家发货"
@@ -1459,22 +1493,6 @@
           {
             "name": "shipped_at",
             "type": "i64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "UpdateMetadataEvent",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "book",
-            "type": "pubkey"
-          },
-          {
-            "name": "owner",
-            "type": "pubkey"
           }
         ]
       }

@@ -136,14 +136,18 @@ impl DBService {
         now: i64,
     ) -> Result<bool, sqlx::Error> {
         let mut tx = self.db_pool.begin().await?;
-        let exists = sqlx::query_scalar::<_, i64>(
-            "SELECT 1 FROM user_shipping_ciphertexts WHERE user_pubkey = $1 AND id = $2",
+        let exists = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(
+                SELECT 1
+                FROM user_shipping_ciphertexts
+                WHERE user_pubkey = $1 AND id = $2
+            )",
         )
         .bind(user_pubkey)
         .bind(id)
         .fetch_optional(&mut *tx)
         .await?
-        .is_some();
+        .unwrap_or(false);
         if !exists {
             tx.rollback().await?;
             return Ok(false);
