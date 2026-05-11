@@ -8,6 +8,7 @@ use crate::handlers::book::{
     get_book_detail_handler, list_book_categories_handler, list_book_conditions_handler,
     list_market_books_handler,
 };
+use crate::handlers::stats::get_overview_stats_handler;
 use crate::google_books::google_books_search_handler;
 use crate::handlers::transactions::list_program_transactions_handler;
 use crate::handlers::encryption::list_encryption_templates_handler;
@@ -29,6 +30,7 @@ pub fn api_public_router(state: AppState) -> Router<AppState> {
     Router::new()
         .nest("/auth",  auth_router(state))
         .nest("/books", books_public_router())
+        .nest("/stats", stats_public_router())
         .nest("/users", users_public_router())
         .nest("/google-books", google_books_public_router())
         .nest("/encryption", encryption_public_router())
@@ -45,6 +47,10 @@ pub fn books_public_router() -> Router<AppState> {
         .route("/conditions", get(list_book_conditions_handler))
         .route("/", get(list_market_books_handler))
         .route("/{asset}", get(get_book_detail_handler))
+}
+
+pub fn stats_public_router() -> Router<AppState> {
+    Router::new().route("/overview", get(get_overview_stats_handler))
 }
 
 pub fn users_public_router() -> Router<AppState> {

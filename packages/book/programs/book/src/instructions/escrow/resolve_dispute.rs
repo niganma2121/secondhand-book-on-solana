@@ -2,7 +2,6 @@ use crate::event::DisputeResolvedEvent;
 use crate::{nft_to_buyer, nft_to_seller, ArbitrationResult, BookStatus, Escrow, VoteChoice};
 use crate::{ADMIN_SIGNER, ARBITRATORS,Book, AppError, EscrowState, BOOK_SEED, ESCROW_SEED};
 use anchor_lang::prelude::*;
-use anchor_lang::system_program::{transfer, Transfer};
 
 #[derive(Accounts)]
 #[instruction(choice:VoteChoice,refund_amount:u64)]
@@ -68,9 +67,6 @@ pub fn resolve_dispute(
     return_book: bool,
 ) -> Result<()> {
     let price = ctx.accounts.escrow.price;
-    let bump = ctx.accounts.escrow.bump;
-    let buyer_key = ctx.accounts.escrow.buyer;
-    let book_key = ctx.accounts.escrow.book;
 
     let escrow = &mut ctx.accounts.escrow;
 
@@ -113,8 +109,6 @@ pub fn resolve_dispute(
     }
 
     //仲裁完成,执行裁决
-    let seeds: &[&[u8]] = &[ESCROW_SEED, buyer_key.as_ref(), book_key.as_ref(), &[bump]];
-    let escrow_signer_seeds = &[seeds];
     let book_seeds: &[&[u8]] = &[
         BOOK_SEED,
         ctx.accounts.book.asset.as_ref(),
@@ -131,15 +125,9 @@ pub fn resolve_dispute(
 
         //退部分金额/全额退款
         if refund_amount > 0 {
-            transfer(
-                CpiContext::new_with_signer(
-                    ctx.accounts.system_program.to_account_info(),
-                    Transfer {
-                        from: ctx.accounts.escrow.to_account_info(),
-                        to: ctx.accounts.buyer.to_account_info(),
-                    },
-                    escrow_signer_seeds,
-                ),
+            transfer_from_escrow(
+                &ctx.accounts.escrow.to_account_info(),
+                &ctx.accounts.buyer.to_account_info(),
                 refund_amount,
             )?;
         }
@@ -147,7 +135,7 @@ pub fn resolve_dispute(
         //剩余打款给卖家
         let seller_amount = price - refund_amount;
         if seller_amount > 0 {
-            transfer_seller(&ctx, escrow_signer_seeds, seller_amount)?;
+            transfer_seller(&ctx, seller_amount)?;
         }
 
         let mpl_core_program=ctx.accounts.mpl_core_program.to_account_info();
@@ -190,7 +178,7 @@ pub fn resolve_dispute(
         dispute.refund_amount = 0;
         escrow.state = EscrowState::Released;
         //正常打款给卖家
-        transfer_seller(&ctx, escrow_signer_seeds, price)?;
+        transfer_seller(&ctx, price)?;
         nft_to_buyer(
             &ctx.accounts.mpl_core_program.to_account_info(),
             &ctx.accounts.asset.to_account_info(),
@@ -222,19 +210,23 @@ pub fn resolve_dispute(
 
 pub fn transfer_seller(
     ctx: &Context<ResolveDispute>,
-    signer_seeds: &[&[&[u8]]],
     price: u64,
 ) -> Result<()> {
-    transfer(
-        CpiContext::new_with_signer(
-            ctx.accounts.system_program.to_account_info(),
-            Transfer {
-                from: ctx.accounts.escrow.to_account_info(),
-                to: ctx.accounts.seller.to_account_info(),
-            },
-            signer_seeds,
-        ),
+    transfer_from_escrow(
+        &ctx.accounts.escrow.to_account_info(),
+        &ctx.accounts.seller.to_account_info(),
         price,
     )?;
+    Ok(())
+}
+
+fn transfer_from_escrow(from: &AccountInfo, to: &AccountInfo, amount: u64) -> Result<()> {
+    if amount == 0 {
+        return Ok(());
+    }
+    let from_lamports = from.lamports();
+    require!(from_lamports >= amount, AppError::InsufficientEscrowLamports);
+    **from.try_borrow_mut_lamports()? -= amount;
+    **to.try_borrow_mut_lamports()? += amount;
     Ok(())
 }

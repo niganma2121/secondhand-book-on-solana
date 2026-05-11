@@ -23,6 +23,7 @@ import { useWallet } from '@solana/wallet-adapter-react'
 import { useOpenWalletConnect } from '@/lib/hooks/use-open-wallet-connect'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 
 type PendingTab = 'all' | 'to_ship' | 'to_receive' | 'disputed' | 'completed' | 'cancelled'
 type Role = 'buyer' | 'seller'
@@ -88,20 +89,25 @@ type NoticeTone = 'info' | 'error'
 type MetadataProofCheck = {
   metadataUrl: string
   cid: string | null
+  resolvedCid: string | null
+  cidMatched: boolean
   chainHashHex: string | null
   backendHashHex: string | null
   pinataHashHex: string | null
   pinataJsonText: string | null
   pinataJsonPretty: string | null
-  backendImageUrls: string[]
-  pinataImageUrls: string[]
-  onlyInBackend: string[]
-  onlyInPinata: string[]
 }
 
 function formatActionErrorMessage(err: unknown) {
   const raw = err instanceof Error ? err.message : String(err ?? '')
   const normalized = raw.toLowerCase()
+  if (
+    normalized.includes('custom program error') ||
+    normalized.includes('transaction simulation failed') ||
+    normalized.includes('broadcastfailed')
+  ) {
+    return `链上校验未通过：${raw.trim()}`
+  }
   if (
     normalized.includes('user rejected') ||
     normalized.includes('rejected') ||
@@ -189,30 +195,6 @@ function extractCidFromMetadataUrl(metadataUrl: string) {
   return matched?.[1] ?? null
 }
 
-function collectImageUrlsFromPinataJson(json: unknown): string[] {
-  if (!json || typeof json !== 'object') return []
-  const obj = json as Record<string, unknown>
-  const urls: string[] = []
-  const cover = obj.cover_url
-  if (typeof cover === 'string' && cover.trim()) urls.push(cover.trim())
-  const detailUrls = obj.detail_urls
-  if (Array.isArray(detailUrls)) {
-    for (const item of detailUrls) {
-      if (typeof item === 'string' && item.trim()) urls.push(item.trim())
-    }
-  }
-  const images = obj.images
-  if (Array.isArray(images)) {
-    for (const item of images) {
-      if (item && typeof item === 'object' && typeof (item as { url?: unknown }).url === 'string') {
-        const url = ((item as { url: string }).url || '').trim()
-        if (url) urls.push(url)
-      }
-    }
-  }
-  return Array.from(new Set(urls))
-}
-
 async function decryptShippingCipherForSeller(
   sellerCiphertext: string,
   sellerNonce: string,
@@ -266,6 +248,8 @@ export function PendingPage() {
   const [shipConfirmOpen, setShipConfirmOpen] = useState(false)
   const [shipTrackingError, setShipTrackingError] = useState<string | null>(null)
   const [confirmDialogOrder, setConfirmDialogOrder] = useState<PendingOrder | null>(null)
+  const [confirmFinalOpen, setConfirmFinalOpen] = useState(false)
+  const [confirmFinalChecked, setConfirmFinalChecked] = useState(false)
   const [confirmChecking, setConfirmChecking] = useState(false)
   const [confirmProof, setConfirmProof] = useState<MetadataProofCheck | null>(null)
   const [confirmCheckError, setConfirmCheckError] = useState<string | null>(null)
@@ -418,53 +402,50 @@ export function PendingPage() {
       const metadataUrl = detail.book.metadata_url?.trim()
       if (!metadataUrl) throw new Error('后端未返回 metadata_url，无法校验')
       const cid = extractCidFromMetadataUrl(metadataUrl)
+      let resolvedCid: string | null = null
       let pinataJsonText: string | null = null
       try {
         const res = await fetch(metadataUrl, { cache: 'no-store' })
-        if (res.ok) pinataJsonText = await res.text()
+        if (res.ok) {
+          pinataJsonText = await res.text()
+          resolvedCid = extractCidFromMetadataUrl(res.url) ?? extractCidFromMetadataUrl(metadataUrl)
+        }
       } catch {
         // fallback 到 CID 网关
       }
       if (!pinataJsonText && cid) {
         pinataJsonText = await fetchPinataContentByCid(cid)
+        if (pinataJsonText) resolvedCid = cid
       }
+      const cidMatched = Boolean(cid && resolvedCid && cid === resolvedCid)
       const chainHashHex = commitmentToHex(detail.book.metadata_hash)
       const backendHashHex = chainHashHex
       const pinataHashHex = pinataJsonText ? await sha256HexFromText(pinataJsonText) : null
       let pinataJsonPretty: string | null = null
-      let pinataImageUrls: string[] = []
       if (pinataJsonText) {
         try {
           const parsed = JSON.parse(pinataJsonText) as unknown
           pinataJsonPretty = JSON.stringify(parsed, null, 2)
-          pinataImageUrls = collectImageUrlsFromPinataJson(parsed)
         } catch {
           pinataJsonPretty = pinataJsonText
-          pinataImageUrls = []
         }
       }
-      const backendImageUrls = Array.from(new Set([
-        detail.book.cover_url?.trim() || '',
-        ...detail.images.map((x) => x.url.trim()),
-      ].filter(Boolean)))
-      const backendSet = new Set(backendImageUrls)
-      const pinataSet = new Set(pinataImageUrls)
-      const onlyInBackend = backendImageUrls.filter((x) => !pinataSet.has(x))
-      const onlyInPinata = pinataImageUrls.filter((x) => !backendSet.has(x))
       setConfirmProof({
         metadataUrl,
         cid,
+        resolvedCid,
+        cidMatched,
         chainHashHex,
         backendHashHex,
         pinataHashHex,
         pinataJsonText,
         pinataJsonPretty,
-        backendImageUrls,
-        pinataImageUrls,
-        onlyInBackend,
-        onlyInPinata,
       })
-      if (!chainHashHex) {
+      if (!cid) {
+        setConfirmCheckError('metadata_url 中未解析到 CID，无法完成一致性校验。')
+      } else if (!resolvedCid || !cidMatched) {
+        setConfirmCheckError('Pinata 返回 CID 与 metadata_url 中 CID 不一致，请勿确认收货。')
+      } else if (!chainHashHex) {
         setConfirmCheckError('当前后端未返回 metadata_hash，无法完成链上哈希校验。')
       } else if (!pinataHashHex) {
         setConfirmCheckError('未拉取到 Pinata JSON，无法完成三方校验。')
@@ -570,6 +551,18 @@ export function PendingPage() {
         setShipConfirmOpen(false)
         setShipTrackingNo('')
         setShipTrackingError(null)
+        notify('发货提交成功', 'info', 2500)
+      }
+      if (action === 'confirm') {
+        setConfirmFinalOpen(false)
+        setConfirmFinalChecked(false)
+        setConfirmDialogOrder(null)
+        setConfirmProof(null)
+        setConfirmCheckError(null)
+        notify('确认收货提交成功', 'info', 2500)
+      }
+      if (action === 'dispute') {
+        notify('仲裁申请已提交', 'info', 2500)
       }
     } catch (e) {
       if (!isUserCancelledAction(e)) {
@@ -586,6 +579,23 @@ export function PendingPage() {
       setSubmittingId(null)
     }
   }
+
+  const submittingActionLabel = useMemo(() => {
+    if (!submittingId) return null
+    const action = submittingId.split(':')[1]
+    switch (action) {
+      case 'ship':
+        return '正在提交发货交易，请勿关闭页面...'
+      case 'confirm':
+        return '正在提交确认收货交易，请勿关闭页面...'
+      case 'cancel':
+        return '正在提交取消订单交易，请勿关闭页面...'
+      case 'dispute':
+        return '正在提交仲裁申请，请勿关闭页面...'
+      default:
+        return '正在提交链上操作，请勿关闭页面...'
+    }
+  }, [submittingId])
 
   const filteredOrders = useMemo(() => {
     switch (tab) {
@@ -874,19 +884,21 @@ export function PendingPage() {
         onOpenChange={(open) => {
           if (!open) {
             setConfirmDialogOrder(null)
+            setConfirmFinalOpen(false)
+            setConfirmFinalChecked(false)
             setConfirmProof(null)
             setConfirmCheckError(null)
           }
         }}
       >
-        <DialogContent className="max-w-[min(92vw,640px)]">
+        <DialogContent className="max-w-[min(92vw,640px)] max-h-[85vh] overflow-hidden">
           <DialogHeader>
             <DialogTitle>确认收货前校验</DialogTitle>
             <DialogDescription>
-              系统会自动使用书籍 metadata 拉取 Pinata JSON，并完成链上/后端/Pinata 三方校验；仅在比对通过后允许确认收货。
+              系统将会比对三方校验，仅在比对通过后允许确认收货。
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-3 overflow-y-auto pr-1">
             <div className="flex gap-2">
               <Button
                 type="button"
@@ -904,13 +916,18 @@ export function PendingPage() {
             {confirmProof ? (
               <div className="space-y-2 rounded-md border border-border/70 bg-secondary/20 p-3 text-xs">
                 <p className="text-muted-foreground">Metadata URL</p>
-                <p className="font-mono break-all text-foreground">{confirmProof.metadataUrl}</p>
+                <p className="font-mono break-all text-foreground leading-5">{confirmProof.metadataUrl}</p>
                 <p className="text-muted-foreground mt-2">Metadata CID</p>
-                <p className="font-mono break-all text-foreground">{confirmProof.cid ?? '未解析到 CID'}</p>
+                <p className="font-mono break-all text-foreground leading-5">{confirmProof.cid ?? '未解析到 CID'}</p>
+                <p className="text-muted-foreground mt-2">Pinata 返回 CID</p>
+                <p className="font-mono break-all text-foreground leading-5">{confirmProof.resolvedCid ?? '未解析到 CID'}</p>
+                <p className={confirmProof.cidMatched ? 'text-primary' : 'text-destructive'}>
+                  {confirmProof.cidMatched ? 'CID 一致性校验通过' : 'CID 一致性校验未通过'}
+                </p>
                 <p className="text-muted-foreground mt-2">链上 / 后端 metadata_hash</p>
-                <p className="font-mono break-all text-foreground">{confirmProof.chainHashHex ?? '后端未返回'}</p>
+                <p className="font-mono break-all text-foreground leading-5">{confirmProof.chainHashHex ?? '后端未返回'}</p>
                 <p className="text-muted-foreground mt-2">Pinata JSON 哈希（SHA-256）</p>
-                <p className="font-mono break-all text-foreground">{confirmProof.pinataHashHex ?? '未拉取到 Pinata JSON'}</p>
+                <p className="font-mono break-all text-foreground leading-5">{confirmProof.pinataHashHex ?? '未拉取到 Pinata JSON'}</p>
                 <p className={confirmProof.chainHashHex && confirmProof.pinataHashHex && confirmProof.chainHashHex === confirmProof.pinataHashHex ? 'text-primary' : 'text-destructive'}>
                   {confirmProof.chainHashHex && confirmProof.pinataHashHex && confirmProof.chainHashHex === confirmProof.pinataHashHex
                     ? '三方哈希比对通过'
@@ -919,40 +936,26 @@ export function PendingPage() {
               </div>
             ) : null}
 
-            {confirmProof ? (
-              <div className="space-y-1 rounded-md border border-border/70 bg-secondary/20 p-3 text-xs">
-                <p className="text-muted-foreground">图片差异</p>
-                {confirmProof.onlyInBackend.length === 0 && confirmProof.onlyInPinata.length === 0 ? (
-                  <p className="text-primary">后端图片列表与 Pinata JSON 一致</p>
-                ) : (
-                  <>
-                    {confirmProof.onlyInBackend.length > 0 ? (
-                      <p className="text-destructive break-all">仅后端存在: {confirmProof.onlyInBackend.join(' | ')}</p>
-                    ) : null}
-                    {confirmProof.onlyInPinata.length > 0 ? (
-                      <p className="text-destructive break-all">仅 Pinata 存在: {confirmProof.onlyInPinata.join(' | ')}</p>
-                    ) : null}
-                  </>
-                )}
-              </div>
-            ) : null}
-
             {confirmProof?.pinataJsonPretty != null ? (
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">Pinata 文件内容预览</p>
-                <pre className="max-h-48 overflow-auto rounded-md border border-border/70 bg-background p-2 text-xs whitespace-pre-wrap break-words">
+              <details className="space-y-1 rounded-md border border-border/70 bg-secondary/10 p-2">
+                <summary className="cursor-pointer text-xs text-muted-foreground select-none">
+                  技术详情：查看 Pinata 文件内容预览（调试用）
+                </summary>
+                <pre className="mt-2 max-h-48 overflow-auto rounded-md border border-border/70 bg-background p-2 text-xs whitespace-pre-wrap break-words">
                   {confirmProof.pinataJsonPretty.slice(0, 3000)}
                 </pre>
-              </div>
+              </details>
             ) : null}
 
-            {confirmCheckError ? <p className="text-xs text-destructive">{confirmCheckError}</p> : null}
+            {confirmCheckError ? <p className="text-xs text-destructive break-words">{confirmCheckError}</p> : null}
 
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
               <Button
                 variant="outline"
                 onClick={() => {
                   setConfirmDialogOrder(null)
+                  setConfirmFinalOpen(false)
+                  setConfirmFinalChecked(false)
                   setConfirmProof(null)
                   setConfirmCheckError(null)
                 }}
@@ -963,16 +966,16 @@ export function PendingPage() {
               <Button
                 onClick={() => {
                   if (!confirmDialogOrder) return
-                  void runOrderAction(confirmDialogOrder, 'confirm')
+                  setConfirmFinalChecked(false)
+                  setConfirmFinalOpen(true)
                 }}
                 disabled={
                   !confirmDialogOrder ||
                   !confirmProof ||
+                  !confirmProof.cidMatched ||
                   !confirmProof.chainHashHex ||
                   !confirmProof.pinataHashHex ||
                   confirmProof.chainHashHex !== confirmProof.pinataHashHex ||
-                  confirmProof.onlyInBackend.length > 0 ||
-                  confirmProof.onlyInPinata.length > 0 ||
                   submittingId === `${confirmDialogOrder.escrow_pda}:confirm`
                 }
               >
@@ -980,6 +983,58 @@ export function PendingPage() {
                   ? '提交中...'
                   : '校验通过，确认收货'}
               </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={confirmFinalOpen}
+        onOpenChange={(open) => {
+          if (submittingId === `${confirmDialogOrder?.escrow_pda ?? ''}:confirm`) return
+          if (!open) setConfirmFinalChecked(false)
+          setConfirmFinalOpen(open)
+        }}
+      >
+        <DialogContent className="max-w-[min(92vw,520px)]">
+          <DialogHeader>
+            <DialogTitle>最终确认收货</DialogTitle>
+            <DialogDescription>请确认后再提交。</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200">
+              请确保收到的书籍和卖家描述一致！
+            </div>
+            <label className="flex items-start gap-2 rounded-md border border-border/70 bg-secondary/20 p-2 text-sm text-foreground cursor-pointer">
+              <Checkbox
+                checked={confirmFinalChecked}
+                onCheckedChange={(checked) => setConfirmFinalChecked(Boolean(checked))}
+                className="mt-0.5"
+              />
+              <span>我已确认收货的书籍和图片以及描述相符合，没有问题，确认收货。</span>
+            </label>
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setConfirmFinalOpen(false)}
+              disabled={Boolean(confirmDialogOrder && submittingId === `${confirmDialogOrder.escrow_pda}:confirm`)}
+            >
+              返回
+            </Button>
+            <Button
+              onClick={() => {
+                if (!confirmDialogOrder) return
+                void runOrderAction(confirmDialogOrder, 'confirm')
+              }}
+              disabled={
+                !confirmFinalChecked ||
+                Boolean(confirmDialogOrder && submittingId === `${confirmDialogOrder.escrow_pda}:confirm`)
+              }
+            >
+              {confirmDialogOrder && submittingId === `${confirmDialogOrder.escrow_pda}:confirm`
+                ? '提交中...'
+                : '确认收货'}
+            </Button>
             </div>
           </div>
         </DialogContent>
@@ -1036,6 +1091,17 @@ export function PendingPage() {
           ].join(' ')}
         >
           {notice.message}
+        </div>
+      ) : null}
+
+      {submittingActionLabel ? (
+        <div className="fixed inset-0 z-[125] bg-black/40 backdrop-blur-[1px] flex items-center justify-center px-4">
+          <div className="rounded-xl border border-primary/20 bg-background/95 shadow-xl px-4 py-3 min-w-[min(92vw,360px)]">
+            <div className="flex items-center gap-2.5">
+              <span className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+              <p className="text-sm text-foreground">{submittingActionLabel}</p>
+            </div>
+          </div>
         </div>
       ) : null}
     </div>

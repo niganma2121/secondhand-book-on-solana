@@ -262,12 +262,8 @@ function ShelfBookCard({ book, type }: { book: MyBook; type: ShelfTab }) {
             </div>
           )}
           {type === 'purchased' && book.status === 'owned' && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 px-3 text-xs border-primary/40 text-primary hover:bg-primary/10 rounded-lg"
-            >
-              转卖
+            <Button asChild size="sm" variant="outline" className="h-7 px-3 text-xs border-primary/40 text-primary hover:bg-primary/10 rounded-lg">
+              <Link href={`${routes.list}?relist=1&asset=${encodeURIComponent(book.id)}`}>转卖</Link>
             </Button>
           )}
         </div>

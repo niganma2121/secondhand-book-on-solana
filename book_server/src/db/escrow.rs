@@ -2,6 +2,26 @@ use crate::db::DBService;
 use crate::db::types::{EscrowActivityRow, EscrowRow, Page};
 
 impl DBService {
+    /// 已完成（Released）托管交易数量
+    pub async fn count_released_escrows(&self) -> Result<i64, sqlx::Error> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*)::bigint FROM escrows WHERE state = 'Released'",
+        )
+        .fetch_one(&self.db_pool)
+        .await?;
+        Ok(count)
+    }
+
+    /// 已完成（Released）托管总交易额（lamports）
+    pub async fn sum_released_escrow_volume_lamports(&self) -> Result<i64, sqlx::Error> {
+        let total = sqlx::query_scalar::<_, i64>(
+            "SELECT COALESCE(SUM(price), 0)::bigint FROM escrows WHERE state = 'Released'",
+        )
+        .fetch_one(&self.db_pool)
+        .await?;
+        Ok(total)
+    }
+
     /// 买家买书：写入新托管行。
     /// `escrow_pda` 由 [buyer, book] 确定性派生，取消订单后再买会得到相同 PDA；
     /// 若该行已为 `Cancelled`，则复活为 `Paid` 并刷新价格时间；否则依赖唯一约束拒绝非法重复。

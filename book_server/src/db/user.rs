@@ -2,6 +2,13 @@ use crate::db::DBService;
 use crate::db::types::UserRow;
 
 impl DBService {
+    pub async fn count_users(&self) -> Result<i64, sqlx::Error> {
+        let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*)::bigint FROM users")
+            .fetch_one(&self.db_pool)
+            .await?;
+        Ok(count)
+    }
+
     // 查用户，不存在返回 None
     pub async fn get_user(&self, pubkey: &str) -> Result<Option<UserRow>, sqlx::Error> {
         sqlx::query_as::<_, UserRow>("SELECT * FROM users WHERE pubkey = $1")

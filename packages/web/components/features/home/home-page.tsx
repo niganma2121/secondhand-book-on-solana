@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useWallet } from '@solana/wallet-adapter-react'
@@ -8,15 +9,15 @@ import { routes } from '@/config/routes'
 import { formatSellerDisplay } from '@/lib/format-seller'
 import type { Book } from '@/lib/types'
 import { useBooks } from '@/lib/hooks/use-books'
+import { fetchOverviewStats, type OverviewStatsResponse } from '@/lib/api/stats'
 import { Button } from '@/components/ui/button'
 
-/** 全局指标待后端聚合接口接入；当前不占位假数据 */
-const STATS = [
-  { label: '在售书籍', value: '—', unit: '' },
-  { label: '链上交易', value: '—', unit: '' },
-  { label: '注册用户', value: '—', unit: '' },
-  { label: '总交易额', value: '—', unit: '' },
-]
+const EMPTY_STATS: OverviewStatsResponse = {
+  books_on_sale: 0,
+  chain_transactions: 0,
+  registered_users: 0,
+  total_volume_sol: 0,
+}
 
 const FEATURES = [
   {
@@ -56,7 +57,53 @@ export function HomePage() {
   const { publicKey } = useWallet()
   const openWalletConnect = useOpenWalletConnect()
   const { books, loading } = useBooks()
+  const [stats, setStats] = useState<OverviewStatsResponse>(EMPTY_STATS)
+  const [statsLoaded, setStatsLoaded] = useState(false)
   const heroBooks = books.slice(0, 3)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const data = await fetchOverviewStats()
+        if (!cancelled) {
+          setStats(data)
+          setStatsLoaded(true)
+        }
+      } catch {
+        if (!cancelled) setStatsLoaded(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const statsCards = useMemo(
+    () => [
+      {
+        label: '在售书籍',
+        value: statsLoaded ? stats.books_on_sale.toLocaleString('zh-CN') : '—',
+        unit: '',
+      },
+      {
+        label: '链上交易',
+        value: statsLoaded ? stats.chain_transactions.toLocaleString('zh-CN') : '—',
+        unit: '',
+      },
+      {
+        label: '注册用户',
+        value: statsLoaded ? stats.registered_users.toLocaleString('zh-CN') : '—',
+        unit: '',
+      },
+      {
+        label: '总交易额',
+        value: statsLoaded ? stats.total_volume_sol.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : '—',
+        unit: statsLoaded ? 'SOL' : '',
+      },
+    ],
+    [stats, statsLoaded],
+  )
 
   return (
     <div className="pb-28 md:pb-12">
@@ -187,7 +234,7 @@ export function HomePage() {
       {/* ── 数据统计（与 Hero 明确分区，避免 PC 上挤进上方光晕/标题区） ── */}
       <section className="relative z-10 border-t border-border/50 bg-background px-5 sm:px-8 max-w-7xl mx-auto pt-10 pb-1 md:pt-14 md:pb-2">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
-          {STATS.map((stat) => (
+          {statsCards.map((stat) => (
             <div
               key={stat.label}
               className="bg-card border border-border/60 rounded-2xl p-4 md:p-5 flex flex-col gap-1"

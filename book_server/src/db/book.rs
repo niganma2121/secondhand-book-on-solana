@@ -6,6 +6,16 @@ use crate::db::types::{
 use sqlx::QueryBuilder;
 
 impl DBService {
+    /// 在售书籍数量（status = 'Listed'）
+    pub async fn count_listed_books(&self) -> Result<i64, sqlx::Error> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*)::bigint FROM books WHERE status = 'Listed'",
+        )
+        .fetch_one(&self.db_pool)
+        .await?;
+        Ok(count)
+    }
+
     //插入书籍
     pub async fn insert_book(
         &self,

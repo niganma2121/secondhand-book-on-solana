@@ -9,6 +9,7 @@ pub mod chat;
 pub mod encryption;
 pub mod error;
 pub mod me;
+pub mod stats;
 pub mod transactions;
 pub mod user;
 //获取用户自己

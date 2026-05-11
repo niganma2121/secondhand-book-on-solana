@@ -4,7 +4,7 @@ use crate::event::CreateEvent;
 use crate::{Book, BookStatus};
 use anchor_lang::prelude::*;
 use mpl_core::instructions::AddPluginV1CpiBuilder;
-use mpl_core::types::{FreezeDelegate, Plugin, PluginAuthority};
+use mpl_core::types::{FreezeDelegate, Plugin, PluginAuthority, TransferDelegate};
 #[derive(Accounts)]
 #[instruction(price:u64)]
 pub struct CreateBook<'info> {
@@ -56,6 +56,19 @@ pub fn create_book(
         .authority(Some(&ctx.accounts.seller.to_account_info()))
         .system_program(&ctx.accounts.system_program.to_account_info())
         .plugin(Plugin::FreezeDelegate(FreezeDelegate { frozen: false }))
+        .init_authority(PluginAuthority::Address {
+            address: ctx.accounts.book.key(),
+        })
+        .invoke()?;
+
+    // 上架时同时写入 TransferDelegate，授权 book PDA 在托管完成后可执行 NFT 转移。
+    AddPluginV1CpiBuilder::new(&ctx.accounts.mpl_core_program.to_account_info())
+        .asset(&ctx.accounts.asset.to_account_info())
+        .collection(Some(&ctx.accounts.collection.to_account_info()))
+        .payer(&ctx.accounts.seller.to_account_info())
+        .authority(Some(&ctx.accounts.seller.to_account_info()))
+        .system_program(&ctx.accounts.system_program.to_account_info())
+        .plugin(Plugin::TransferDelegate(TransferDelegate {}))
         .init_authority(PluginAuthority::Address {
             address: ctx.accounts.book.key(),
         })

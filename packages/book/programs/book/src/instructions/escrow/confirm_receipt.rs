@@ -1,5 +1,4 @@
 use anchor_lang::prelude::*;
-use anchor_lang::system_program::{transfer, Transfer};
 use crate::{Escrow, AppError, EscrowState, BOOK_SEED, ESCROW_SEED, Book, BookStatus, nft_to_buyer, PLATFORM_FEE_BPS};
 use crate::event::ReceiptConfirmedEvent;
 use crate::PLATFORM_FEE_ACCOUNT;
@@ -52,49 +51,23 @@ pub struct ConfirmReceipt<'info>{
 
 pub fn confirm_receipt(ctx:Context<ConfirmReceipt>)->Result<()>{
     let price=ctx.accounts.escrow.price;
-    let bump=ctx.accounts.escrow.bump;
-
-    let buyer_key = ctx.accounts.escrow.buyer;
-    let book_key = ctx.accounts.escrow.book;
-    //卖家确定收货,转移资金给卖家
-    let seller_cpi_accounts=Transfer{
-        from:ctx.accounts.escrow.to_account_info(),
-        to:ctx.accounts.seller.to_account_info()
-    };
-    //平台抽成
-    let platform_cpi_accounts=Transfer{
-        from:ctx.accounts.escrow.to_account_info(),
-        to:ctx.accounts.platform_fee_account.to_account_info()
-    };
-    let seeds:&[&[u8]]=&[
-        ESCROW_SEED,
-        buyer_key.as_ref(),
-        book_key.as_ref(),
-        &[bump]
-    ];
-    let escrow_signer_seeds=&[seeds];
+    let escrow_info = ctx.accounts.escrow.to_account_info();
+    let seller_info = ctx.accounts.seller.to_account_info();
+    let platform_info = ctx.accounts.platform_fee_account.to_account_info();
     let book_seeds:&[&[u8]]=&[
         BOOK_SEED,
         ctx.accounts.book.asset.as_ref(),
         &[ctx.accounts.book.bump]
     ];
     let book_signer_seeds=&[book_seeds];
-    let seller_cpi_ctx=CpiContext::new_with_signer(
-        ctx.accounts.system_program.to_account_info(),
-        seller_cpi_accounts,
-        escrow_signer_seeds
-    );
-    let platform_cpi_ctx=CpiContext::new_with_signer(
-        ctx.accounts.system_program.to_account_info(),
-        platform_cpi_accounts,
-        escrow_signer_seeds
-    );
     let fee=price*PLATFORM_FEE_BPS/10000;
     let seller_amount=price-fee;
-    // 转给卖家
-    transfer(seller_cpi_ctx,seller_amount)?;
-    //平台抽成
-    transfer(platform_cpi_ctx,fee)?;
+    // escrow 为有数据 PDA，不能作为 system transfer 的 from；直接调整 lamports。
+    let escrow_lamports = escrow_info.lamports();
+    require!(escrow_lamports >= price, AppError::InsufficientEscrowLamports);
+    **escrow_info.try_borrow_mut_lamports()? -= price;
+    **seller_info.try_borrow_mut_lamports()? += seller_amount;
+    **platform_info.try_borrow_mut_lamports()? += fee;
 
     //转移NFT
     let signer=ctx.accounts.buyer.to_account_info();
