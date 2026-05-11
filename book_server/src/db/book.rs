@@ -1,7 +1,7 @@
 use crate::db::DBService;
 use crate::db::types::{
     BookCardRow, BookCategoryRow, BookConditionRow, BookDetailRow, BookFilter, BookImageRow,
-    BookSortBy, Page,
+    BookSortBy, BoughtBookRow, Page,
 };
 use sqlx::QueryBuilder;
 
@@ -323,16 +323,25 @@ impl DBService {
         &self,
         buyer: &str,
         page: &Page,
-    ) -> Result<Vec<BookCardRow>, sqlx::Error> {
-        sqlx::query_as::<_, BookCardRow>(
+    ) -> Result<Vec<BoughtBookRow>, sqlx::Error> {
+        sqlx::query_as::<_, BoughtBookRow>(
             r#"SELECT b.asset, b.seller, b.price, b.price_cny, b.fx_cny_per_sol, b.status, b.name,
                       b.cover_url, b.author,
                       COALESCE(bc.label_zh, b.category) AS category,
                       COALESCE(bcond.label_zh, b.condition) AS condition,
                       b.created_at,
-                      u.username AS seller_username
+                      u.username AS seller_username,
+                      COALESCE(last_released.buyer = $1, b.seller = $1) AS is_current_owner
                FROM books b
                INNER JOIN escrows e ON e.asset = b.asset
+               LEFT JOIN LATERAL (
+                   SELECT e2.buyer
+                   FROM escrows e2
+                   WHERE e2.asset = b.asset
+                     AND e2.state = 'Released'
+                   ORDER BY e2.updated_at DESC, e2.created_at DESC
+                   LIMIT 1
+               ) AS last_released ON TRUE
                LEFT JOIN book_categories bc ON b.category = bc.key
                LEFT JOIN book_conditions bcond ON b.condition = bcond.key
                LEFT JOIN users u ON b.seller = u.pubkey
@@ -342,6 +351,36 @@ impl DBService {
                LIMIT $2 OFFSET $3"#,
         )
         .bind(buyer)
+        .bind(page.limit)
+        .bind(page.offset)
+        .fetch_all(&self.db_pool)
+        .await
+    }
+
+    /// 用户创建过的书（第一任主人视角）
+    pub async fn list_created_books(
+        &self,
+        creator: &str,
+        page: &Page,
+    ) -> Result<Vec<BookCardRow>, sqlx::Error> {
+        sqlx::query_as::<_, BookCardRow>(
+            r#"SELECT b.asset, b.seller, b.price, b.price_cny, b.fx_cny_per_sol, b.status, b.name,
+                      b.cover_url, b.author,
+                      COALESCE(bc.label_zh, b.category) AS category,
+                      COALESCE(bcond.label_zh, b.condition) AS condition,
+                      b.created_at,
+                      u.username AS seller_username
+               FROM books b
+               INNER JOIN book_events be ON be.asset = b.asset
+               LEFT JOIN book_categories bc ON b.category = bc.key
+               LEFT JOIN book_conditions bcond ON b.condition = bcond.key
+               LEFT JOIN users u ON b.seller = u.pubkey
+               WHERE be.event_type = 'book_created'
+                 AND be.to_owner = $1
+               ORDER BY be.created_at DESC
+               LIMIT $2 OFFSET $3"#,
+        )
+        .bind(creator)
         .bind(page.limit)
         .bind(page.offset)
         .fetch_all(&self.db_pool)

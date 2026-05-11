@@ -19,6 +19,7 @@ use crate::handlers::chat::{
 use crate::handlers::me::{
     create_my_shipping_address_handler, delete_my_shipping_address_handler,
     list_my_shipping_addresses_handler, set_default_my_shipping_address_handler,
+    list_my_created_books_handler,
     list_bought_books_handler, list_buyer_escrows_handler, list_favorites_handler,
     list_order_events_handler,
     list_my_books_handler, list_seller_escrows_handler, toggle_favorite_handler,
@@ -97,6 +98,7 @@ pub fn me_router() -> Router<AppState> {
     Router::new()
         .route("/transactions", get(list_my_transactions_handler))
         .route("/books", get(list_my_books_handler))
+        .route("/books/created", get(list_my_created_books_handler))
         .route("/favorites/", get(list_favorites_handler))
         .route("/favorites/{asset}", post(toggle_favorite_handler))
         .route("/orders/buying", get(list_buyer_escrows_handler))

@@ -130,6 +130,38 @@ pub struct EscrowEventRow {
     pub created_at: i64,
 }
 
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct BookEventRow {
+    pub id: i64,
+    pub asset: String,
+    pub event_type: String,
+    pub from_owner: Option<String>,
+    pub to_owner: Option<String>,
+    pub escrow_pda: Option<String>,
+    pub tx_signature: Option<String>,
+    pub actor_pubkey: Option<String>,
+    pub payload: Option<Value>,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct BoughtBookRow {
+    pub asset: String,
+    pub seller: String,
+    pub price: i64,
+    pub price_cny: Option<f64>,
+    pub fx_cny_per_sol: Option<f64>,
+    pub status: String,
+    pub name: String,
+    pub cover_url: Option<String>,
+    pub author: Option<String>,
+    pub category: String,
+    pub condition: String,
+    pub created_at: i64,
+    pub seller_username: Option<String>,
+    pub is_current_owner: bool,
+}
+
 // 分页通用
 pub struct Page {
     pub limit: i64,

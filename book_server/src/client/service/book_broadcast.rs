@@ -126,6 +126,23 @@ impl AnchorService {
                 db_miss = true;
             }
         }
+        if let Err(e) = db
+            .insert_book_event(
+                &req.asset,
+                "book_created",
+                None,
+                Some(&req.seller),
+                None,
+                Some(&sig.to_string()),
+                Some(&req.seller),
+                None,
+                now,
+            )
+            .await
+        {
+            warn!("写入 book_events(book_created) 失败: {e}");
+            db_miss = true;
+        }
         if db_miss {
             spawn_reconcile_tick(db.clone(), self.clone());
         }
@@ -150,6 +167,23 @@ impl AnchorService {
             warn!("书籍下架成功,数据库更新失败:{e}");
             spawn_reconcile_tick(db.clone(), self.clone());
         }
+        if let Err(e) = db
+            .insert_book_event(
+                &req.asset,
+                "book_delisted",
+                Some(&req.seller),
+                Some(&req.seller),
+                None,
+                Some(&sig.to_string()),
+                Some(&req.seller),
+                None,
+                now,
+            )
+            .await
+        {
+            warn!("写入 book_events(book_delisted) 失败: {e}");
+            spawn_reconcile_tick(db.clone(), self.clone());
+        }
 
         Ok(BroadcastResponse::new(sig.to_string(), "书籍下架成功"))
     }
@@ -170,6 +204,31 @@ impl AnchorService {
 
         if let Err(e) = db.update_book_price(&req.asset, req.new_price as i64, now).await {
             warn!("书籍价格更新成功,数据库错误:{e}");
+            spawn_reconcile_tick(db.clone(), self.clone());
+        }
+        let seller_for_event = match db.get_book_detail(&req.asset).await {
+            Ok(Some(book)) => Some(book.seller),
+            Ok(None) => None,
+            Err(e) => {
+                warn!("查询书籍卖家用于写入 book_events(price_updated) 失败: {e}");
+                None
+            }
+        };
+        if let Err(e) = db
+            .insert_book_event(
+                &req.asset,
+                "price_updated",
+                seller_for_event.as_deref(),
+                seller_for_event.as_deref(),
+                None,
+                Some(&sig.to_string()),
+                seller_for_event.as_deref(),
+                None,
+                now,
+            )
+            .await
+        {
+            warn!("写入 book_events(price_updated) 失败: {e}");
             spawn_reconcile_tick(db.clone(), self.clone());
         }
 

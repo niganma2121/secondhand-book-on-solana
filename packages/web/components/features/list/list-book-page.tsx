@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useOpenWalletConnect } from '@/lib/hooks/use-open-wallet-connect'
 import { useBookCategories } from '@/lib/hooks/use-book-categories'
@@ -27,6 +28,7 @@ import {
   buildCreateBook,
   signSerializedTxWithWallet,
 } from '@/lib/api/book-listing'
+import { fetchBookDetail } from '@/lib/api/book-detail'
 
 interface FormState {
   title: string
@@ -238,6 +240,7 @@ function LookupResultCard({
 }
 
 export function ListBookPage() {
+  const searchParams = useSearchParams()
   const { publicKey, signTransaction } = useWallet()
   const openWalletConnect = useOpenWalletConnect()
   const isMobile = useIsMobile()
@@ -290,12 +293,17 @@ export function ListBookPage() {
   const [detailImages, setDetailImages] = useState<DetailImageItem[]>([])
   const [imageProcessing, setImageProcessing] = useState(false)
   const [duplicateHintOpen, setDuplicateHintOpen] = useState(false)
+  const [relistPrefillLoading, setRelistPrefillLoading] = useState(false)
+  const [relistCategoryRaw, setRelistCategoryRaw] = useState('')
 
   const priceNum = parseFloat(form.price) || 0
   const platformFee = priceNum * PLATFORM_FEE_RATE
   const youReceive = priceNum - platformFee
   const lamportsDisplay =
     priceNum > 0 ? BigInt(Math.round(Math.min(100, priceNum) * 1_000_000_000)) : null
+
+  const relistAsset = searchParams.get('asset')?.trim() ?? ''
+  const isRelistMode = searchParams.get('relist') === '1' && relistAsset.length > 0
 
   /** 人民币模式：根据汇率同步链上使用的 SOL 字符串 */
   useEffect(() => {
@@ -321,6 +329,110 @@ export function ListBookPage() {
     const timer = window.setTimeout(() => setDuplicateHintOpen(false), 2000)
     return () => window.clearTimeout(timer)
   }, [duplicateHintOpen])
+
+  useEffect(() => {
+    if (!isRelistMode) return
+    let cancelled = false
+
+    async function prefillFromRelistAsset() {
+      setRelistPrefillLoading(true)
+      try {
+        const detail = await fetchBookDetail(relistAsset)
+        if (cancelled) return
+        let isbnFromMetadata = ''
+        const metadataUrl = detail.book.metadata_url?.trim()
+        if (metadataUrl) {
+          try {
+            const resp = await fetch(metadataUrl)
+            if (resp.ok) {
+              const metadata = await resp.json() as { isbn?: unknown; attributes?: Array<{ trait_type?: unknown; value?: unknown }> }
+              if (typeof metadata.isbn === 'string' && metadata.isbn.trim()) {
+                isbnFromMetadata = metadata.isbn.trim()
+              } else if (Array.isArray(metadata.attributes)) {
+                const attr = metadata.attributes.find((it) =>
+                  typeof it?.trait_type === 'string' && it.trait_type.toLowerCase() === 'isbn',
+                )
+                if (typeof attr?.value === 'string' && attr.value.trim()) {
+                  isbnFromMetadata = attr.value.trim()
+                }
+              }
+            }
+          } catch {
+            // ignore metadata parse failure; keep manual input fallback
+          }
+        }
+        let coverFromOrigin: File | null = null
+        const coverUrl = detail.book.cover_url?.trim()
+        if (coverUrl) {
+          try {
+            const coverResp = await fetch(coverUrl)
+            if (coverResp.ok) {
+              const coverBlob = await coverResp.blob()
+              const ext = coverBlob.type.split('/')[1] || 'jpg'
+              coverFromOrigin = new File([coverBlob], `relist-cover.${ext}`, {
+                type: coverBlob.type || 'image/jpeg',
+              })
+            }
+          } catch {
+            // keep null; user can manually upload
+          }
+        }
+
+        setForm((f) => ({
+          ...f,
+          title: detail.book.name || f.title,
+          author: detail.book.author || f.author,
+          category: '',
+          isbn: isbnFromMetadata || f.isbn,
+          condition: '',
+          price: '',
+          description: '',
+          coverPreview: coverUrl || f.coverPreview,
+        }))
+        setRelistCategoryRaw(detail.book.category || '')
+        setCoverFile(coverFromOrigin)
+        setErrors((prev) => ({
+          ...prev,
+          title: undefined,
+          author: undefined,
+          category: undefined,
+          condition: undefined,
+          price: undefined,
+          description: undefined,
+        }))
+        setCnyDraft('')
+        setPriceMode('cny')
+        setSubmitError(null)
+      } catch {
+        if (!cancelled) {
+          setSubmitError('转卖预填失败，请手动填写上架信息')
+        }
+      } finally {
+        if (!cancelled) {
+          setRelistPrefillLoading(false)
+        }
+      }
+    }
+
+    void prefillFromRelistAsset()
+    return () => {
+      cancelled = true
+    }
+  }, [isRelistMode, relistAsset])
+
+  useEffect(() => {
+    if (!isRelistMode || !relistCategoryRaw.trim() || categoryOptions.length === 0) return
+    const raw = relistCategoryRaw.trim().toLowerCase()
+    const matched = categoryOptions.find((c) => {
+      const key = c.key.trim().toLowerCase()
+      const label = c.label.trim().toLowerCase()
+      return key === raw || label === raw
+    })
+    if (!matched) return
+    setForm((f) => (f.category === matched.key ? f : { ...f, category: matched.key }))
+    setErrors((prev) => ({ ...prev, category: undefined }))
+    setRelistCategoryRaw('')
+  }, [isRelistMode, relistCategoryRaw, categoryOptions])
 
   function validate() {
     const e: typeof errors = {}
@@ -710,7 +822,7 @@ export function ListBookPage() {
   // ── 表单页 ───────────────────────────────────────────────────
   return (
     <div className="pb-28 md:pb-12">
-      <div className="max-w-lg mx-auto px-5 sm:px-8 pt-6">
+      <div className="relative max-w-lg mx-auto px-5 sm:px-8 pt-6">
         <div className="mb-6">
           <h1 className="text-xl font-bold text-foreground">上架书籍</h1>
           <p className="text-sm text-muted-foreground mt-0.5">填写信息后将铸造为 Solana NFT 上链出售</p>
@@ -1386,11 +1498,20 @@ export function ListBookPage() {
           {/* ── 提交 ── */}
           <Button
             onClick={handleSubmit}
+            disabled={relistPrefillLoading}
             className="w-full h-12 bg-primary text-primary-foreground rounded-xl font-semibold text-base hover:opacity-90 transition-opacity"
           >
             {publicKey ? '铸造 NFT 并上架' : '连接钱包以上架'}
           </Button>
         </div>
+        {relistPrefillLoading && (
+          <div className="absolute inset-0 z-40 flex items-center justify-center rounded-2xl bg-background/70 backdrop-blur-[1px]">
+            <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-card px-4 py-2 text-sm text-foreground shadow-sm">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              加载原信息中...
+            </div>
+          </div>
+        )}
       </div>
       {duplicateHintOpen && (
         <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-md border border-border/60 bg-card/95 px-3 py-2 text-xs text-foreground shadow-lg backdrop-blur">

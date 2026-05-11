@@ -16,6 +16,7 @@ pub mod encryption;
 pub mod shipping_cipher;
 pub mod shipping_address;
 pub mod escrow_event;
+pub mod book_event;
 
 pub use types::*;
 pub use message::*;
@@ -29,6 +30,7 @@ pub use encryption::*;
 pub use shipping_cipher::*;
 pub use shipping_address::*;
 pub use escrow_event::*;
+pub use book_event::*;
 #[derive(Clone)]
 pub struct DBService{
     db_pool:PgPool

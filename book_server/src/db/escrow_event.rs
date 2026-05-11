@@ -56,6 +56,26 @@ impl DBService {
         .await
     }
 
+    pub async fn list_escrow_events_by_asset(
+        &self,
+        asset: &str,
+        page: &Page,
+    ) -> Result<Vec<EscrowEventRow>, sqlx::Error> {
+        sqlx::query_as::<_, EscrowEventRow>(
+            r#"SELECT id, escrow_pda, asset, seller, buyer, from_state, to_state, action,
+                      tx_signature, actor_pubkey, created_at
+               FROM escrow_events
+               WHERE asset = $1
+               ORDER BY created_at DESC, id DESC
+               LIMIT $2 OFFSET $3"#,
+        )
+        .bind(asset)
+        .bind(page.limit)
+        .bind(page.offset)
+        .fetch_all(&self.db_pool)
+        .await
+    }
+
     /// 在同一事务内完成取消订单、书籍回到 Listed、并写入事件。
     pub async fn cancel_escrow_with_event(
         &self,
@@ -98,6 +118,21 @@ impl DBService {
             .bind(updated_at)
             .execute(&mut *tx)
             .await?;
+
+        sqlx::query(
+            r#"INSERT INTO book_events
+               (asset, event_type, from_owner, to_owner, escrow_pda, tx_signature, actor_pubkey, payload, created_at)
+               VALUES ($1, 'escrow_cancelled', $2, $3, $4, $5, $6, NULL, $7)"#,
+        )
+        .bind(&asset)
+        .bind(&seller)
+        .bind(&seller)
+        .bind(escrow_pda)
+        .bind(tx_signature)
+        .bind(cancelled_by)
+        .bind(updated_at)
+        .execute(&mut *tx)
+        .await?;
 
         sqlx::query(
             r#"INSERT INTO escrow_events
@@ -155,6 +190,21 @@ impl DBService {
             .bind(updated_at)
             .execute(&mut *tx)
             .await?;
+
+        sqlx::query(
+            r#"INSERT INTO book_events
+               (asset, event_type, from_owner, to_owner, escrow_pda, tx_signature, actor_pubkey, payload, created_at)
+               VALUES ($1, 'ownership_transferred', $2, $3, $4, $5, $6, NULL, $7)"#,
+        )
+        .bind(&asset)
+        .bind(&seller)
+        .bind(&buyer)
+        .bind(escrow_pda)
+        .bind(tx_signature)
+        .bind(actor_pubkey)
+        .bind(updated_at)
+        .execute(&mut *tx)
+        .await?;
 
         if !trade_count_applied {
             sqlx::query(

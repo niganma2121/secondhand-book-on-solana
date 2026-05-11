@@ -18,6 +18,7 @@ function sellerRowToMyBook(row: BookCardDto): MyBook {
   const b = bookCardDtoToBook(row)
   return {
     id: b.id,
+    assetId: b.id,
     title: b.title,
     author: b.author,
     cover: b.cover,
@@ -29,13 +30,21 @@ function sellerRowToMyBook(row: BookCardDto): MyBook {
     tokenId: b.tokenId,
     status: sellerDbStatusToMyStatus(row.status),
     listedAt: b.listedAt,
+    source: 'listed',
   }
 }
 
-function boughtRowToMyBook(row: BookCardDto): MyBook {
+type BoughtBookCardDto = BookCardDto & {
+  is_current_owner?: boolean
+}
+
+function boughtRowToMyBook(row: BoughtBookCardDto): MyBook {
   const b = bookCardDtoToBook(row)
+  const isCurrentOwner = Boolean(row.is_current_owner)
+  const isOnSale = row.status === 'Listed' || row.status === 'InEscrow'
   return {
-    id: b.id,
+    id: isCurrentOwner ? b.id : `${b.id}:history`,
+    assetId: b.id,
     title: b.title,
     author: b.author,
     cover: b.cover,
@@ -45,10 +54,13 @@ function boughtRowToMyBook(row: BookCardDto): MyBook {
     condition: b.condition,
     category: b.category,
     tokenId: b.tokenId,
-    status: 'owned',
+    status: isCurrentOwner ? 'owned' : 'sold',
     listedAt: b.listedAt,
     purchasedAt: b.listedAt,
     purchasePrice: b.price,
+    isCurrentOwner,
+    isOnSale,
+    source: 'purchased',
   }
 }
 
@@ -57,20 +69,23 @@ async function loadMyBooks(): Promise<MyBook[]> {
     return []
   }
   const qs = new URLSearchParams({ page: '1', page_size: '100' })
-  const [sellerRes, boughtRes] = await Promise.all([
+  const [sellerRes, boughtRes, createdRes] = await Promise.all([
     apiFetch<{ books: BookCardDto[] }>(`/me/books?${qs}`),
-    apiFetch<{ books: BookCardDto[] }>(`/me/bought?${qs}`),
+    apiFetch<{ books: BoughtBookCardDto[] }>(`/me/bought?${qs}`),
+    apiFetch<{ books: BookCardDto[] }>(`/me/books/created?${qs}`),
   ])
   const sellerRows = sellerRes.books ?? []
   const boughtRows = boughtRes.books ?? []
-  const byId = new Map<string, MyBook>()
-  for (const row of sellerRows) {
-    byId.set(row.asset, sellerRowToMyBook(row))
-  }
-  for (const row of boughtRows) {
-    byId.set(row.asset, boughtRowToMyBook(row))
-  }
-  return [...byId.values()]
+  const createdRows = createdRes.books ?? []
+  const sellerBooks = sellerRows.map(sellerRowToMyBook)
+  const boughtBooks = boughtRows.map(boughtRowToMyBook)
+  const createdBooks = createdRows.map((row) => ({
+    ...sellerRowToMyBook(row),
+    id: `${row.asset}:created`,
+    assetId: row.asset,
+    source: 'created' as const,
+  }))
+  return [...sellerBooks, ...boughtBooks, ...createdBooks]
 }
 
 export function useMyBooks() {

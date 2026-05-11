@@ -64,6 +64,23 @@ impl AnchorService {
             warn!("数据库书籍状态更新失败:{e}");
             db_miss = true;
         }
+        if let Err(e) = db
+            .insert_book_event(
+                &req.asset,
+                "escrow_created",
+                Some(&req.seller),
+                Some(&req.seller),
+                Some(&escrow_pda_str),
+                Some(&sig.to_string()),
+                Some(&req.buyer),
+                None,
+                now,
+            )
+            .await
+        {
+            warn!("写入 book_events(escrow_created) 失败: {e}");
+            db_miss = true;
+        }
         if db_miss {
             spawn_reconcile_tick(db.clone(), self.clone());
             return Ok(BroadcastResponse::chain_confirmed(

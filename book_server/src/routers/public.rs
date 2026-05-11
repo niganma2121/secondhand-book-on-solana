@@ -6,7 +6,7 @@ use crate::auth::{auth_middleware, get_nonce_handler, login_handler, logout_hand
 use crate::get_me;
 use crate::handlers::book::{
     get_book_detail_handler, list_book_categories_handler, list_book_conditions_handler,
-    list_market_books_handler,
+    list_market_books_handler, get_book_history_handler,
 };
 use crate::handlers::stats::get_overview_stats_handler;
 use crate::google_books::google_books_search_handler;
@@ -46,6 +46,7 @@ pub fn books_public_router() -> Router<AppState> {
         .route("/categories", get(list_book_categories_handler))
         .route("/conditions", get(list_book_conditions_handler))
         .route("/", get(list_market_books_handler))
+        .route("/{asset}/history", get(get_book_history_handler))
         .route("/{asset}", get(get_book_detail_handler))
 }
 

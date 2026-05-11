@@ -50,6 +50,7 @@ export interface ChainTransaction {
 
 export interface MyBook {
   id: string
+  assetId?: string
   title: string
   author: string
   cover: string
@@ -65,6 +66,9 @@ export interface MyBook {
   listedAt: string
   purchasedAt?: string
   purchasePrice?: number
+  isCurrentOwner?: boolean
+  isOnSale?: boolean
+  source?: 'listed' | 'purchased' | 'created'
 }
 
 export interface ChatMessage {

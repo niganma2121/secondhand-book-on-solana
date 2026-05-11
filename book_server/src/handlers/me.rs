@@ -100,6 +100,17 @@ pub async fn list_my_books_handler(
     Ok(ok(json!({ "books": books })))
 }
 
+// GET /api/me/books/created — 当前登录用户创建过的书（第一任主人视角）
+pub async fn list_my_created_books_handler(
+    State(state): State<AppState>,
+    Extension(pubkey): Extension<String>,
+    Query(q): Query<PageQuery>,
+) -> HandlerResult {
+    let page = q.to_page();
+    let books = state.db_service.list_created_books(&pubkey, &page).await?;
+    Ok(ok(json!({ "books": books })))
+}
+
 // GET /api/me/bought
 pub async fn list_bought_books_handler(
     State(state): State<AppState>,
@@ -108,7 +119,28 @@ pub async fn list_bought_books_handler(
 ) -> HandlerResult {
     let page = q.to_page();
     let books = state.db_service.list_bought_books(&pubkey, &page).await?;
-    Ok(ok(json!({ "books": books })))
+    let books_with_owner_flag: Vec<_> = books
+        .into_iter()
+        .map(|b| {
+            json!({
+                "asset": b.asset,
+                "seller": b.seller,
+                "price": b.price,
+                "price_cny": b.price_cny,
+                "fx_cny_per_sol": b.fx_cny_per_sol,
+                "status": b.status,
+                "name": b.name,
+                "cover_url": b.cover_url,
+                "author": b.author,
+                "category": b.category,
+                "condition": b.condition,
+                "created_at": b.created_at,
+                "seller_username": b.seller_username,
+                "is_current_owner": b.is_current_owner
+            })
+        })
+        .collect();
+    Ok(ok(json!({ "books": books_with_owner_flag })))
 }
 // POST /api/me/reviews
 #[derive(Deserialize)]
