@@ -234,4 +234,76 @@ impl AnchorService {
 
         Ok(BroadcastResponse::new(sig.to_string(), "价格已经更新"))
     }
+
+    pub async fn broadcast_relist_book(
+        &self,
+        req: BroadcastRelistBookRequest,
+        db: &DBService,
+        id_generator: &Sonyflake,
+        now: i64,
+    ) -> Result<BroadcastResponse, ClientError> {
+        let tx = deserialize_signed_tx(&req.signed_tx)?;
+        let sig = self
+            .get_program()?
+            .rpc()
+            .send_and_confirm_transaction(&tx)
+            .await
+            .map_err(|e| ClientError::BroadcastFailed(e.to_string()))?;
+
+        if let Err(e) = db
+            .update_book_for_relist(
+                &req.asset,
+                &req.seller,
+                req.price as i64,
+                req.price_cny,
+                req.fx_cny_per_sol,
+                &req.metadata_url,
+                &req.metadata_hash,
+                &req.name,
+                Some(req.cover_url.as_str()),
+                req.author.as_deref(),
+                req.series.as_deref(),
+                &req.category,
+                &req.condition,
+                now,
+            )
+            .await
+        {
+            warn!("转卖成功后更新 books 失败:{e}");
+            spawn_reconcile_book_asset(db.clone(), self.clone(), req.asset.clone());
+            spawn_reconcile_tick(db.clone(), self.clone());
+        }
+
+        let mut images: Vec<(i64, &str, &str, i16, i64)> = Vec::new();
+        for (i, url) in req.detail_urls.iter().enumerate() {
+            let id = id_generator
+                .next_id()
+                .map_err(|e| ClientError::DbError(e.to_string()))? as i64;
+            images.push((id, req.asset.as_str(), url.as_str(), i as i16, now));
+        }
+        if let Err(e) = db.replace_book_images(&req.asset, &images).await {
+            warn!("转卖成功后替换详情图失败:{e}");
+            spawn_reconcile_tick(db.clone(), self.clone());
+        }
+
+        if let Err(e) = db
+            .insert_book_event(
+                &req.asset,
+                "book_relisted",
+                Some(&req.seller),
+                Some(&req.seller),
+                None,
+                Some(&sig.to_string()),
+                Some(&req.seller),
+                None,
+                now,
+            )
+            .await
+        {
+            warn!("写入 book_events(book_relisted) 失败: {e}");
+            spawn_reconcile_tick(db.clone(), self.clone());
+        }
+
+        Ok(BroadcastResponse::new(sig.to_string(), "转卖上架成功"))
+    }
 }

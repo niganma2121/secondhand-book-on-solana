@@ -57,6 +57,32 @@ type BroadcastCreateBookInput = {
   condition: string
 }
 
+type RelistBookBuildInput = {
+  seller: string
+  asset: string
+  description: string
+  priceLamports: number
+  condition: string
+  name: string
+  coverImage: File
+  detailImages: BookImageUploadInput[]
+}
+
+type BroadcastRelistBookInput = {
+  signedTx: string
+  build: CreateBookBuildResponse
+  seller: string
+  asset: string
+  priceLamports: number
+  priceCny?: number | null
+  fxCnyPerSol?: number | null
+  name: string
+  author?: string
+  series?: string
+  category: string
+  condition: string
+}
+
 export type BroadcastCreateBookResponse = {
   signature: string
   msg: string
@@ -317,6 +343,76 @@ export async function broadcastCreateBook(
       signed_tx: input.signedTx,
       asset: input.build.asset,
       book_pda: input.build.book_pda,
+      seller: input.seller,
+      price: input.priceLamports,
+      price_cny: input.priceCny ?? null,
+      fx_cny_per_sol: input.fxCnyPerSol ?? null,
+      metadata_url: input.build.metadata_url,
+      metadata_hash: input.build.metadata_hash,
+      name: input.name,
+      author: input.author ?? null,
+      series: input.series ?? null,
+      category: input.category,
+      condition: input.condition,
+      cover_url: input.build.cover_url,
+      detail_urls: input.build.detail_urls,
+    }),
+    timeoutMs: 120_000,
+  })
+}
+
+export async function buildRelistBook(
+  input: RelistBookBuildInput,
+  onProgress?: (label: string) => void,
+): Promise<CreateBookBuildResponse> {
+  onProgress?.('上传封面…')
+  const cover = await uploadCreateBookCover(input.coverImage)
+
+  const details: { url: string; mime_type: string }[] = []
+  const n = input.detailImages.length
+  for (let i = 0; i < n; i++) {
+    onProgress?.(n > 0 ? `上传详情图（${i + 1}/${n}）…` : '上传详情图…')
+    const r = await uploadCreateBookDetail(input.detailImages[i].file)
+    details.push({ url: r.url, mime_type: r.mime_type })
+  }
+
+  onProgress?.('生成并上传元数据…')
+  const meta = await createBookMetadata({
+    seller: input.seller,
+    name: input.name,
+    description: input.description,
+    condition: input.condition,
+    coverUrl: cover.url,
+    details,
+  })
+
+  onProgress?.('组装转卖交易…')
+  return apiFetch<CreateBookBuildResponse>('/book/relist/build-tx', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      seller: input.seller,
+      asset: input.asset,
+      price: input.priceLamports,
+      cover_url: cover.url,
+      detail_urls: details.map((d) => d.url),
+      metadata_cid: meta.metadata_cid,
+      metadata_url: meta.metadata_url,
+      metadata_hash: meta.metadata_hash,
+    }),
+    timeoutMs: 120_000,
+  })
+}
+
+export async function broadcastRelistBook(
+  input: BroadcastRelistBookInput,
+): Promise<BroadcastCreateBookResponse> {
+  return apiFetch<BroadcastCreateBookResponse>('/book/relist/broadcast', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      signed_tx: input.signedTx,
+      asset: input.asset,
       seller: input.seller,
       price: input.priceLamports,
       price_cny: input.priceCny ?? null,

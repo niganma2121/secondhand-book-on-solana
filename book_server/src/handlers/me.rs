@@ -142,6 +142,22 @@ pub async fn list_bought_books_handler(
         .collect();
     Ok(ok(json!({ "books": books_with_owner_flag })))
 }
+
+// GET /api/me/bought/:asset/escrow-events — 当前用户在该 asset 上作为买家或卖家出现的托管流水（完整地址，仅登录可见）
+pub async fn list_my_bought_asset_escrow_events_handler(
+    State(state): State<AppState>,
+    Extension(pubkey): Extension<String>,
+    Path(asset): Path<String>,
+    Query(q): Query<PageQuery>,
+) -> HandlerResult {
+    let page = q.to_page();
+    let events = state
+        .db_service
+        .list_escrow_events_by_asset_for_party(&asset, &pubkey, &page)
+        .await?;
+    Ok(ok(json!({ "asset": asset, "events": events })))
+}
+
 // POST /api/me/reviews
 #[derive(Deserialize)]
 pub struct SubmitReviewRequest {
@@ -255,6 +271,10 @@ pub async fn update_my_profile_handler(
         "trade_count": user.trade_count,
         "sell_count":  user.sell_count,
         "buy_count":   user.buy_count,
+        "reputation_score": user.reputation_score,
+        "dispute_total": user.dispute_total,
+        "dispute_won": user.dispute_won,
+        "dispute_lost": user.dispute_lost,
     })))
 }
 
@@ -368,6 +388,81 @@ pub async fn upsert_order_shipping_cipher_by_asset_handler(
         .await?;
 
     Ok(ok(json!({ "msg": "收货地址密文已保存", "escrow_pda": escrow.escrow_pda })))
+}
+
+// POST /api/me/orders/:escrow_pda/tracking-cipher
+// 仅卖家可提交物流单号密文（给买家解密，可选给卖家自查副本）
+pub async fn upsert_order_tracking_cipher_handler(
+    State(state): State<AppState>,
+    Extension(pubkey): Extension<String>,
+    Path(escrow_pda): Path<String>,
+    Json(req): Json<UpsertOrderShippingCipherRequest>,
+) -> HandlerResult {
+    let escrow = state
+        .db_service
+        .get_escrow(&escrow_pda)
+        .await?
+        .ok_or_else(|| bad_request("订单不存在"))?;
+    if escrow.seller != pubkey {
+        return Err(bad_request("仅卖家可提交物流密文"));
+    }
+
+    let now = Utc::now().timestamp();
+    state
+        .db_service
+        .upsert_escrow_tracking_cipher(
+            &escrow_pda,
+            &escrow.buyer,
+            &escrow.seller,
+            &req.seller_ciphertext,
+            &req.seller_nonce,
+            &req.seller_alg,
+            req.buyer_ciphertext.as_deref(),
+            req.buyer_nonce.as_deref(),
+            req.buyer_alg.as_deref(),
+            &req.encryption_key_version,
+            now,
+        )
+        .await?;
+
+    Ok(ok(json!({ "msg": "物流单号密文已保存" })))
+}
+
+// GET /api/me/orders/:escrow_pda/tracking-cipher
+// 买家或卖家可读取该订单物流密文（前端使用本地通讯私钥解密）
+pub async fn get_order_tracking_cipher_handler(
+    State(state): State<AppState>,
+    Extension(pubkey): Extension<String>,
+    Path(escrow_pda): Path<String>,
+) -> HandlerResult {
+    let escrow = state
+        .db_service
+        .get_escrow(&escrow_pda)
+        .await?
+        .ok_or_else(|| bad_request("订单不存在"))?;
+    if escrow.buyer != pubkey && escrow.seller != pubkey {
+        return Err(bad_request("无权限查看该订单物流密文"));
+    }
+
+    let row = state
+        .db_service
+        .get_escrow_tracking_cipher(&escrow_pda)
+        .await?
+        .ok_or_else(|| bad_request("订单物流密文未提交"))?;
+
+    Ok(ok(json!({
+            "escrow_pda": row.escrow_pda,
+            "buyer_pubkey": row.buyer_pubkey,
+            "seller_pubkey": row.seller_pubkey,
+            "seller_ciphertext": row.seller_ciphertext,
+            "seller_nonce": row.seller_nonce,
+            "seller_alg": row.seller_alg,
+            "buyer_ciphertext": row.buyer_ciphertext,
+            "buyer_nonce": row.buyer_nonce,
+            "buyer_alg": row.buyer_alg,
+            "encryption_key_version": row.encryption_key_version,
+            "updated_at": row.updated_at
+        })))
 }
 
 pub async fn list_my_shipping_addresses_handler(

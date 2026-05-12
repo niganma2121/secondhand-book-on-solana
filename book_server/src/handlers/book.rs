@@ -23,20 +23,14 @@ pub struct HistoryQuery {
     pub page_size: Option<i64>,
 }
 
+/// 公开流转页等场景：仅保留前若干字符，不展示尾段，降低地址可识别性。
 fn mask_pubkey(pk: &str) -> String {
-    if pk.chars().count() <= 10 {
-        return pk.to_string();
+    let s = pk.trim();
+    if s.chars().count() <= 3 {
+        return s.to_string();
     }
-    let head: String = pk.chars().take(4).collect();
-    let tail: String = pk
-        .chars()
-        .rev()
-        .take(4)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
-    format!("{head}...{tail}")
+    let head: String = s.chars().take(3).collect();
+    format!("{head}…")
 }
 
 // GET /api/books/categories — 上架与筛选用的分类字典（存库用 key，展示用 label）
@@ -153,7 +147,8 @@ pub async fn get_book_history_handler(
                 "action": e.action,
                 "tx_signature": e.tx_signature,
                 "actor_pubkey": e.actor_pubkey.as_deref().map(mask_pubkey),
-                "created_at": e.created_at
+                "created_at": e.created_at,
+                "book_snapshot": e.book_snapshot
             })
         })
         .collect();

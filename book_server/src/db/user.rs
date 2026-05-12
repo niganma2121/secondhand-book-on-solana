@@ -1,3 +1,4 @@
+use crate::client::ArbitrationResult;
 use crate::db::DBService;
 use crate::db::types::UserRow;
 
@@ -49,6 +50,52 @@ impl DBService {
         )
             .execute(&self.db_pool)
             .await?;
+        Ok(())
+    }
+
+    /// 仲裁结案后更新买卖双方：各计一次参与，`won` 方 +5 分，`lost` 方 −5 分， clamp 到 [0,100]。
+    async fn bump_user_dispute_outcome(&self, pubkey: &str, won: bool) -> Result<(), sqlx::Error> {
+        let win_inc: i32 = if won { 1 } else { 0 };
+        let lost_inc: i32 = if won { 0 } else { 1 };
+        let delta: f64 = if won { 5.0 } else { -5.0 };
+        sqlx::query(
+            r#"UPDATE users SET
+                dispute_total = dispute_total + 1,
+                dispute_won = dispute_won + $2,
+                dispute_lost = dispute_lost + $3,
+                reputation_score = LEAST(
+                    100.0::double precision,
+                    GREATEST(0.0::double precision, reputation_score + $4)
+                )
+               WHERE pubkey = $1"#,
+        )
+        .bind(pubkey)
+        .bind(win_inc)
+        .bind(lost_inc)
+        .bind(delta)
+        .execute(&self.db_pool)
+        .await?;
+        Ok(())
+    }
+
+    /// 在链上 `DisputeResolvedEvent` 同步后调用；`Voting` 不修改统计。
+    pub async fn apply_dispute_resolution_reputation(
+        &self,
+        seller: &str,
+        buyer: &str,
+        result: ArbitrationResult,
+    ) -> Result<(), sqlx::Error> {
+        match result {
+            ArbitrationResult::BuyerWin => {
+                self.bump_user_dispute_outcome(buyer, true).await?;
+                self.bump_user_dispute_outcome(seller, false).await?;
+            }
+            ArbitrationResult::SellerWin => {
+                self.bump_user_dispute_outcome(seller, true).await?;
+                self.bump_user_dispute_outcome(buyer, false).await?;
+            }
+            ArbitrationResult::Voting => {}
+        }
         Ok(())
     }
 

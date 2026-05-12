@@ -11,6 +11,11 @@ pub struct UserRow {
     pub trade_count: i32,
     pub sell_count: i32,
     pub buy_count: i32,
+    /// 信誉分 0–100，默认 100
+    pub reputation_score: f64,
+    pub dispute_total: i32,
+    pub dispute_won: i32,
+    pub dispute_lost: i32,
     pub created_at: i64,
 }
 
@@ -111,6 +116,8 @@ pub struct EscrowRow {
     /// 内部幂等标记，不暴露给订单 API 响应
     #[serde(skip_serializing)]
     pub trade_count_applied: bool,
+    /// 与订单 1:1：创建/复活为 Paid 时写入，后续不重写
+    pub book_snapshot: Option<Value>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -128,6 +135,8 @@ pub struct EscrowEventRow {
     pub tx_signature: Option<String>,
     pub actor_pubkey: Option<String>,
     pub created_at: i64,
+    /// 来自 `escrows.book_snapshot`（JOIN），同一 escrow_pda 多行事件值相同
+    pub book_snapshot: Option<Value>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
@@ -240,6 +249,22 @@ pub struct UserEncryptionBackupRow {
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct EscrowShippingCipherRow {
+    pub escrow_pda: String,
+    pub buyer_pubkey: String,
+    pub seller_pubkey: String,
+    pub seller_ciphertext: String,
+    pub seller_nonce: String,
+    pub seller_alg: String,
+    pub buyer_ciphertext: Option<String>,
+    pub buyer_nonce: Option<String>,
+    pub buyer_alg: Option<String>,
+    pub encryption_key_version: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct EscrowTrackingCipherRow {
     pub escrow_pda: String,
     pub buyer_pubkey: String,
     pub seller_pubkey: String,

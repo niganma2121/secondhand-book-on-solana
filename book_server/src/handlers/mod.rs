@@ -27,6 +27,10 @@ pub async fn get_me(
             "trade_count": user.trade_count,
             "sell_count":  user.sell_count,
             "buy_count":   user.buy_count,
+            "reputation_score": user.reputation_score,
+            "dispute_total": user.dispute_total,
+            "dispute_won": user.dispute_won,
+            "dispute_lost": user.dispute_lost,
         })));
     }
     // 第一次登录，自动创建用户
@@ -39,5 +43,9 @@ pub async fn get_me(
         "trade_count": 0,
         "sell_count":  0,
         "buy_count":   0,
+        "reputation_score": 100.0,
+        "dispute_total": 0,
+        "dispute_won": 0,
+        "dispute_lost": 0,
     })))
 }

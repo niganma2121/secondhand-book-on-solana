@@ -1,5 +1,37 @@
 use crate::db::DBService;
-use crate::db::types::{EscrowActivityRow, EscrowRow, Page};
+use crate::db::types::{BookDetailRow, BookImageRow, EscrowActivityRow, EscrowRow, Page};
+use serde_json::{json, Value};
+
+/// 写入 `escrows.book_snapshot` 的冻结 JSON（每笔托管一行，不在 `escrow_events` 重复存）
+pub fn build_escrow_book_snapshot(detail: &BookDetailRow, images: &[BookImageRow], captured_at: i64) -> Value {
+    let mut rows: Vec<_> = images
+        .iter()
+        .map(|i| json!({ "id": i.id, "url": i.url, "sort": i.sort }))
+        .collect();
+    rows.sort_by(|a, b| {
+        let sa = a["sort"].as_i64().unwrap_or(0);
+        let sb = b["sort"].as_i64().unwrap_or(0);
+        sa.cmp(&sb)
+    });
+    json!({
+        "v": 1,
+        "captured_at": captured_at,
+        "asset": detail.asset,
+        "name": detail.name,
+        "author": detail.author,
+        "series": detail.series,
+        "category": detail.category,
+        "condition": detail.condition,
+        "cover_url": detail.cover_url,
+        "metadata_url": detail.metadata_url,
+        "seller": detail.seller,
+        "price_lamports": detail.price,
+        "price_cny": detail.price_cny,
+        "fx_cny_per_sol": detail.fx_cny_per_sol,
+        "book_status_at_capture": detail.status,
+        "images": rows,
+    })
+}
 
 impl DBService {
     /// 已完成（Released）托管交易数量
@@ -32,12 +64,13 @@ impl DBService {
         seller: &str,
         buyer: &str,
         price: i64,
+        book_snapshot: Option<&Value>,
         created_at: i64,
     ) -> Result<(), sqlx::Error> {
         let result = sqlx::query(
             r#"INSERT INTO escrows
-                (escrow_pda, asset, seller, buyer, price, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $6)
+                (escrow_pda, asset, seller, buyer, price, book_snapshot, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
                ON CONFLICT (escrow_pda) DO UPDATE SET
                    asset               = EXCLUDED.asset,
                    seller              = EXCLUDED.seller,
@@ -47,6 +80,7 @@ impl DBService {
                    cancelled_by        = NULL,
                    shipping_commitment = NULL,
                    trade_count_applied = false,
+                   book_snapshot       = EXCLUDED.book_snapshot,
                    updated_at          = EXCLUDED.updated_at
                WHERE escrows.state = 'Cancelled'"#,
         )
@@ -55,6 +89,7 @@ impl DBService {
         .bind(seller)
         .bind(buyer)
         .bind(price)
+        .bind(book_snapshot)
         .bind(created_at)
         .execute(&self.db_pool)
         .await?;
@@ -175,14 +210,13 @@ impl DBService {
     }
 
     pub async fn get_escrow(&self, escrow_pda: &str) -> Result<Option<EscrowRow>, sqlx::Error> {
-        sqlx::query_as!(
-            EscrowRow,
-            "SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
-                    shipping_commitment, trade_count_applied, created_at, updated_at
-             FROM escrows
-             WHERE escrow_pda = $1",
-            escrow_pda
+        sqlx::query_as::<_, EscrowRow>(
+            r#"SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
+                      shipping_commitment, trade_count_applied, book_snapshot, created_at, updated_at
+               FROM escrows
+               WHERE escrow_pda = $1"#,
         )
+        .bind(escrow_pda)
         .fetch_optional(&self.db_pool)
         .await
     }
@@ -192,15 +226,14 @@ impl DBService {
         &self,
         asset: &str,
     ) -> Result<Option<EscrowRow>, sqlx::Error> {
-        sqlx::query_as!(
-            EscrowRow,
-            "SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
-                    shipping_commitment, trade_count_applied, created_at, updated_at
-             FROM escrows
-             WHERE asset = $1
-               AND state IN ('Paid', 'Shipped')",
-            asset
+        sqlx::query_as::<_, EscrowRow>(
+            r#"SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
+                      shipping_commitment, trade_count_applied, book_snapshot, created_at, updated_at
+               FROM escrows
+               WHERE asset = $1
+                 AND state IN ('Paid', 'Shipped')"#,
         )
+        .bind(asset)
         .fetch_optional(&self.db_pool)
         .await
     }
@@ -211,18 +244,17 @@ impl DBService {
         buyer: &str,
         page: &Page,
     ) -> Result<Vec<EscrowRow>, sqlx::Error> {
-        sqlx::query_as!(
-            EscrowRow,
-            "SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
-                    shipping_commitment, trade_count_applied, created_at, updated_at
-             FROM escrows
-             WHERE buyer = $1
-             ORDER BY created_at DESC
-             LIMIT $2 OFFSET $3",
-            buyer,
-            page.limit,
-            page.offset
+        sqlx::query_as::<_, EscrowRow>(
+            r#"SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
+                      shipping_commitment, trade_count_applied, book_snapshot, created_at, updated_at
+               FROM escrows
+               WHERE buyer = $1
+               ORDER BY created_at DESC
+               LIMIT $2 OFFSET $3"#,
         )
+        .bind(buyer)
+        .bind(page.limit)
+        .bind(page.offset)
         .fetch_all(&self.db_pool)
         .await
     }
@@ -233,18 +265,17 @@ impl DBService {
         seller: &str,
         page: &Page,
     ) -> Result<Vec<EscrowRow>, sqlx::Error> {
-        sqlx::query_as!(
-            EscrowRow,
-            "SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
-                    shipping_commitment, trade_count_applied, created_at, updated_at
-             FROM escrows
-             WHERE seller = $1
-             ORDER BY created_at DESC
-             LIMIT $2 OFFSET $3",
-            seller,
-            page.limit,
-            page.offset
+        sqlx::query_as::<_, EscrowRow>(
+            r#"SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
+                      shipping_commitment, trade_count_applied, book_snapshot, created_at, updated_at
+               FROM escrows
+               WHERE seller = $1
+               ORDER BY created_at DESC
+               LIMIT $2 OFFSET $3"#,
         )
+        .bind(seller)
+        .bind(page.limit)
+        .bind(page.offset)
         .fetch_all(&self.db_pool)
         .await
     }
@@ -254,15 +285,14 @@ impl DBService {
         &self,
         limit: i64,
     ) -> Result<Vec<EscrowRow>, sqlx::Error> {
-        sqlx::query_as!(
-            EscrowRow,
-            "SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
-                    shipping_commitment, trade_count_applied, created_at, updated_at
-             FROM escrows
-             ORDER BY updated_at DESC
-             LIMIT $1",
-            limit
+        sqlx::query_as::<_, EscrowRow>(
+            r#"SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
+                      shipping_commitment, trade_count_applied, book_snapshot, created_at, updated_at
+               FROM escrows
+               ORDER BY updated_at DESC
+               LIMIT $1"#,
         )
+        .bind(limit)
         .fetch_all(&self.db_pool)
         .await
     }

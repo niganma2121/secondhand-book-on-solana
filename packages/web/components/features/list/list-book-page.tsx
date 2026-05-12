@@ -24,7 +24,9 @@ import {
 import { Loader2, RefreshCw, ZoomIn } from 'lucide-react'
 import { ApiError } from '@/lib/api/client'
 import {
+  broadcastRelistBook,
   broadcastCreateBook,
+  buildRelistBook,
   buildCreateBook,
   signSerializedTxWithWallet,
 } from '@/lib/api/book-listing'
@@ -577,21 +579,35 @@ export function ListBookPage() {
         detailCount: detailImages.length,
         coverSize: coverFile.size,
       })
-      const buildRes = await buildCreateBook(
-        {
-          seller: publicKey.toBase58(),
-          name: form.title.trim(),
-          description: form.description.trim(),
-          priceLamports,
-          condition: form.condition,
-          author: form.author.trim() || undefined,
-          series: undefined,
-          category: form.category,
-          coverImage: coverFile,
-          detailImages: detailImages.map((d) => ({ file: d.file })),
-        },
-        (label) => setBuildPhase(label),
-      )
+      const buildRes = isRelistMode
+        ? await buildRelistBook(
+            {
+              seller: publicKey.toBase58(),
+              asset: relistAsset,
+              name: form.title.trim(),
+              description: form.description.trim(),
+              priceLamports,
+              condition: form.condition,
+              coverImage: coverFile,
+              detailImages: detailImages.map((d) => ({ file: d.file })),
+            },
+            (label) => setBuildPhase(label),
+          )
+        : await buildCreateBook(
+            {
+              seller: publicKey.toBase58(),
+              name: form.title.trim(),
+              description: form.description.trim(),
+              priceLamports,
+              condition: form.condition,
+              author: form.author.trim() || undefined,
+              series: undefined,
+              category: form.category,
+              coverImage: coverFile,
+              detailImages: detailImages.map((d) => ({ file: d.file })),
+            },
+            (label) => setBuildPhase(label),
+          )
       console.info('[list-book] stage=building done', {
         asset: buildRes.asset,
         bookPda: buildRes.book_pda,
@@ -606,19 +622,34 @@ export function ListBookPage() {
       setStep('minting')
       failedStage = 'minting'
       console.info('[list-book] stage=minting start')
-      const broadcast = await broadcastCreateBook({
-        signedTx,
-        build: buildRes,
-        seller: publicKey.toBase58(),
-        priceLamports,
-        priceCny,
-        fxCnyPerSol: fxCnyPerSolSnapshot,
-        name: form.title.trim(),
-        author: form.author.trim() || undefined,
-        series: undefined,
-        category: form.category,
-        condition: form.condition,
-      })
+      const broadcast = isRelistMode
+        ? await broadcastRelistBook({
+            signedTx,
+            build: buildRes,
+            seller: publicKey.toBase58(),
+            asset: relistAsset,
+            priceLamports,
+            priceCny,
+            fxCnyPerSol: fxCnyPerSolSnapshot,
+            name: form.title.trim(),
+            author: form.author.trim() || undefined,
+            series: undefined,
+            category: form.category,
+            condition: form.condition,
+          })
+        : await broadcastCreateBook({
+            signedTx,
+            build: buildRes,
+            seller: publicKey.toBase58(),
+            priceLamports,
+            priceCny,
+            fxCnyPerSol: fxCnyPerSolSnapshot,
+            name: form.title.trim(),
+            author: form.author.trim() || undefined,
+            series: undefined,
+            category: form.category,
+            condition: form.condition,
+          })
       console.info('[list-book] stage=minting done', { signature: broadcast.signature })
 
       setLastAsset(buildRes.asset)
@@ -824,8 +855,10 @@ export function ListBookPage() {
     <div className="pb-28 md:pb-12">
       <div className="relative max-w-lg mx-auto px-5 sm:px-8 pt-6">
         <div className="mb-6">
-          <h1 className="text-xl font-bold text-foreground">上架书籍</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">填写信息后将铸造为 Solana NFT 上链出售</p>
+          <h1 className="text-xl font-bold text-foreground">{isRelistMode ? '转卖上架' : '上架书籍'}</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {isRelistMode ? '将复用原书 asset，调用转卖指令重新上架' : '填写信息后将铸造为 Solana NFT 上链出售'}
+          </p>
         </div>
 
         <Dialog
@@ -1501,7 +1534,7 @@ export function ListBookPage() {
             disabled={relistPrefillLoading}
             className="w-full h-12 bg-primary text-primary-foreground rounded-xl font-semibold text-base hover:opacity-90 transition-opacity"
           >
-            {publicKey ? '铸造 NFT 并上架' : '连接钱包以上架'}
+            {publicKey ? (isRelistMode ? '确认转卖上架' : '铸造 NFT 并上架') : '连接钱包以上架'}
           </Button>
         </div>
         {relistPrefillLoading && (

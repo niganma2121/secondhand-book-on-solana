@@ -52,6 +52,18 @@ pub struct CreateBookBuildTxRequest {
 }
 
 #[derive(Deserialize)]
+pub struct RelistBookBuildTxRequest {
+    pub seller: String,
+    pub asset: String,
+    pub price: u64,
+    pub cover_url: String,
+    pub detail_urls: Vec<String>,
+    pub metadata_cid: String,
+    pub metadata_url: String,
+    pub metadata_hash: Vec<u8>,
+}
+
+#[derive(Deserialize)]
 pub struct PinataUploadSignBody {
     pub purpose: Option<String>,
 }

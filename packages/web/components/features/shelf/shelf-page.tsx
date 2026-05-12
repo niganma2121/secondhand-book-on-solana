@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { useEffect, useState } from 'react'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useOpenWalletConnect } from '@/lib/hooks/use-open-wallet-connect'
-import { routes } from '@/config/routes'
+import { routes, shelfMyEscrowTrades } from '@/config/routes'
 import type { MyBook } from '@/lib/types'
 import { useMyBooks } from '@/lib/hooks/use-my-books'
 import { Button } from '@/components/ui/button'
@@ -261,10 +261,17 @@ function ShelfBookCard({ book, type }: { book: MyBook; type: ShelfTab }) {
               </Button>
             </div>
           )}
-          {type === 'purchased' && book.status === 'owned' && (
-            <Button asChild size="sm" variant="outline" className="h-7 px-3 text-xs border-primary/40 text-primary hover:bg-primary/10 rounded-lg">
-              <Link href={`${routes.list}?relist=1&asset=${encodeURIComponent(book.assetId ?? book.id)}`}>转卖</Link>
-            </Button>
+          {type === 'purchased' && (
+            <div className="flex flex-col items-end gap-1.5 shrink-0">
+              <Button asChild size="sm" variant="outline" className="h-7 px-2.5 text-xs border-border/70 text-foreground hover:bg-secondary rounded-lg">
+                <Link href={shelfMyEscrowTrades(book.assetId ?? book.id)}>我的交易</Link>
+              </Button>
+              {book.status === 'owned' && (
+                <Button asChild size="sm" variant="outline" className="h-7 px-2.5 text-xs border-primary/40 text-primary hover:bg-primary/10 rounded-lg">
+                  <Link href={`${routes.list}?relist=1&asset=${encodeURIComponent(book.assetId ?? book.id)}`}>转卖</Link>
+                </Button>
+              )}
+            </div>
           )}
         </div>
       </div>

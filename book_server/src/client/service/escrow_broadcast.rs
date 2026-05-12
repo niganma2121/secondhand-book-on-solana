@@ -30,6 +30,18 @@ impl AnchorService {
             .await
             .map(|x| x.state);
 
+        let book_snapshot_json = match db.get_book_detail(&req.asset).await.ok().flatten() {
+            Some(detail) => {
+                let imgs = db.get_book_images(&req.asset).await.unwrap_or_default();
+                Some(crate::db::build_escrow_book_snapshot(&detail, &imgs, now))
+            }
+            None => {
+                warn!("创建托管时未查到书籍详情，book_snapshot 为空 asset={}", req.asset);
+                None
+            }
+        };
+        let book_snapshot_ref = book_snapshot_json.as_ref();
+
         let mut db_miss = false;
         let insert_ok = db
             .insert_escrow(
@@ -38,6 +50,7 @@ impl AnchorService {
                 &req.seller,
                 &req.buyer,
                 req.price as i64,
+                book_snapshot_ref,
                 now,
             )
             .await

@@ -42,11 +42,12 @@ impl DBService {
         page: &Page,
     ) -> Result<Vec<EscrowEventRow>, sqlx::Error> {
         sqlx::query_as::<_, EscrowEventRow>(
-            r#"SELECT id, escrow_pda, asset, seller, buyer, from_state, to_state, action,
-                      tx_signature, actor_pubkey, created_at
-               FROM escrow_events
-               WHERE escrow_pda = $1
-               ORDER BY created_at DESC, id DESC
+            r#"SELECT ee.id, ee.escrow_pda, ee.asset, ee.seller, ee.buyer, ee.from_state, ee.to_state, ee.action,
+                      ee.tx_signature, ee.actor_pubkey, ee.created_at, e.book_snapshot
+               FROM escrow_events ee
+               LEFT JOIN escrows e ON e.escrow_pda = ee.escrow_pda
+               WHERE ee.escrow_pda = $1
+               ORDER BY ee.created_at DESC, ee.id DESC
                LIMIT $2 OFFSET $3"#,
         )
         .bind(escrow_pda)
@@ -62,14 +63,39 @@ impl DBService {
         page: &Page,
     ) -> Result<Vec<EscrowEventRow>, sqlx::Error> {
         sqlx::query_as::<_, EscrowEventRow>(
-            r#"SELECT id, escrow_pda, asset, seller, buyer, from_state, to_state, action,
-                      tx_signature, actor_pubkey, created_at
-               FROM escrow_events
-               WHERE asset = $1
-               ORDER BY created_at DESC, id DESC
+            r#"SELECT ee.id, ee.escrow_pda, ee.asset, ee.seller, ee.buyer, ee.from_state, ee.to_state, ee.action,
+                      ee.tx_signature, ee.actor_pubkey, ee.created_at, e.book_snapshot
+               FROM escrow_events ee
+               LEFT JOIN escrows e ON e.escrow_pda = ee.escrow_pda
+               WHERE ee.asset = $1
+               ORDER BY ee.created_at DESC, ee.id DESC
                LIMIT $2 OFFSET $3"#,
         )
         .bind(asset)
+        .bind(page.limit)
+        .bind(page.offset)
+        .fetch_all(&self.db_pool)
+        .await
+    }
+
+    /// 仅返回「当前用户作为买家或卖家」参与的托管事件（用于书架「我买到的」等私密视图）。
+    pub async fn list_escrow_events_by_asset_for_party(
+        &self,
+        asset: &str,
+        party_pubkey: &str,
+        page: &Page,
+    ) -> Result<Vec<EscrowEventRow>, sqlx::Error> {
+        sqlx::query_as::<_, EscrowEventRow>(
+            r#"SELECT ee.id, ee.escrow_pda, ee.asset, ee.seller, ee.buyer, ee.from_state, ee.to_state, ee.action,
+                      ee.tx_signature, ee.actor_pubkey, ee.created_at, e.book_snapshot
+               FROM escrow_events ee
+               LEFT JOIN escrows e ON e.escrow_pda = ee.escrow_pda
+               WHERE ee.asset = $1 AND (ee.seller = $2 OR ee.buyer = $2)
+               ORDER BY ee.created_at DESC, ee.id DESC
+               LIMIT $3 OFFSET $4"#,
+        )
+        .bind(asset)
+        .bind(party_pubkey)
         .bind(page.limit)
         .bind(page.offset)
         .fetch_all(&self.db_pool)

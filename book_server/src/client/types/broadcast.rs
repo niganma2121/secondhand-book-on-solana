@@ -21,6 +21,25 @@ pub struct BroadcastCreateBookRequest {
 }
 
 #[derive(Deserialize)]
+pub struct BroadcastRelistBookRequest {
+    pub signed_tx: String,
+    pub asset: String,
+    pub seller: String,
+    pub price: u64,
+    pub price_cny: Option<f64>,
+    pub fx_cny_per_sol: Option<f64>,
+    pub metadata_url: String,
+    pub metadata_hash: Vec<u8>,
+    pub name: String,
+    pub author: Option<String>,
+    pub series: Option<String>,
+    pub category: String,
+    pub condition: String,
+    pub cover_url: String,
+    pub detail_urls: Vec<String>,
+}
+
+#[derive(Deserialize)]
 pub struct BroadcastUpdatePriceRequest {
     pub signed_tx: String,
     pub asset: String,

@@ -3,12 +3,13 @@ use crate::client::error::ClientError;
 use crate::client::types::{
     AnchorService, BroadcastCancelEscrowRequest, BroadcastConfirmReceiptRequest,
     BroadcastCreateBookRequest, BroadcastCreateEscrowAutoRequest, BroadcastDelistRequest,
+    BroadcastRelistBookRequest,
     BroadcastOpenDisputeRequest, BroadcastResolveDisputeRequest, BroadcastResponse,
     BroadcastShipRequest, BroadcastUpdatePriceRequest, CancelEscrowRequest, ConfirmReceiptRequest,
     CreateBookBuildTxRequest, CreateBookMetadataDetailItem, CreateBookMetadataRequest,
     CreateBookMetadataResponse, CreateBookRequest, CreateBookTxResponse,
     CreateBookUploadImageResponse, CreateEscrowRequest, DelistBookRequest, InitCollectionRequest,
-    InitCollectionResponse, OpenDisputeRequest, ResolveDisputeRequest, ShipBookRequest,
+    InitCollectionResponse, OpenDisputeRequest, RelistBookBuildTxRequest, ResolveDisputeRequest, ShipBookRequest,
     UnsignedTxResponse, UpdatePriceRequest,
 };
 use crate::client::utils::{

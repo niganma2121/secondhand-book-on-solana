@@ -16,6 +16,8 @@ import {
   type EscrowBroadcastResponse,
 } from '@/lib/api/escrow'
 import { fetchOrderShippingCipher } from '@/lib/api/shipping-cipher'
+import { fetchOrderTrackingCipher, upsertOrderTrackingCipher } from '@/lib/api/tracking-cipher'
+import { fetchUserEncryptionPublicKey } from '@/lib/api/encryption'
 import { fetchBookDetail } from '@/lib/api/book-detail'
 import { requestMarketListRefresh } from '@/lib/market-refresh'
 import { shortenPubkey } from '@/lib/format-seller'
@@ -82,6 +84,26 @@ function stateClass(state: string) {
 
 function lamportsToSol(lamports: number) {
   return lamports / 1_000_000_000
+}
+
+function parseShippingPlaintext(plain: string): {
+  name?: string
+  phone?: string
+  address?: string
+} {
+  const normalized = plain.replace(/\n/g, ',').trim()
+  if (!normalized) return {}
+  const parts = normalized
+    .split(/[，,]/)
+    .map((x) => x.trim())
+    .filter(Boolean)
+  if (parts.length < 2) return { address: normalized }
+  const [name, phone, ...rest] = parts
+  return {
+    name,
+    phone,
+    address: rest.join('，').trim() || undefined,
+  }
 }
 
 type NoticeTone = 'info' | 'error'
@@ -154,6 +176,12 @@ function base64ToBytes(base64: string) {
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
   return bytes
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+  return btoa(binary)
 }
 
 async function sha256Bytes(data: Uint8Array) {
@@ -234,6 +262,76 @@ async function decryptShippingCipherForSeller(
   return new TextDecoder().decode(plain)
 }
 
+async function encryptCipherForRecipient(recipientEncPubB64: string, plain: string) {
+  const recipientPub = await crypto.subtle.importKey(
+    'raw',
+    base64ToBytes(recipientEncPubB64),
+    { name: 'X25519' } as EcKeyImportParams,
+    false,
+    [],
+  )
+  const eph = (await crypto.subtle.generateKey(
+    { name: 'X25519' } as EcKeyGenParams,
+    true,
+    ['deriveBits'],
+  )) as CryptoKeyPair
+  const shared = new Uint8Array(await crypto.subtle.deriveBits(
+    { name: 'X25519', public: recipientPub } as EcdhKeyDeriveParams,
+    eph.privateKey,
+    256,
+  ))
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const keySeed = new Uint8Array(shared.length + iv.length)
+  keySeed.set(shared, 0)
+  keySeed.set(iv, shared.length)
+  const aesRaw = await sha256Bytes(keySeed)
+  const aes = await crypto.subtle.importKey('raw', aesRaw, { name: 'AES-GCM' }, false, ['encrypt'])
+  const ct = new Uint8Array(
+    await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aes, new TextEncoder().encode(plain)),
+  )
+  const ephPub = new Uint8Array(await crypto.subtle.exportKey('raw', eph.publicKey))
+  return {
+    ciphertext: JSON.stringify({ epk: bytesToBase64(ephPub), ct: bytesToBase64(ct) }),
+    nonce: bytesToBase64(iv),
+    alg: 'x25519_aesgcm_v1',
+  }
+}
+
+async function decryptCipherByLocalCommKey(ciphertext: string, nonce: string, localPubkey: string) {
+  const key = localStorage.getItem(`bookchain:comm-key:${localPubkey}`)
+  if (!key) throw new Error('本地通讯私钥不存在，请先到个人中心恢复后再试。')
+  const localPriv = await crypto.subtle.importKey(
+    'pkcs8',
+    base64ToBytes(key),
+    { name: 'X25519' } as EcKeyImportParams,
+    false,
+    ['deriveBits'],
+  )
+  const parsed = JSON.parse(ciphertext) as { epk: string; ct: string }
+  const ephPub = await crypto.subtle.importKey(
+    'raw',
+    base64ToBytes(parsed.epk),
+    { name: 'X25519' } as EcKeyImportParams,
+    false,
+    [],
+  )
+  const shared = new Uint8Array(
+    await crypto.subtle.deriveBits(
+      { name: 'X25519', public: ephPub } as EcdhKeyDeriveParams,
+      localPriv,
+      256,
+    ),
+  )
+  const iv = base64ToBytes(nonce)
+  const keySeed = new Uint8Array(shared.length + iv.length)
+  keySeed.set(shared, 0)
+  keySeed.set(iv, shared.length)
+  const aesRaw = await sha256Bytes(keySeed)
+  const aes = await crypto.subtle.importKey('raw', aesRaw, { name: 'AES-GCM' }, false, ['decrypt'])
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aes, base64ToBytes(parsed.ct))
+  return new TextDecoder().decode(plain)
+}
+
 export function PendingPage() {
   const { isAuthenticated, sessionStatus, login, authLoading, authError } = useAuth()
   const { publicKey, signTransaction, signMessage } = useWallet()
@@ -260,6 +358,10 @@ export function PendingPage() {
   const [shippingPlainMap, setShippingPlainMap] = useState<Record<string, string>>({})
   const [shippingErrMap, setShippingErrMap] = useState<Record<string, string>>({})
   const [shippingVisibleMap, setShippingVisibleMap] = useState<Record<string, boolean>>({})
+  const [decryptingTrackingOrder, setDecryptingTrackingOrder] = useState<string | null>(null)
+  const [trackingPlainMap, setTrackingPlainMap] = useState<Record<string, string>>({})
+  const [trackingErrMap, setTrackingErrMap] = useState<Record<string, string>>({})
+  const [trackingVisibleMap, setTrackingVisibleMap] = useState<Record<string, boolean>>({})
 
   function notify(message: string, tone: NoticeTone = 'info', durationMs?: number) {
     setNotice({ message, tone, durationMs })
@@ -343,7 +445,7 @@ export function PendingPage() {
 
   async function handleShip(order: PendingOrder, trackingNoInput: string) {
     const { signTransaction } = await requireWalletReady()
-    const trackingNo = trackingNoInput.trim()
+    const trackingNo = normalizeTrackingNo(trackingNoInput)
     if (!trackingNo) throw new Error('请填写物流单号')
     const commitment = await createShipCommitment(trackingNo)
     const built = await buildShipEscrow({
@@ -358,6 +460,83 @@ export function PendingPage() {
       escrow_pda: order.escrow_pda,
       shipping_commitment: commitment,
     })
+    try {
+      const [buyerEnc, sellerEnc] = await Promise.all([
+        fetchUserEncryptionPublicKey(order.buyer),
+        fetchUserEncryptionPublicKey(order.seller),
+      ])
+      if (!buyerEnc.encryption_public_key?.trim()) {
+        throw new Error('买家未配置通讯公钥，无法写入物流密文')
+      }
+      if (!sellerEnc.encryption_public_key?.trim()) {
+        throw new Error('卖家未配置通讯公钥，无法写入物流密文')
+      }
+      const [forSeller, forBuyer] = await Promise.all([
+        encryptCipherForRecipient(sellerEnc.encryption_public_key, trackingNo),
+        encryptCipherForRecipient(buyerEnc.encryption_public_key, trackingNo),
+      ])
+      await upsertOrderTrackingCipher(order.escrow_pda, {
+        seller_ciphertext: forSeller.ciphertext,
+        seller_nonce: forSeller.nonce,
+        seller_alg: forSeller.alg,
+        buyer_ciphertext: forBuyer.ciphertext,
+        buyer_nonce: forBuyer.nonce,
+        buyer_alg: forBuyer.alg,
+        encryption_key_version: 'v1',
+      })
+    } catch (e) {
+      notify(
+        `发货已上链，但物流密文保存失败：${e instanceof Error ? e.message : '请稍后重试'}`,
+        'error',
+        7000,
+      )
+    }
+  }
+
+  async function handleDecryptTracking(order: PendingOrder) {
+    if (!publicKey) return
+    const escrowPda = order.escrow_pda
+    if (trackingVisibleMap[escrowPda]) {
+      setTrackingVisibleMap((prev) => ({ ...prev, [escrowPda]: false }))
+      return
+    }
+    if (trackingPlainMap[escrowPda]) {
+      setTrackingVisibleMap((prev) => ({ ...prev, [escrowPda]: true }))
+      return
+    }
+    setDecryptingTrackingOrder(escrowPda)
+    setTrackingErrMap((prev) => ({ ...prev, [escrowPda]: '' }))
+    try {
+      const payload = await fetchOrderTrackingCipher(escrowPda)
+      const local = publicKey.toBase58()
+      if (order.role === 'buyer' && (!payload.buyer_ciphertext || !payload.buyer_nonce)) {
+        throw new Error('卖家未提交可供买家查看的物流密文')
+      }
+      const plain = order.role === 'seller'
+        ? await decryptCipherByLocalCommKey(payload.seller_ciphertext, payload.seller_nonce, local)
+        : await decryptCipherByLocalCommKey(
+            payload.buyer_ciphertext ?? '',
+            payload.buyer_nonce ?? '',
+            local,
+          )
+      const chainCommitHex = commitmentToHex(order.shipping_commitment)
+      if (chainCommitHex) {
+        const localCommit = await createShipCommitment(plain)
+        const localHex = bytesToHex(Uint8Array.from(localCommit))
+        if (localHex !== chainCommitHex) {
+          throw new Error('物流单号校验失败：明文与链上 commitment 不一致')
+        }
+      }
+      setTrackingPlainMap((prev) => ({ ...prev, [escrowPda]: plain }))
+      setTrackingVisibleMap((prev) => ({ ...prev, [escrowPda]: true }))
+    } catch (e) {
+      setTrackingErrMap((prev) => ({
+        ...prev,
+        [escrowPda]: e instanceof Error ? e.message : '读取物流单号失败',
+      }))
+    } finally {
+      setDecryptingTrackingOrder(null)
+    }
   }
 
   function normalizeTrackingNo(raw: string) {
@@ -623,9 +802,15 @@ export function PendingPage() {
     const canDispute = order.state === 'Shipped'
     const canCancel = order.state === 'Paid'
     const canViewBuyerAddress = order.role === 'seller' && (order.state === 'Paid' || order.state === 'Shipped')
+    const canViewTracking =
+      (order.role === 'seller' || order.role === 'buyer') &&
+      (order.state === 'Shipped' || order.state === 'Released' || order.state === 'Disputed')
     const shippingPlaintext = shippingPlainMap[order.escrow_pda]
     const shippingVisible = Boolean(shippingVisibleMap[order.escrow_pda])
     const shippingError = shippingErrMap[order.escrow_pda]
+    const trackingPlaintext = trackingPlainMap[order.escrow_pda]
+    const trackingVisible = Boolean(trackingVisibleMap[order.escrow_pda])
+    const trackingError = trackingErrMap[order.escrow_pda]
     return (
       <div key={`${order.escrow_pda}-${order.role}`} className="bg-card border border-border rounded-xl p-4 space-y-3">
         <div className="flex items-center justify-between gap-2">
@@ -743,10 +928,74 @@ export function PendingPage() {
                     复制
                   </Button>
                 </div>
-                {shippingPlaintext}
+                {(() => {
+                  const parsed = parseShippingPlaintext(shippingPlaintext)
+                  if (!parsed.name && !parsed.phone && !parsed.address) {
+                    return shippingPlaintext
+                  }
+                  return (
+                    <div className="space-y-1">
+                      <p>
+                        姓名：<span className="text-foreground/95">{parsed.name ?? '—'}</span>
+                      </p>
+                      <p>
+                        手机号：<span className="text-foreground/95">{parsed.phone ?? '—'}</span>
+                      </p>
+                      <p>
+                        地址：<span className="text-foreground/95">{parsed.address ?? '—'}</span>
+                      </p>
+                    </div>
+                  )
+                })()}
               </div>
             ) : null}
             {shippingError ? <p className="text-xs text-destructive">{shippingError}</p> : null}
+          </div>
+        ) : null}
+        {canViewTracking ? (
+          <div className="border-t border-border pt-2.5">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">物流单号（端到端加密）</p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  void handleDecryptTracking(order)
+                }}
+                disabled={decryptingTrackingOrder === order.escrow_pda}
+              >
+                {decryptingTrackingOrder === order.escrow_pda
+                  ? '读取中...'
+                  : trackingVisible
+                    ? '隐藏单号'
+                    : '查看单号'}
+              </Button>
+            </div>
+            {trackingPlaintext && trackingVisible ? (
+              <div className="rounded-md bg-secondary/50 px-2.5 py-2 text-xs text-foreground">
+                <div className="mb-1 flex items-center justify-end">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-2 text-[11px]"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(trackingPlaintext)
+                        notify('物流单号已复制')
+                      } catch {
+                        notify('复制失败，请手动复制', 'error')
+                      }
+                    }}
+                  >
+                    复制
+                  </Button>
+                </div>
+                <p className="font-mono text-foreground/95 break-all">{trackingPlaintext}</p>
+              </div>
+            ) : null}
+            {trackingError ? <p className="text-xs text-destructive">{trackingError}</p> : null}
           </div>
         ) : null}
       </div>
@@ -831,19 +1080,38 @@ export function PendingPage() {
         <DialogContent className="max-w-[min(92vw,480px)]">
           <DialogHeader>
             <DialogTitle>确认发货</DialogTitle>
-            <DialogDescription>请填写物流单号后再提交发货。</DialogDescription>
+            <DialogDescription>请认真核对确保物流单号无误，这将会展示给买家查看。</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            <input
-              value={shipTrackingNo}
-              onChange={(e) => {
-                const filtered = e.target.value.replace(/[^A-Za-z0-9-]/g, '')
-                setShipTrackingNo(filtered)
-                if (shipTrackingError) setShipTrackingError(null)
-              }}
-              placeholder="请输入物流单号"
-              className="w-full h-10 rounded-md bg-input border border-border px-3 text-sm"
-            />
+            <div className="flex items-center gap-2">
+              <input
+                value={shipTrackingNo}
+                onChange={(e) => {
+                  const filtered = e.target.value.replace(/[^A-Za-z0-9-]/g, '')
+                  setShipTrackingNo(filtered)
+                  if (shipTrackingError) setShipTrackingError(null)
+                }}
+                placeholder="请输入物流单号"
+                className="w-full h-10 rounded-md bg-input border border-border px-3 text-sm"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="h-10 shrink-0 px-3 text-xs"
+                onClick={async () => {
+                  try {
+                    const text = await navigator.clipboard.readText()
+                    const filtered = text.replace(/[^A-Za-z0-9-]/g, '')
+                    setShipTrackingNo(filtered)
+                    setShipTrackingError(null)
+                  } catch {
+                    notify('读取剪贴板失败，请手动粘贴', 'error')
+                  }
+                }}
+              >
+                粘贴
+              </Button>
+            </div>
             {shipTrackingError ? <p className="text-xs text-destructive">{shipTrackingError}</p> : null}
             <div className="flex justify-end gap-2">
               <Button
@@ -1051,7 +1319,7 @@ export function PendingPage() {
           <DialogHeader>
             <DialogTitle>确认提交发货</DialogTitle>
             <DialogDescription>
-              请确认物流单号无误。提交后将用于订单发货流程，建议仅填写真实有效单号。
+              请认真核对确保物流单号无误，这将会展示给买家查看。
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">

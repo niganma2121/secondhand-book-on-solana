@@ -83,6 +83,90 @@ impl DBService {
         Ok(())
     }
 
+    pub async fn replace_book_images(
+        &self,
+        asset: &str,
+        images: &[(i64, &str, &str, i16, i64)],
+    ) -> Result<(), sqlx::Error> {
+        let mut tx = self.db_pool.begin().await?;
+        sqlx::query("DELETE FROM book_images WHERE asset = $1")
+            .bind(asset)
+            .execute(&mut *tx)
+            .await?;
+
+        if !images.is_empty() {
+            let mut qb =
+                QueryBuilder::new("INSERT INTO book_images (id, asset, url, sort, created_at) ");
+            qb.push_values(images, |mut b, (id, asset, url, sort, created_at)| {
+                b.push_bind(id)
+                    .push_bind(asset)
+                    .push_bind(url)
+                    .push_bind(sort)
+                    .push_bind(created_at);
+            });
+            qb.build().execute(&mut *tx).await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn update_book_for_relist(
+        &self,
+        asset: &str,
+        seller: &str,
+        price: i64,
+        price_cny: Option<f64>,
+        fx_cny_per_sol: Option<f64>,
+        metadata_url: &str,
+        metadata_hash: &[u8],
+        name: &str,
+        cover_url: Option<&str>,
+        author: Option<&str>,
+        series: Option<&str>,
+        category: &str,
+        condition: &str,
+        updated_at: i64,
+    ) -> Result<(), sqlx::Error> {
+        let result = sqlx::query(
+            "UPDATE books
+             SET seller = $2,
+                 price = $3,
+                 price_cny = $4,
+                 fx_cny_per_sol = $5,
+                 metadata_url = $6,
+                 metadata_hash = $7,
+                 name = $8,
+                 cover_url = $9,
+                 author = $10,
+                 series = $11,
+                 category = $12,
+                 condition = $13,
+                 status = 'Listed',
+                 updated_at = $14
+             WHERE asset = $1",
+        )
+        .bind(asset)
+        .bind(seller)
+        .bind(price)
+        .bind(price_cny)
+        .bind(fx_cny_per_sol)
+        .bind(metadata_url)
+        .bind(metadata_hash)
+        .bind(name)
+        .bind(cover_url)
+        .bind(author)
+        .bind(series)
+        .bind(category)
+        .bind(condition)
+        .bind(updated_at)
+        .execute(&self.db_pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(sqlx::Error::RowNotFound);
+        }
+        Ok(())
+    }
+
     // 更新价格
     pub async fn update_book_price(
         &self,

@@ -113,6 +113,12 @@ async fn handle_dispute_resolved(
         {
             warn!("仲裁结案成交计数失败 escrow={}: {e}", escrow_pda);
         }
+        if let Err(e) = db
+            .apply_dispute_resolution_reputation(&escrow.seller, &escrow.buyer, event.result)
+            .await
+        {
+            warn!("仲裁结案信誉统计失败 escrow={}: {e}", escrow_pda);
+        }
 
         info!(
             "仲裁裁决已同步 escrow={} result={:?} book_status={} signature={}",

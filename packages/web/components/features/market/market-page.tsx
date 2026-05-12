@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { areaList } from '@vant/area-data'
@@ -14,7 +15,7 @@ import { shortenPubkey } from '@/lib/format-seller'
 import { Button } from '@/components/ui/button'
 import { Loader2, X, ZoomIn, ChevronLeft, ChevronRight } from 'lucide-react'
 import Image from 'next/image'
-import { chatWithPeer } from '@/config/routes'
+import { bookPublicHistory, chatWithPeer } from '@/config/routes'
 import { fetchBookDetail, type BookDetailDto, type BookDetailResponse } from '@/lib/api/book-detail'
 import { buildCreateEscrow, broadcastCreateEscrowAuto, signEscrowTxWithWallet } from '@/lib/api/escrow'
 import { fetchUserEncryptionPublicKey } from '@/lib/api/encryption'
@@ -1224,6 +1225,15 @@ function BookDetailPanel({ asset, onClose, onBuy, onRequireLogin, isAuthenticate
                       ))}
                     </div>
 
+                    <div className="px-1">
+                      <Link
+                        href={bookPublicHistory(detail.book.asset)}
+                        className="text-sm text-primary hover:underline"
+                      >
+                        查看本书流转记录（公开）
+                      </Link>
+                    </div>
+
                     {/* 图书简介（桌面正文字号加大） */}
                     <div className="rounded-xl bg-secondary/30 border border-border/40 p-4 lg:p-5 flex-1 lg:pb-2">
                       <p className="text-xs lg:text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2 lg:mb-3">
@@ -1235,7 +1245,7 @@ function BookDetailPanel({ asset, onClose, onBuy, onRequireLogin, isAuthenticate
                     </div>
 
                     {/* 桌面端：按钮仍在信息流底部；移动端改为面板底部固定栏，见下方 footer */}
-                    <div className="hidden lg:flex flex-col gap-2.5 pb-2 lg:flex-row lg:items-stretch">
+                    <div className="hidden lg:flex flex-col gap-2.5 pb-2 lg:flex-row lg:flex-wrap lg:items-stretch">
                       {isOwner ? (
                         <span className="min-h-10 w-full rounded-xl border border-border/60 bg-secondary/30 text-sm text-muted-foreground inline-flex items-center justify-center px-3 py-2 text-center">
                           这是你发布的书籍
@@ -1264,6 +1274,12 @@ function BookDetailPanel({ asset, onClose, onBuy, onRequireLogin, isAuthenticate
                           )}
                         </>
                       )}
+                      <Link
+                        href={bookPublicHistory(detail.book.asset)}
+                        className="w-full lg:w-auto lg:shrink-0 inline-flex items-center justify-center min-h-10 rounded-xl border border-border/60 bg-card px-4 text-sm text-primary hover:bg-secondary/50 transition-colors"
+                      >
+                        流转记录
+                      </Link>
                     </div>
                   </div>
                 </div>
@@ -1301,6 +1317,12 @@ function BookDetailPanel({ asset, onClose, onBuy, onRequireLogin, isAuthenticate
                   )}
                 </div>
               )}
+              <Link
+                href={bookPublicHistory(detail.book.asset)}
+                className="flex min-h-10 w-full items-center justify-center rounded-xl border border-border/60 bg-card px-3 py-2 text-center text-sm text-primary hover:bg-secondary/40"
+              >
+                本书流转记录
+              </Link>
             </div>
           )}
         </div>
@@ -1572,12 +1594,27 @@ export function MarketPage() {
   const [buyingBook, setBuyingBook] = useState<Book | null>(null)
   const [detailAsset, setDetailAsset] = useState<string | null>(null)
   const sellerFilter = searchParams.get('seller')?.trim() ?? ''
+  const assetFromUrl = searchParams.get('asset')?.trim() ?? ''
 
   useEffect(() => {
     if (consumeMarketListRefreshRequest()) {
       setMarketRefreshKey((k) => k + 1)
     }
   }, [])
+
+  useEffect(() => {
+    if (!assetFromUrl) return
+    setDetailAsset(assetFromUrl)
+  }, [assetFromUrl])
+
+  function closeBookDetail() {
+    setDetailAsset(null)
+    if (!searchParams.get('asset')) return
+    const p = new URLSearchParams(searchParams.toString())
+    p.delete('asset')
+    const q = p.toString()
+    router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false })
+  }
 
   function clearSellerFilter() {
     const params = new URLSearchParams(searchParams.toString())
@@ -1763,9 +1800,9 @@ export function MarketPage() {
         {detailAsset && (
             <BookDetailPanel
                 asset={detailAsset}
-                onClose={() => setDetailAsset(null)}
+                onClose={closeBookDetail}
                 onBuy={(book) => {
-                  setDetailAsset(null)
+                  closeBookDetail()
                   setBuyingBook(book)
                 }}
                 isAuthenticated={isAuthenticated}

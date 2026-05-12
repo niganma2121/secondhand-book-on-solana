@@ -188,6 +188,51 @@ impl AnchorService {
         })
     }
 
+    /// 转卖：仅组装 relist 交易，不新建 asset/book。
+    pub async fn build_relist_book_tx_only(
+        &self,
+        req: RelistBookBuildTxRequest,
+    ) -> Result<CreateBookTxResponse, ClientError> {
+        let seller = parse(&req.seller)?;
+        let asset = parse(&req.asset)?;
+        if req.metadata_hash.len() != 32 {
+            return Err(ClientError::TxBuildError(
+                "metadata_hash 长度须为 32 字节".into(),
+            ));
+        }
+        let mut hash_arr = [0u8; 32];
+        hash_arr.copy_from_slice(&req.metadata_hash);
+        let book_pda = self.book_pda(&asset);
+        let program = self.get_program()?;
+
+        let ix = program
+            .request()
+            .accounts(accounts::RelistBook {
+                owner: seller,
+                book: book_pda,
+            })
+            .args(args::RelistBook {
+                new_price: req.price,
+                metadata_id: req.metadata_cid.clone(),
+                metadata_hash: hash_arr,
+            })
+            .instructions()?;
+        let block_hash = self.get_blockhash().await?;
+        let msg = Message::new_with_blockhash(ix.as_ref(), Some(&seller), &block_hash);
+        let tx = Transaction::new_unsigned(msg);
+
+        Ok(CreateBookTxResponse {
+            tx: serialize_tx(&tx)?,
+            asset: req.asset,
+            book_pda: book_pda.to_string(),
+            msg: "转卖交易构造成功，签名后可重新上架".into(),
+            cover_url: req.cover_url,
+            detail_urls: req.detail_urls,
+            metadata_url: req.metadata_url,
+            metadata_hash: req.metadata_hash,
+        })
+    }
+
     /// 一步式上架：上传 → metadata → 组交易 与分步接口共享逻辑。
     pub async fn build_create_book(
         &self,

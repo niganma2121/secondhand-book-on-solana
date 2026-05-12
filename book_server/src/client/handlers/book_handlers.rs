@@ -1,8 +1,9 @@
 use crate::client::error::ClientError;
 use crate::client::types::{
     BroadcastCreateBookRequest, BroadcastDelistRequest, BroadcastUpdatePriceRequest,
-    CreateBookBuildTxRequest, CreateBookMetadataRequest, CreateBookRequest, DelistBookRequest,
-    InitCollectionRequest, PinataSignedUploadResponse, PinataUploadSignBody, UpdatePriceRequest,
+    BroadcastRelistBookRequest, CreateBookBuildTxRequest, CreateBookMetadataRequest, CreateBookRequest,
+    DelistBookRequest, InitCollectionRequest, PinataSignedUploadResponse, PinataUploadSignBody,
+    RelistBookBuildTxRequest, UpdatePriceRequest,
 };
 use crate::client::utils::{pinata_create_signed_upload_url, read_multipart_image};
 use crate::infra::env::u64_env;
@@ -119,6 +120,15 @@ pub async fn create_book_build_tx_handler(
     Ok((StatusCode::OK, Json(res)))
 }
 
+/// 转卖：仅组装 relist 链上交易。
+pub async fn relist_book_build_tx_handler(
+    State(state): State<AppState>,
+    Json(req): Json<RelistBookBuildTxRequest>,
+) -> Result<impl IntoResponse, ClientError> {
+    let res = state.anchor_service.build_relist_book_tx_only(req).await?;
+    Ok((StatusCode::OK, Json(res)))
+}
+
 /// 构建NFT以及上架书的交易,后端部分签名返回前端签名。
 pub async fn create_book_handler(
     State(state): State<AppState>,
@@ -164,6 +174,18 @@ pub async fn broadcast_create_book_handler(
     let res = state
         .anchor_service
         .broadcast_create_book(req, &state.db_service, &state.id_generator, now)
+        .await?;
+    Ok((StatusCode::OK, Json(res)))
+}
+
+pub async fn broadcast_relist_book_handler(
+    State(state): State<AppState>,
+    Json(req): Json<BroadcastRelistBookRequest>,
+) -> Result<impl IntoResponse, ClientError> {
+    let now = chrono::Utc::now().timestamp();
+    let res = state
+        .anchor_service
+        .broadcast_relist_book(req, &state.db_service, &state.id_generator, now)
         .await?;
     Ok((StatusCode::OK, Json(res)))
 }
