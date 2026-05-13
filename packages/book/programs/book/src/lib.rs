@@ -40,6 +40,9 @@ pub mod book {
     pub fn create_escrow(ctx:Context<CreateEscrow>)->Result<()>{
         instructions::create_escrow(ctx)
     }
+    pub fn set_pre_ship_lock(ctx:Context<SetPreShipLock>)->Result<()>{
+        instructions::set_pre_ship_lock(ctx)
+    }
     pub fn ship_book(ctx:Context<ShipBook>,shipping_commitment:[u8;32])->Result<()>{
         instructions::ship_book(ctx,shipping_commitment)
     }

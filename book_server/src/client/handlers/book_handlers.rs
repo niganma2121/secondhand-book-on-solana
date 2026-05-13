@@ -5,7 +5,7 @@ use crate::client::types::{
     DelistBookRequest, InitCollectionRequest, PinataSignedUploadResponse, PinataUploadSignBody,
     RelistBookBuildTxRequest, UpdatePriceRequest,
 };
-use crate::client::utils::{pinata_create_signed_upload_url, read_multipart_image};
+use crate::client::utils::{lamports_to_price_cny, pinata_create_signed_upload_url, read_multipart_image};
 use crate::infra::env::u64_env;
 use crate::infra::http::client_ip_from_headers;
 use crate::infra::rate_limit::check_fixed_window;
@@ -168,8 +168,12 @@ pub async fn update_price_handler(
 /// 处理前端签名后的创建书广播请求。
 pub async fn broadcast_create_book_handler(
     State(state): State<AppState>,
-    Json(req): Json<BroadcastCreateBookRequest>,
+    Json(mut req): Json<BroadcastCreateBookRequest>,
 ) -> Result<impl IntoResponse, ClientError> {
+    if let Ok(rate) = state.fx_rate_service.get_sol_cny_rate(false).await {
+        req.fx_cny_per_sol = Some(rate.cny_per_sol);
+        req.price_cny = Some(lamports_to_price_cny(req.price, rate.cny_per_sol));
+    }
     let now = chrono::Utc::now().timestamp();
     let res = state
         .anchor_service
@@ -180,8 +184,12 @@ pub async fn broadcast_create_book_handler(
 
 pub async fn broadcast_relist_book_handler(
     State(state): State<AppState>,
-    Json(req): Json<BroadcastRelistBookRequest>,
+    Json(mut req): Json<BroadcastRelistBookRequest>,
 ) -> Result<impl IntoResponse, ClientError> {
+    if let Ok(rate) = state.fx_rate_service.get_sol_cny_rate(false).await {
+        req.fx_cny_per_sol = Some(rate.cny_per_sol);
+        req.price_cny = Some(lamports_to_price_cny(req.price, rate.cny_per_sol));
+    }
     let now = chrono::Utc::now().timestamp();
     let res = state
         .anchor_service
@@ -204,8 +212,12 @@ pub async fn broadcast_delist_handler(
 
 pub async fn broadcast_update_price_handler(
     State(state): State<AppState>,
-    Json(req): Json<BroadcastUpdatePriceRequest>,
+    Json(mut req): Json<BroadcastUpdatePriceRequest>,
 ) -> Result<impl IntoResponse, ClientError> {
+    if let Ok(rate) = state.fx_rate_service.get_sol_cny_rate(false).await {
+        req.fx_cny_per_sol = Some(rate.cny_per_sol);
+        req.price_cny = Some(lamports_to_price_cny(req.new_price, rate.cny_per_sol));
+    }
     let now = chrono::Utc::now().timestamp();
     let res = state
         .anchor_service

@@ -22,7 +22,7 @@ pub struct OpenDispute<'info>{
         seeds=[ESCROW_SEED,escrow.buyer.as_ref(),escrow.book.as_ref()],
         bump=escrow.bump
     )]
-    pub escrow:Account<'info,Escrow>
+    pub escrow:Account<'info,Escrow>,
 }
 
 pub fn open_dispute(ctx:Context<OpenDispute>)->Result<()>{

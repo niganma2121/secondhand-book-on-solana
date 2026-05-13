@@ -105,6 +105,13 @@ pub struct ShipBookRequest {
 }
 
 #[derive(Deserialize)]
+pub struct SetPreShipLockRequest {
+    pub seller: String,
+    pub buyer: String,
+    pub asset: String,
+}
+
+#[derive(Deserialize)]
 pub struct ConfirmReceiptRequest {
     pub buyer: String,
     pub seller: String,

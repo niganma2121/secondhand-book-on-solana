@@ -8,7 +8,7 @@ use crate::handlers::book::{
     get_book_detail_handler, list_book_categories_handler, list_book_conditions_handler,
     list_market_books_handler, get_book_history_handler,
 };
-use crate::handlers::stats::get_overview_stats_handler;
+use crate::handlers::stats::{get_fx_rate_handler, get_overview_stats_handler};
 use crate::google_books::google_books_search_handler;
 use crate::handlers::transactions::list_program_transactions_handler;
 use crate::handlers::encryption::list_encryption_templates_handler;
@@ -51,7 +51,9 @@ pub fn books_public_router() -> Router<AppState> {
 }
 
 pub fn stats_public_router() -> Router<AppState> {
-    Router::new().route("/overview", get(get_overview_stats_handler))
+    Router::new()
+        .route("/overview", get(get_overview_stats_handler))
+        .route("/fx", get(get_fx_rate_handler))
 }
 
 pub fn users_public_router() -> Router<AppState> {

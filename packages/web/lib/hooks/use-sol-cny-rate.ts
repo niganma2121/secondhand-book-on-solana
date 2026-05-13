@@ -1,9 +1,15 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { env } from '@/lib/env'
+import { ApiError, apiFetch } from '@/lib/api/client'
 
-export type SolCnyRateSource = 'coingecko' | 'env'
+/** 与后端 `FxRateSnapshot.source` 对齐（交叉汇率形如 cross_okx_currency_pages） */
+export type SolCnyRateSource =
+  | 'coingecko'
+  | 'cryptocompare'
+  | 'cache_stale'
+  | 'env'
+  | string
 
 export type SolCnyRateState = {
   /** 1 SOL 约合多少元人民币 */
@@ -14,8 +20,11 @@ export type SolCnyRateState = {
   updatedAt: number | null
 }
 
-const COINGECKO =
-  'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=cny'
+type FxRateResponse = {
+  cny_per_sol: number
+  source: SolCnyRateSource
+  updated_at: number
+}
 
 export function useSolCnyRate() {
   const [state, setState] = useState<SolCnyRateState>({
@@ -26,43 +35,37 @@ export function useSolCnyRate() {
     updatedAt: null,
   })
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = false) => {
     setState((s) => ({ ...s, loading: true, error: null }))
     try {
-      const res = await fetch(COINGECKO)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const j = (await res.json()) as { solana?: { cny?: number } }
-      const cny = j.solana?.cny
+      const q = force ? '?refresh=1' : ''
+      const j = await apiFetch<FxRateResponse>(`/stats/fx${q}`)
+      const cny = j.cny_per_sol
       if (typeof cny === 'number' && Number.isFinite(cny) && cny > 0) {
         setState({
           cnyPerSol: cny,
-          source: 'coingecko',
+          source: (j.source as SolCnyRateSource | undefined) ?? 'coingecko',
           loading: false,
           error: null,
-          updatedAt: Date.now(),
+          updatedAt: Number.isFinite(j.updated_at) ? j.updated_at * 1000 : Date.now(),
         })
         return
       }
       throw new Error('invalid rate')
-    } catch {
-      const fallback = env.solCnyApprox
-      if (fallback != null && fallback > 0) {
-        setState({
-          cnyPerSol: fallback,
-          source: 'env',
-          loading: false,
-          error: null,
-          updatedAt: Date.now(),
-        })
-      } else {
-        setState({
-          cnyPerSol: null,
-          source: null,
-          loading: false,
-          error: '暂时无法取得实时汇率，请稍后点击刷新，或在环境变量配置 NEXT_PUBLIC_SOL_CNY_RATE 作为备用',
-          updatedAt: null,
-        })
-      }
+    } catch (e) {
+      const msg =
+        e instanceof ApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : '加载失败'
+      setState({
+        cnyPerSol: null,
+        source: null,
+        loading: false,
+        error: msg,
+        updatedAt: null,
+      })
     }
   }, [])
 
@@ -70,5 +73,5 @@ export function useSolCnyRate() {
     void refresh()
   }, [refresh])
 
-  return { ...state, refresh }
+  return { ...state, refresh: () => refresh(true) }
 }

@@ -6,11 +6,13 @@ use crate::client::{
     broadcast_create_book_handler, broadcast_create_escrow_auto_handler,
     broadcast_delist_handler, broadcast_relist_book_handler,
     broadcast_open_dispute_handler, broadcast_resolve_dispute_handler, broadcast_ship_handler,
+    broadcast_set_pre_ship_lock_handler,
     broadcast_update_price_handler, cancel_escrow_handler, confirm_receipt_handler,
     create_book_build_tx_handler, create_book_handler, create_book_metadata_handler,
     relist_book_build_tx_handler,
     create_escrow_handler, delist_book_handler, init_collection_handler, open_dispute_handler,
     pinata_signed_upload_url_handler, resolve_dispute_handler, ship_book_handler,
+    set_pre_ship_lock_handler,
     update_price_handler, upload_create_book_cover_handler, upload_create_book_detail_handler,
 };
 use crate::handlers::chat::{
@@ -83,6 +85,11 @@ pub fn escrow_router() -> Router<AppState> {
         .route("/create/broadcast", post(broadcast_create_escrow_auto_handler))
         .route("/ship", post(ship_book_handler))
         .route("/ship/broadcast", post(broadcast_ship_handler))
+        .route("/pre-ship-lock", post(set_pre_ship_lock_handler))
+        .route(
+            "/pre-ship-lock/broadcast",
+            post(broadcast_set_pre_ship_lock_handler),
+        )
         .route("/confirm", post(confirm_receipt_handler))
         .route(
             "/confirm/broadcast",

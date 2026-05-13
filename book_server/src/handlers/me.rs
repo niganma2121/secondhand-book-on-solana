@@ -294,6 +294,9 @@ pub async fn upsert_order_shipping_cipher_handler(
     if escrow.buyer != pubkey {
         return Err(bad_request("仅买家可提交收货密文"));
     }
+    if escrow.pre_ship_locked {
+        return Err(bad_request("卖家已锁单备发货，暂不可修改收货地址"));
+    }
 
     let now = Utc::now().timestamp();
     state
@@ -368,6 +371,9 @@ pub async fn upsert_order_shipping_cipher_by_asset_handler(
         .ok_or_else(|| bad_request("该书当前无活跃订单"))?;
     if escrow.buyer != pubkey {
         return Err(bad_request("仅买家可提交收货密文"));
+    }
+    if escrow.pre_ship_locked {
+        return Err(bad_request("卖家已锁单备发货，暂不可修改收货地址"));
     }
     let now = Utc::now().timestamp();
     state

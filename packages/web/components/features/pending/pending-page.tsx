@@ -1,29 +1,59 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useAuth } from '@/components/providers/auth-provider'
-import { type EscrowOrder, fetchMyBuyingOrders, fetchMySellingOrders } from '@/lib/api/orders'
+import { useChatConversationsContext } from '@/components/providers/chat-conversations-provider'
+import { useOrderAttention } from '@/components/providers/order-attention-provider'
+import {
+  type EscrowOrder,
+  fetchMyBuyingOrders,
+  fetchMySellingOrders,
+} from '@/lib/api/orders'
 import {
   broadcastCancelEscrow,
   broadcastConfirmEscrow,
   broadcastOpenDispute,
+  broadcastSetPreShipLock,
   broadcastShipEscrow,
   buildCancelEscrow,
   buildConfirmEscrow,
   buildOpenDispute,
+  buildSetPreShipLock,
   buildShipEscrow,
   signEscrowTxWithWallet,
   type EscrowBroadcastResponse,
 } from '@/lib/api/escrow'
-import { fetchOrderShippingCipher } from '@/lib/api/shipping-cipher'
+import { fetchOrderShippingCipher, upsertOrderShippingCipher } from '@/lib/api/shipping-cipher'
+import { fetchMyShippingAddresses, createMyShippingAddress } from '@/lib/api/shipping-addresses'
+import {
+  decryptMyShippingAddressPayload,
+  encryptShippingJsonForSelf,
+  formatShippingAddressPlaintext,
+  type DecryptedShippingAddressRow,
+} from '@/lib/shipping-address-client'
+import { encryptShippingPlaintextForSeller } from '@/lib/shipping-e2e-encrypt'
 import { fetchOrderTrackingCipher, upsertOrderTrackingCipher } from '@/lib/api/tracking-cipher'
 import { fetchUserEncryptionPublicKey } from '@/lib/api/encryption'
+import { ensureCommKeyReady } from '@/lib/encryption/comm-key-provision'
+import { env } from '@/lib/env'
+import { areaList } from '@vant/area-data'
 import { fetchBookDetail } from '@/lib/api/book-detail'
 import { requestMarketListRefresh } from '@/lib/market-refresh'
+import Link from 'next/link'
 import { shortenPubkey } from '@/lib/format-seller'
+import { marketBookDetail, routes } from '@/config/routes'
+import { isOrderTerminalForBookSnapshot } from '@/lib/order-book-snapshot'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useOpenWalletConnect } from '@/lib/hooks/use-open-wallet-connect'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 
@@ -37,6 +67,12 @@ type PendingOrder = EscrowOrder & {
   priceCny?: number | null
 }
 
+const NOTIFY_SHIPPING_ADDRESS_UPDATED =
+  '我已通过站点加密更新了本单收货地址，请在「订单」页查看新的收货地址'
+const NOTIFY_PRE_SHIP_LOCKED = '我已锁单备发货：你暂不可修改收货地址或取消订单，请留意后续发货通知。'
+const NOTIFY_ORDER_CONFIRMED = '我已确认收货，本单已完成。'
+const NOTIFY_DISPUTE_OPENED = '本单已发起仲裁，订单进入争议处理中。'
+
 const TAB_OPTIONS: { key: PendingTab; label: string }[] = [
   { key: 'all', label: '全部' },
   { key: 'to_ship', label: '待发货' },
@@ -45,6 +81,49 @@ const TAB_OPTIONS: { key: PendingTab; label: string }[] = [
   { key: 'completed', label: '已完成' },
   { key: 'cancelled', label: '已取消' },
 ]
+
+async function decryptOrderShippingCipherForBuyer(
+  payload: Awaited<ReturnType<typeof fetchOrderShippingCipher>>,
+  walletPubkey: string,
+): Promise<string | null> {
+  if (!payload.buyer_ciphertext || !payload.buyer_nonce) return null
+  const raw = localStorage.getItem(`bookchain:comm-key:${walletPubkey}`)
+  if (!raw) return null
+  const key = await crypto.subtle.importKey(
+    'pkcs8',
+    base64ToBytes(raw),
+    { name: 'X25519' } as EcKeyImportParams,
+    false,
+    ['deriveBits'],
+  )
+  const parsed = JSON.parse(payload.buyer_ciphertext) as { epk: string; ct: string }
+  const ephPub = await crypto.subtle.importKey(
+    'raw',
+    base64ToBytes(parsed.epk),
+    { name: 'X25519' } as EcKeyImportParams,
+    false,
+    [],
+  )
+  const shared = new Uint8Array(
+    await crypto.subtle.deriveBits(
+      { name: 'X25519', public: ephPub } as EcdhKeyDeriveParams,
+      key,
+      256,
+    ),
+  )
+  const iv = base64ToBytes(payload.buyer_nonce)
+  const keySeed = new Uint8Array(shared.length + iv.length)
+  keySeed.set(shared, 0)
+  keySeed.set(iv, shared.length)
+  const aesRaw = new Uint8Array(await crypto.subtle.digest('SHA-256', keySeed))
+  const aes = await crypto.subtle.importKey('raw', aesRaw, { name: 'AES-GCM' }, false, ['decrypt'])
+  const plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aes, base64ToBytes(parsed.ct))
+  return new TextDecoder().decode(plainBuf)
+}
+
+function normalizeShippingText(v: string) {
+  return v.replace(/\s+/g, ' ').trim()
+}
 
 function formatOrderTime(ts: number) {
   return new Date(ts * 1000).toLocaleString('zh-CN', {
@@ -106,7 +185,7 @@ function parseShippingPlaintext(plain: string): {
   }
 }
 
-type NoticeTone = 'info' | 'error'
+type NoticeTone = 'info' | 'error' | 'success'
 
 type MetadataProofCheck = {
   metadataUrl: string
@@ -333,7 +412,10 @@ async function decryptCipherByLocalCommKey(ciphertext: string, nonce: string, lo
 }
 
 export function PendingPage() {
-  const { isAuthenticated, sessionStatus, login, authLoading, authError } = useAuth()
+  const { isAuthenticated, sessionStatus, login, authLoading, authError, user } = useAuth()
+  const { sendChatText, wsConnected } = useChatConversationsContext()
+  const { markOrdersAttentionSeen } = useOrderAttention()
+  const searchParams = useSearchParams()
   const { publicKey, signTransaction, signMessage } = useWallet()
   const openWalletConnect = useOpenWalletConnect()
   const [tab, setTab] = useState<PendingTab>('all')
@@ -362,16 +444,282 @@ export function PendingPage() {
   const [trackingPlainMap, setTrackingPlainMap] = useState<Record<string, string>>({})
   const [trackingErrMap, setTrackingErrMap] = useState<Record<string, string>>({})
   const [trackingVisibleMap, setTrackingVisibleMap] = useState<Record<string, boolean>>({})
+  const [changeAddressOrder, setChangeAddressOrder] = useState<PendingOrder | null>(null)
+  const [changeAddrLoading, setChangeAddrLoading] = useState(false)
+  const [changeAddrAddresses, setChangeAddrAddresses] = useState<DecryptedShippingAddressRow[]>([])
+  const [changeAddrPickId, setChangeAddrPickId] = useState('')
+  const [changeAddrErr, setChangeAddrErr] = useState<string | null>(null)
+  const [changeAddrSubmitting, setChangeAddrSubmitting] = useState(false)
+  const [changeAddrFormMode, setChangeAddrFormMode] = useState<'hidden' | 'create'>('hidden')
+  const [changeAddrSavingNew, setChangeAddrSavingNew] = useState(false)
+  const [caLabel, setCaLabel] = useState('')
+  const [caName, setCaName] = useState('')
+  const [caPhone, setCaPhone] = useState('')
+  const [caProvinceCode, setCaProvinceCode] = useState('')
+  const [caCityCode, setCaCityCode] = useState('')
+  const [caDistrictCode, setCaDistrictCode] = useState('')
+  const [caDetail, setCaDetail] = useState('')
+
+  const walletPk = user?.pubkey ?? publicKey?.toBase58()
+
+  const apiConfigured = !env.useMockData && Boolean(env.apiBaseUrl)
+  const provinceMap = areaList.province_list as Record<string, string>
+  const cityMap = areaList.city_list as Record<string, string>
+  const districtMap = areaList.county_list as Record<string, string>
+
+  const provinceOptions = useMemo(
+    () => Object.entries(provinceMap).map(([code, name]) => ({ code, name })),
+    [provinceMap],
+  )
+  const caCityOptions = useMemo(() => {
+    if (!caProvinceCode) return []
+    const prefix = caProvinceCode.slice(0, 2)
+    return Object.entries(cityMap)
+      .filter(([code]) => code.startsWith(prefix))
+      .map(([code, name]) => ({ code, name }))
+  }, [cityMap, caProvinceCode])
+  const caDistrictOptions = useMemo(() => {
+    if (!caCityCode) return []
+    const prefix = caCityCode.slice(0, 4)
+    return Object.entries(districtMap)
+      .filter(([code]) => code.startsWith(prefix))
+      .map(([code, name]) => ({ code, name }))
+  }, [districtMap, caCityCode])
+
+  function resetCaFields() {
+    setCaLabel('')
+    setCaName('')
+    setCaPhone('')
+    setCaProvinceCode('')
+    setCaCityCode('')
+    setCaDistrictCode('')
+    setCaDetail('')
+  }
+
+  const refreshChangeAddrList = useCallback(async () => {
+    if (!walletPk) throw new Error('未连接钱包')
+    const addrRes = await fetchMyShippingAddresses()
+    const decrypted = await Promise.all(
+      addrRes.addresses.map((p) => decryptMyShippingAddressPayload(p, walletPk)),
+    )
+    setChangeAddrAddresses(decrypted)
+    setChangeAddrPickId((prev) => (decrypted.some((d) => d.id === prev) ? prev : decrypted[0]?.id ?? ''))
+  }, [walletPk])
+
+  useEffect(() => {
+    setChangeAddrFormMode('hidden')
+    resetCaFields()
+  }, [changeAddressOrder?.escrow_pda])
 
   function notify(message: string, tone: NoticeTone = 'info', durationMs?: number) {
     setNotice({ message, tone, durationMs })
   }
 
+  function buildOrderFocusLink(escrowPda: string) {
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    return `${origin}${routes.pending}?focus=${encodeURIComponent(escrowPda)}`
+  }
+
+  function sendOrderNotice(peer: string, text: string, escrowPda: string) {
+    const body = `${text}\n${buildOrderFocusLink(escrowPda)}`
+    try {
+      return sendChatText(peer, body)
+    } catch {
+      return false
+    }
+  }
+
   useEffect(() => {
     if (!notice) return
-    const timer = window.setTimeout(() => setNotice(null), notice.durationMs ?? 3000)
+    const timer = window.setTimeout(() => setNotice(null), notice.durationMs ?? 2000)
     return () => window.clearTimeout(timer)
   }, [notice])
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    void markOrdersAttentionSeen()
+  }, [isAuthenticated, markOrdersAttentionSeen])
+
+  useEffect(() => {
+    if (!changeAddressOrder || !walletPk) return
+    let cancelled = false
+    setChangeAddrLoading(true)
+    setChangeAddrErr(null)
+    ;(async () => {
+      try {
+        await refreshChangeAddrList()
+        if (cancelled) return
+      } catch (e) {
+        if (!cancelled) setChangeAddrErr(e instanceof Error ? e.message : '加载地址失败')
+      } finally {
+        if (!cancelled) setChangeAddrLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [changeAddressOrder, walletPk, refreshChangeAddrList])
+
+  const focusEscrow = searchParams.get('focus')
+
+  useEffect(() => {
+    if (!focusEscrow) return
+    const id = `order-card-${focusEscrow}`
+    const el = document.getElementById(id)
+    if (!el) return
+    let cancelled = false
+    requestAnimationFrame(() => {
+      if (cancelled) return
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      el.classList.add('ring-2', 'ring-primary', 'ring-offset-2', 'rounded-xl')
+      window.setTimeout(() => {
+        el.classList.remove('ring-2', 'ring-primary', 'ring-offset-2', 'rounded-xl')
+      }, 2800)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [focusEscrow, orders])
+
+  async function submitChangeShippingAddress() {
+    if (!changeAddressOrder || !walletPk || !changeAddrPickId) return
+    try {
+      const addr = changeAddrAddresses.find((a) => a.id === changeAddrPickId)
+      if (!addr) throw new Error('请选择收货地址')
+      const plain = formatShippingAddressPlaintext(addr)
+
+      // 若和当前订单里买家密文地址一致，直接提示无需修改（避免重复写入与重复通知）
+      try {
+        const currentCipher = await fetchOrderShippingCipher(changeAddressOrder.escrow_pda)
+        const currentPlain = await decryptOrderShippingCipherForBuyer(currentCipher, walletPk)
+        if (
+          currentPlain &&
+          normalizeShippingText(currentPlain) === normalizeShippingText(plain)
+        ) {
+          notify('修改的地址与原地址相同，无需修改', 'info', 1500)
+          setChangeAddressOrder(null)
+          return
+        }
+      } catch {
+        // 无法读取当前密文时不阻断修改流程
+      }
+
+      if (!wsConnected) {
+        notify('聊天服务未连接，请稍候再试或先打开「消息」页面', 'error')
+        return
+      }
+      setChangeAddrSubmitting(true)
+      setChangeAddrErr(null)
+      const sellerEnc = await fetchUserEncryptionPublicKey(changeAddressOrder.seller)
+      if (!sellerEnc.encryption_public_key?.trim()) {
+        throw new Error('卖家尚未开通通讯加密公钥，无法加密同步地址')
+      }
+      const encrypted = await encryptShippingPlaintextForSeller(
+        sellerEnc.encryption_public_key,
+        plain,
+        walletPk,
+      )
+      await upsertOrderShippingCipher(changeAddressOrder.escrow_pda, {
+        ...encrypted,
+        encryption_key_version: 'v1',
+      })
+      const orderLink = buildOrderFocusLink(changeAddressOrder.escrow_pda)
+      const chatBody = `${NOTIFY_SHIPPING_ADDRESS_UPDATED}\n${orderLink}`
+      const sent = sendChatText(changeAddressOrder.seller, chatBody)
+      if (!sent) throw new Error('通知消息未能发送，请确认聊天已连接')
+      notify('收货地址已加密更新，并已通知卖家')
+      setChangeAddressOrder(null)
+      void markOrdersAttentionSeen()
+    } catch (e) {
+      setChangeAddrErr(e instanceof Error ? e.message : '提交失败')
+    } finally {
+      setChangeAddrSubmitting(false)
+    }
+  }
+
+  async function saveNewChangeAddrInDialog() {
+    if (!walletPk || !signMessage) {
+      notify('需要连接钱包并使用支持签名的钱包', 'error')
+      return
+    }
+    if (!isAuthenticated || !apiConfigured) {
+      notify('请先登录后再新增地址', 'error')
+      return
+    }
+    const phone = caPhone.trim()
+    if (!/^\d{11}$/.test(phone)) {
+      notify('手机号需为11位数字', 'error')
+      return
+    }
+    if (!caName.trim() || !caProvinceCode || !caCityCode || !caDistrictCode || !caDetail.trim()) {
+      notify('请补全省、市、区与详细地址', 'error')
+      return
+    }
+    setChangeAddrSavingNew(true)
+    setChangeAddrErr(null)
+    try {
+      let pub = await fetchUserEncryptionPublicKey(walletPk)
+      if (!pub.encryption_public_key?.trim()) {
+        await ensureCommKeyReady({ walletAddress: walletPk, signMessage })
+        pub = await fetchUserEncryptionPublicKey(walletPk)
+      }
+      const encPub = pub.encryption_public_key?.trim()
+      if (!encPub) throw new Error('通讯加密公钥未就绪，请先在「我的」完成密钥初始化')
+      const region = [provinceMap[caProvinceCode], cityMap[caCityCode], districtMap[caDistrictCode]]
+        .filter(Boolean)
+        .join(' ')
+      const payload = {
+        label: caLabel.trim() || `地址 ${changeAddrAddresses.length + 1}`,
+        name: caName.trim(),
+        phone,
+        region,
+        provinceCode: caProvinceCode,
+        cityCode: caCityCode,
+        districtCode: caDistrictCode,
+        detail: caDetail.trim(),
+      }
+      const encrypted = await encryptShippingJsonForSelf(encPub, payload)
+      await createMyShippingAddress({
+        ...encrypted,
+        is_default: changeAddrAddresses.length === 0,
+      })
+      await refreshChangeAddrList()
+      setChangeAddrFormMode('hidden')
+      resetCaFields()
+      notify('地址已保存，请在上方选用后同步到本订单', 'success', 2000)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '保存地址失败'
+      setChangeAddrErr(msg)
+      notify(msg, 'error', 2500)
+    } finally {
+      setChangeAddrSavingNew(false)
+    }
+  }
+
+  async function runPreShipLock(order: PendingOrder) {
+    setSubmittingId(`${order.escrow_pda}:prelock`)
+    try {
+      const { signTransaction } = await requireWalletReady()
+      const built = await buildSetPreShipLock({
+        seller: order.seller,
+        buyer: order.buyer,
+        asset: order.asset,
+      })
+      const signedTx = await signEscrowTxWithWallet(built.tx, signTransaction)
+      await broadcastSetPreShipLock({
+        signed_tx: signedTx,
+        escrow_pda: order.escrow_pda,
+      })
+      void sendOrderNotice(order.buyer, NOTIFY_PRE_SHIP_LOCKED, order.escrow_pda)
+      notify('已锁单备发货（链上生效）：买家不可再从链上取消托管')
+      await loadOrders()
+      void markOrdersAttentionSeen()
+    } catch (e) {
+      notify(e instanceof Error ? e.message : '锁单失败', 'error')
+    } finally {
+      setSubmittingId(null)
+    }
+  }
 
   async function loadOrders() {
     const [buyingRes, sellingRes] = await Promise.all([
@@ -488,7 +836,7 @@ export function PendingPage() {
       notify(
         `发货已上链，但物流密文保存失败：${e instanceof Error ? e.message : '请稍后重试'}`,
         'error',
-        7000,
+        2800,
       )
     }
   }
@@ -715,13 +1063,14 @@ export function PendingPage() {
       }
       if (action === 'dispute') await handleDispute(order)
       await loadOrders()
+      void markOrdersAttentionSeen()
       if (action === 'cancel') {
         requestMarketListRefresh()
         if (cancelBroadcast) {
           notify(
             cancelBroadcast.msg,
             'info',
-            cancelBroadcast.db_synced === false ? 9000 : undefined,
+            cancelBroadcast.db_synced === false ? 3000 : 2000,
           )
         }
       }
@@ -730,18 +1079,21 @@ export function PendingPage() {
         setShipConfirmOpen(false)
         setShipTrackingNo('')
         setShipTrackingError(null)
-        notify('发货提交成功', 'info', 2500)
+        notify('发货提交成功', 'info', 2000)
       }
       if (action === 'confirm') {
+        void sendOrderNotice(order.seller, NOTIFY_ORDER_CONFIRMED, order.escrow_pda)
         setConfirmFinalOpen(false)
         setConfirmFinalChecked(false)
         setConfirmDialogOrder(null)
         setConfirmProof(null)
         setConfirmCheckError(null)
-        notify('确认收货提交成功', 'info', 2500)
+        notify('确认收货提交成功', 'info', 2000)
       }
       if (action === 'dispute') {
-        notify('仲裁申请已提交', 'info', 2500)
+        const peer = order.role === 'buyer' ? order.seller : order.buyer
+        void sendOrderNotice(peer, NOTIFY_DISPUTE_OPENED, order.escrow_pda)
+        notify('仲裁申请已提交', 'info', 2000)
       }
     } catch (e) {
       if (!isUserCancelledAction(e)) {
@@ -771,6 +1123,8 @@ export function PendingPage() {
         return '正在提交取消订单交易，请勿关闭页面...'
       case 'dispute':
         return '正在提交仲裁申请，请勿关闭页面...'
+      case 'prelock':
+        return '正在锁单备发货…'
       default:
         return '正在提交链上操作，请勿关闭页面...'
     }
@@ -797,10 +1151,12 @@ export function PendingPage() {
 
   function renderOrderCard(order: PendingOrder) {
     const priceSol = lamportsToSol(order.price)
-    const canShip = order.role === 'seller' && order.state === 'Paid'
+    /** 卖家待发货：锁单与确认发货共用一个按钮位（先锁单，再在同一位置确认发货） */
+    const sellerPaidShipSlot = order.role === 'seller' && order.state === 'Paid'
     const canConfirm = order.role === 'buyer' && order.state === 'Shipped'
     const canDispute = order.state === 'Shipped'
-    const canCancel = order.state === 'Paid'
+    const canCancel =
+      order.state === 'Paid' && !(order.role === 'buyer' && Boolean(order.pre_ship_locked))
     const canViewBuyerAddress = order.role === 'seller' && (order.state === 'Paid' || order.state === 'Shipped')
     const canViewTracking =
       (order.role === 'seller' || order.role === 'buyer') &&
@@ -812,16 +1168,56 @@ export function PendingPage() {
     const trackingVisible = Boolean(trackingVisibleMap[order.escrow_pda])
     const trackingError = trackingErrMap[order.escrow_pda]
     return (
-      <div key={`${order.escrow_pda}-${order.role}`} className="bg-card border border-border rounded-xl p-4 space-y-3">
+      <div
+        key={`${order.escrow_pda}-${order.role}`}
+        id={`order-card-${order.escrow_pda}`}
+        className="bg-card border border-border rounded-xl p-4 space-y-3 transition-shadow"
+      >
         <div className="flex items-center justify-between gap-2">
           <span className={['rounded-md px-2 py-0.5 text-[11px] font-semibold', stateClass(order.state)].join(' ')}>
             {mapStateLabel(order.state, order.role, order.cancelled_by, publicKey?.toBase58())}
           </span>
           <span className="text-[11px] text-muted-foreground">{formatOrderTime(order.updated_at)}</span>
         </div>
-        <div className="rounded-lg border border-border/70 bg-secondary/20 p-3">
-          <p className="text-sm font-semibold text-foreground">
+        <div className="rounded-lg border border-border/70 bg-secondary/20 p-3 space-y-1">
+          <Link
+            href={marketBookDetail(order.asset, {
+              orderEscrow: order.escrow_pda,
+              orderState: order.state,
+              returnTo: routes.pending,
+            })}
+            onClick={() => {
+              try {
+                sessionStorage.setItem('bookchain:market-detail-use-history-back', '1')
+              } catch {
+                /* private mode */
+              }
+              const key = `bookchain:order-book-snapshot:${order.escrow_pda}`
+              try {
+                if (order.book_snapshot != null && isOrderTerminalForBookSnapshot(order.state)) {
+                  sessionStorage.setItem(key, JSON.stringify(order.book_snapshot))
+                } else {
+                  sessionStorage.removeItem(key)
+                }
+              } catch {
+                /* private mode / quota */
+              }
+            }}
+            className="text-sm font-semibold text-foreground hover:text-primary hover:underline underline-offset-2 inline-block"
+          >
             {order.bookName?.trim() || '未命名书籍'}
+          </Link>
+          <p className="text-[10px] text-muted-foreground leading-snug">
+            订单卡片上的书名为下单时快照。
+            {isOrderTerminalForBookSnapshot(order.state) ? (
+              <>
+                点书名打开详情：已结束订单优先展示<strong className="text-foreground/80">下单时冻结的书目快照</strong>。
+              </>
+            ) : (
+              <>
+                点书名打开详情：进行中订单展示<strong className="text-foreground/80">当前链上书目</strong>。
+              </>
+            )}
           </p>
         </div>
         <div className="grid grid-cols-2 gap-y-1.5 text-xs">
@@ -834,19 +1230,46 @@ export function PendingPage() {
               : `${priceSol.toFixed(3)} SOL`}
           </span>
         </div>
+        {order.role === 'buyer' && order.state === 'Paid' && order.pre_ship_locked ? (
+          <p className="text-[11px] text-amber-500/95 pt-0.5">
+            卖家已锁单备发货：您暂不可修改收货地址，且不能取消订单，如有需求可与卖家联系。
+          </p>
+        ) : null}
+        {order.role === 'seller' && order.state === 'Paid' && order.pre_ship_locked ? (
+          <p className="text-[11px] text-muted-foreground pt-0.5">
+            已锁单备发货（链上）：买家不可链上取消；您仍可取消或继续发货。
+          </p>
+        ) : null}
         <div className="flex flex-wrap gap-2 pt-1">
-          {canShip && (
+          {sellerPaidShipSlot && (
             <Button
               type="button"
-              disabled={submittingId === `${order.escrow_pda}:ship`}
+              disabled={
+                submittingId === `${order.escrow_pda}:prelock` ||
+                submittingId === `${order.escrow_pda}:ship`
+              }
               onClick={() => {
-                setShipDialogOrder(order)
-                setShipTrackingNo('')
+                if (!order.pre_ship_locked) {
+                  void runPreShipLock(order)
+                } else {
+                  setShipDialogOrder(order)
+                  setShipTrackingNo('')
+                }
               }}
               variant="outline"
-              className="h-10 px-4 text-sm border-primary/40 text-primary"
+              className={
+                order.pre_ship_locked
+                  ? 'h-10 px-4 text-sm border-primary/40 text-primary'
+                  : 'h-10 px-4 text-sm border-amber-500/50 text-amber-600 dark:text-amber-400'
+              }
             >
-              {submittingId === `${order.escrow_pda}:ship` ? '提交中...' : '确认发货'}
+              {!order.pre_ship_locked
+                ? submittingId === `${order.escrow_pda}:prelock`
+                  ? '提交中...'
+                  : '锁单备发货'
+                : submittingId === `${order.escrow_pda}:ship`
+                  ? '提交中...'
+                  : '确认发货'}
             </Button>
           )}
           {canConfirm && (
@@ -887,6 +1310,22 @@ export function PendingPage() {
               {submittingId === `${order.escrow_pda}:dispute` ? '提交中...' : '申请仲裁'}
             </Button>
           )}
+          {order.role === 'buyer' &&
+            order.state === 'Paid' && (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-10 px-4 text-sm"
+                disabled={Boolean(order.pre_ship_locked)}
+                onClick={() => {
+                  if (order.pre_ship_locked) return
+                  setChangeAddrErr(null)
+                  setChangeAddressOrder(order)
+                }}
+              >
+                {order.pre_ship_locked ? '已锁单不可改址' : '请求更改地址'}
+              </Button>
+            )}
         </div>
         {canViewBuyerAddress ? (
           <div className="border-t border-border pt-2.5">
@@ -905,7 +1344,9 @@ export function PendingPage() {
                   ? '读取中...'
                   : shippingVisible
                     ? '隐藏地址'
-                    : '查看地址'}
+                    : shippingPlainMap[order.escrow_pda]
+                      ? '重新查看新收货地址'
+                      : '查看收货地址'}
               </Button>
             </div>
             {shippingPlaintext && shippingVisible ? (
@@ -1065,6 +1506,218 @@ export function PendingPage() {
           </div>
         )}
       </div>
+
+      <Dialog
+        open={Boolean(changeAddressOrder)}
+        onOpenChange={(open) => {
+          if (!open) setChangeAddressOrder(null)
+        }}
+      >
+        <DialogContent className="max-w-[min(92vw,560px)] max-h-[85vh] overflow-y-auto rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>请求更改收货地址</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              地址将加密,仅你和卖家可见
+            </DialogDescription>
+          </DialogHeader>
+          {changeAddrLoading ? (
+            <p className="text-sm text-muted-foreground">加载收货地址…</p>
+          ) : (
+            <div className="space-y-4 text-sm">
+              <div className="rounded-lg border border-border/60 bg-secondary/20 px-2.5 py-2">
+                <p className="text-[11px] font-medium text-muted-foreground mb-1">本单托管</p>
+                <p className="font-mono text-xs text-foreground">
+                  {changeAddressOrder ? shortenPubkey(changeAddressOrder.escrow_pda) : ''}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-medium text-muted-foreground">选用收货地址</p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs shrink-0"
+                    disabled={
+                      changeAddrSavingNew ||
+                      changeAddrSubmitting ||
+                      !isAuthenticated ||
+                      !apiConfigured
+                    }
+                    onClick={() => {
+                      if (!isAuthenticated || !apiConfigured) {
+                        notify('请先登录后再新增地址', 'error')
+                        return
+                      }
+                      setChangeAddrErr(null)
+                      setChangeAddrFormMode('create')
+                    }}
+                  >
+                    新增地址
+                  </Button>
+                </div>
+                {changeAddrAddresses.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    暂无已保存的收货地址，请点击「新增地址」填写并保存（与个人中心一致）。
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-2 max-h-52 overflow-y-auto pr-1">
+                    {changeAddrAddresses.map((a) => (
+                      <label
+                        key={a.id}
+                        className={[
+                          'flex cursor-pointer gap-2 rounded-lg border px-2 py-2 text-xs',
+                          changeAddrPickId === a.id ? 'border-primary bg-primary/5' : 'border-border',
+                        ].join(' ')}
+                      >
+                        <input
+                          type="radio"
+                          name="pending-ship-addr"
+                          className="mt-1"
+                          checked={changeAddrPickId === a.id}
+                          onChange={() => setChangeAddrPickId(a.id)}
+                        />
+                        <span>
+                          <span className="font-medium text-foreground">{a.label}</span>
+                          <span className="block text-muted-foreground mt-0.5">
+                            {formatShippingAddressPlaintext(a)}
+                          </span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                {changeAddrFormMode === 'create' ? (
+                  <div className="rounded-lg border border-border/60 bg-card/60 p-3 space-y-2">
+                    <p className="text-xs font-semibold text-foreground">新增地址</p>
+                    <input
+                      value={caLabel}
+                      onChange={(e) => setCaLabel(e.target.value)}
+                      placeholder="地址标签（如：家 / 公司）"
+                      className="w-full h-9 rounded-md bg-input border border-border px-2 text-xs"
+                    />
+                    <input
+                      value={caName}
+                      onChange={(e) => setCaName(e.target.value)}
+                      placeholder="收件人姓名"
+                      className="w-full h-9 rounded-md bg-input border border-border px-2 text-xs"
+                    />
+                    <input
+                      value={caPhone}
+                      onChange={(e) => setCaPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                      placeholder="手机号（11位）"
+                      className="w-full h-9 rounded-md bg-input border border-border px-2 text-xs"
+                    />
+                    <div className="grid grid-cols-3 gap-2">
+                      <select
+                        value={caProvinceCode}
+                        onChange={(e) => {
+                          setCaProvinceCode(e.target.value)
+                          setCaCityCode('')
+                          setCaDistrictCode('')
+                        }}
+                        className="h-9 rounded-md bg-input border border-border px-1.5 text-[11px]"
+                      >
+                        <option value="">省</option>
+                        {provinceOptions.map((p) => (
+                          <option key={p.code} value={p.code}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={caCityCode}
+                        onChange={(e) => {
+                          setCaCityCode(e.target.value)
+                          setCaDistrictCode('')
+                        }}
+                        className="h-9 rounded-md bg-input border border-border px-1.5 text-[11px]"
+                        disabled={!caProvinceCode}
+                      >
+                        <option value="">市</option>
+                        {caCityOptions.map((c) => (
+                          <option key={c.code} value={c.code}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={caDistrictCode}
+                        onChange={(e) => setCaDistrictCode(e.target.value)}
+                        className="h-9 rounded-md bg-input border border-border px-1.5 text-[11px]"
+                        disabled={!caCityCode}
+                      >
+                        <option value="">区/县</option>
+                        {caDistrictOptions.map((d) => (
+                          <option key={d.code} value={d.code}>
+                            {d.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <textarea
+                      rows={3}
+                      value={caDetail}
+                      onChange={(e) => setCaDetail(e.target.value)}
+                      placeholder="详细地址（街道、门牌、楼栋、房号）"
+                      className="w-full rounded-md bg-input border border-border px-2 py-1.5 text-xs"
+                    />
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={
+                          changeAddrSavingNew ||
+                          !caName.trim() ||
+                          !/^\d{11}$/.test(caPhone.trim()) ||
+                          !caProvinceCode ||
+                          !caCityCode ||
+                          !caDistrictCode ||
+                          !caDetail.trim()
+                        }
+                        onClick={() => void saveNewChangeAddrInDialog()}
+                      >
+                        {changeAddrSavingNew ? '保存中…' : '保存地址'}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={changeAddrSavingNew}
+                        onClick={() => {
+                          setChangeAddrFormMode('hidden')
+                          resetCaFields()
+                        }}
+                      >
+                        取消
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              {changeAddrErr ? <p className="text-xs text-destructive">{changeAddrErr}</p> : null}
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={() => setChangeAddressOrder(null)}>
+              取消
+            </Button>
+            <Button
+              type="button"
+              disabled={
+                changeAddrSubmitting ||
+                changeAddrSavingNew ||
+                changeAddrLoading ||
+                !changeAddrPickId ||
+                changeAddrAddresses.length === 0
+              }
+              onClick={() => void submitChangeShippingAddress()}
+            >
+              {changeAddrSubmitting ? '提交中…' : '加密并同步到订单'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(shipDialogOrder)}
@@ -1352,10 +2005,12 @@ export function PendingPage() {
       {notice ? (
         <div
           className={[
-            'fixed left-1/2 top-1/2 z-[120] -translate-x-1/2 -translate-y-1/2 rounded-lg px-3 py-2 text-sm shadow-sm border',
+            'fixed left-1/2 top-1/2 z-[120] w-[min(92vw,22rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg px-4 py-3 text-center text-sm md:text-base shadow-md border',
             notice.tone === 'error'
               ? 'border-destructive/30 bg-destructive/10 text-destructive'
-              : 'border-primary/20 bg-primary/10 text-primary',
+              : notice.tone === 'success'
+                ? 'border-primary/30 bg-primary/12 text-primary'
+                : 'border-primary/20 bg-primary/10 text-primary',
           ].join(' ')}
         >
           {notice.message}

@@ -7,7 +7,7 @@ use crate::auth::error::AuthError;
 use crate::auth::util::{consume_ws_ticket, decode_jwt, is_jwt_blacklist};
 use crate::state::AppState;
 use axum_extra::extract::CookieJar;
-use tracing::info;
+use tracing::debug;
 
 fn bearer_token_from_headers(req: &Request) -> Option<&str> {
     req.headers()
@@ -70,7 +70,7 @@ pub async fn auth_middleware(
     if is_jwt_blacklist(&state.auth_service.redis_pool, &jti).await? {
         return Err(AuthError::Unauthorized("令牌已失效，请重新登录".into()));
     }
-    info!("检查黑名单 jti: {}", jti);
+    debug!("检查黑名单 jti: {}", jti);
 
     req.extensions_mut().insert(token_data.claims.sub);
     Ok(next.run(req).await)

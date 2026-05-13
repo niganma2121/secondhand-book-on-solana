@@ -6,6 +6,8 @@ import { useEffect, useRef, useState } from 'react'
 import { mobileNavItems } from '@/config/navigation'
 import { routes } from '@/config/routes'
 import { isNavActive } from '@/lib/match-route'
+import { useChatConversationsContext } from '@/components/providers/chat-conversations-provider'
+import { useOrderAttention } from '@/components/providers/order-attention-provider'
 function NavCenterIcon() {
   return (
     <span className="w-13 h-13 rounded-2xl bg-primary flex items-center justify-center shadow-lg shadow-primary/40 -mt-6">
@@ -111,6 +113,8 @@ export function MobileTabBar() {
   const pathname = usePathname()
   const [peekMode, setPeekMode] = useState(false)
   const touchStartX = useRef(0)
+  const { conversations } = useChatConversationsContext()
+  const { orderAttentionDot } = useOrderAttention()
 
   const onChatRoute = pathname === routes.chat || pathname.startsWith(`${routes.chat}/`)
   const onListRoute = pathname === routes.list || pathname.startsWith(`${routes.list}/`)
@@ -122,7 +126,7 @@ export function MobileTabBar() {
 
   const showChatBubble = !onChatRoute && !onListRoute
   const canPeek = !onHomeRoute
-  const unreadCount = 0
+  const unreadCount = conversations.reduce((n, c) => n + c.unread, 0)
 
   function handleTouchStart(e: React.TouchEvent) {
     touchStartX.current = e.touches[0].clientX
@@ -153,11 +157,14 @@ export function MobileTabBar() {
                   aria-label={item.label}
                   aria-current={active ? 'page' : undefined}
                   className={[
-                    'flex flex-col items-center gap-0.5 flex-1 py-0.5 transition-all duration-200',
+                    'relative flex flex-col items-center gap-0.5 flex-1 py-0.5 transition-all duration-200',
                     !isCenter && active ? 'text-primary' : 'text-muted-foreground',
                     !isCenter ? 'hover:text-foreground active:scale-95' : '',
                   ].join(' ')}
                 >
+                  {item.navKey === 'pending' && orderAttentionDot ? (
+                    <span className="absolute top-0 right-[22%] z-10 h-2 w-2 rounded-full bg-destructive ring-2 ring-card" />
+                  ) : null}
                   {iconFor(item.navKey, active, Boolean(isCenter))}
                   {!isCenter && (
                     <span

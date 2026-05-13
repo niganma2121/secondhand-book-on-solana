@@ -5,11 +5,13 @@ use crate::client::types::{
     BroadcastCreateBookRequest, BroadcastCreateEscrowAutoRequest, BroadcastDelistRequest,
     BroadcastRelistBookRequest,
     BroadcastOpenDisputeRequest, BroadcastResolveDisputeRequest, BroadcastResponse,
-    BroadcastShipRequest, BroadcastUpdatePriceRequest, CancelEscrowRequest, ConfirmReceiptRequest,
+    BroadcastSetPreShipLockRequest, BroadcastShipRequest, BroadcastUpdatePriceRequest,
+    CancelEscrowRequest, ConfirmReceiptRequest,
     CreateBookBuildTxRequest, CreateBookMetadataDetailItem, CreateBookMetadataRequest,
     CreateBookMetadataResponse, CreateBookRequest, CreateBookTxResponse,
     CreateBookUploadImageResponse, CreateEscrowRequest, DelistBookRequest, InitCollectionRequest,
-    InitCollectionResponse, OpenDisputeRequest, RelistBookBuildTxRequest, ResolveDisputeRequest, ShipBookRequest,
+    InitCollectionResponse, OpenDisputeRequest, RelistBookBuildTxRequest, ResolveDisputeRequest,
+    SetPreShipLockRequest, ShipBookRequest,
     UnsignedTxResponse, UpdatePriceRequest,
 };
 use crate::client::utils::{

@@ -40,3 +40,7 @@ pub const PINATA_SIGN_DETAIL_MAX_BYTES_ENV: &str = "PINATA_SIGN_DETAIL_MAX_BYTES
 pub const PINATA_UPLOAD_SIGN_URL: &str = "https://uploads.pinata.cloud/v3/files/sign";
 
 pub const BOOK_RECONCILE_INTERVAL_SECS_ENV:&str="BOOK_RECONCILE_INTERVAL_SECS";
+/// 汇率缓存 TTL（秒），默认 60。
+pub const SOL_CNY_RATE_CACHE_TTL_SECS_ENV: &str = "SOL_CNY_RATE_CACHE_TTL_SECS";
+/// 汇率兜底值：1 SOL 约合多少 CNY（当远端接口失败且无缓存时生效）。
+pub const SOL_CNY_RATE_FALLBACK_ENV: &str = "SOL_CNY_RATE_FALLBACK";

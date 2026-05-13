@@ -504,6 +504,22 @@
               }
             ]
           }
+        },
+        {
+          "name": "asset",
+          "writable": true
+        },
+        {
+          "name": "collection",
+          "writable": true
+        },
+        {
+          "name": "mpl_core_program",
+          "address": "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -642,6 +658,65 @@
           "type": "bool"
         }
       ]
+    },
+    {
+      "name": "set_pre_ship_lock",
+      "discriminator": [
+        226,
+        225,
+        26,
+        222,
+        152,
+        62,
+        75,
+        109
+      ],
+      "accounts": [
+        {
+          "name": "seller",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "escrow"
+          ]
+        },
+        {
+          "name": "buyer",
+          "writable": true,
+          "relations": [
+            "escrow"
+          ]
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "buyer"
+              },
+              {
+                "kind": "account",
+                "path": "escrow.book",
+                "account": "Escrow"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
     },
     {
       "name": "ship_book",
@@ -1010,6 +1085,11 @@
       "code": 6018,
       "name": "AdminUnmatch",
       "msg": "管理员不匹配"
+    },
+    {
+      "code": 6019,
+      "name": "BuyerCancelBlockedPreShip",
+      "msg": "卖家已锁单备发货，买家不可取消订单"
     }
   ],
   "types": [
@@ -1347,6 +1427,13 @@
           {
             "name": "bump",
             "type": "u8"
+          },
+          {
+            "name": "pre_ship_locked",
+            "docs": [
+              "卖家锁单备发货：为 true 时买家不可链上取消（卖家仍可取消）"
+            ],
+            "type": "bool"
           }
         ]
       }

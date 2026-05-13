@@ -1,3 +1,14 @@
+/**
+ * 公钥脱敏展示（仅前若干字符 + …），用于链上记录等公开卡片，避免完整地址被复制滥用。
+ * 完整地址仍仅存于链上/后端；此处纯前端展示策略。
+ */
+export function privacyPubkey(pubkey: string, headChars = 3): string {
+  const t = pubkey.trim()
+  if (!t) return '—'
+  if (t.length <= headChars) return t
+  return `${t.slice(0, headChars)}…`
+}
+
 /** 钱包地址缩短展示（Solana base58） */
 export function shortenPubkey(pubkey: string, head = 4, tail = 4): string {
   const t = pubkey.trim()

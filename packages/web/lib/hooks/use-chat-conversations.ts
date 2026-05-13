@@ -418,12 +418,16 @@ export function useChatConversations() {
   }, [])
 
   const sendChatText = useCallback(
-    (peerPubkey: string, text: string) => {
-      if (!user || !text.trim()) return
+    (
+      peerPubkey: string,
+      text: string,
+      localUi?: Pick<ChatMessage, 'variant' | 'meta'>,
+    ): boolean => {
+      if (!user || !text.trim()) return false
       const ws = wsRef.current
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         setWsError('未连接到聊天服务，请稍后重试')
-        return
+        return false
       }
       const cmd = {
         action: 'SendMessage',
@@ -443,6 +447,9 @@ export function useChatConversations() {
         text: t,
         time: '刚刚',
         isRead: false,
+        ...(localUi?.variant || localUi?.meta
+          ? { variant: localUi.variant, meta: localUi.meta }
+          : {}),
       }
       setConversations((prev) => {
         const idx = prev.findIndex((c) => c.sellerAddr === peerPubkey)
@@ -470,6 +477,7 @@ export function useChatConversations() {
         }
         return [conv, ...prev]
       })
+      return true
     },
     [user],
   )

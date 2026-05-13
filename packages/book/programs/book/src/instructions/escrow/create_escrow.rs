@@ -85,6 +85,7 @@ pub fn create_escrow(ctx:Context<CreateEscrow>)->Result<()>{
     escrow.dispute=None;
     escrow.create_at=Clock::get()?.unix_timestamp;
     escrow.bump=ctx.bumps.escrow;
+    escrow.pre_ship_locked = false;
     //更新书的状态
     ctx.accounts.book.status=BookStatus::InEscrow;
 

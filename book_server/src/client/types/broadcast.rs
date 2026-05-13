@@ -44,6 +44,8 @@ pub struct BroadcastUpdatePriceRequest {
     pub signed_tx: String,
     pub asset: String,
     pub new_price: u64,
+    pub price_cny: Option<f64>,
+    pub fx_cny_per_sol: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -74,6 +76,12 @@ pub struct BroadcastShipRequest {
     pub signed_tx: String,
     pub escrow_pda: String,
     pub shipping_commitment: Vec<u8>,
+}
+
+#[derive(Deserialize)]
+pub struct BroadcastSetPreShipLockRequest {
+    pub signed_tx: String,
+    pub escrow_pda: String,
 }
 
 #[derive(Deserialize)]

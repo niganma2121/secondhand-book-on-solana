@@ -45,6 +45,12 @@ pub struct CancelEscrow<'info>{
 }
 
 pub fn cancel_escrow(ctx:Context<CancelEscrow>)->Result<()>{
+    {
+        let escrow = &ctx.accounts.escrow;
+        if ctx.accounts.signer.key() == escrow.buyer && escrow.pre_ship_locked {
+            return err!(AppError::BuyerCancelBlockedPreShip);
+        }
+    }
     let book_seeds:&[&[u8]]=&[
         BOOK_SEED,
         ctx.accounts.book.asset.as_ref(),

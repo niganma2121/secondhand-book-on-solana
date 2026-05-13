@@ -15,8 +15,9 @@ import { shortenPubkey } from '@/lib/format-seller'
 import { Button } from '@/components/ui/button'
 import { Loader2, X, ZoomIn, ChevronLeft, ChevronRight } from 'lucide-react'
 import Image from 'next/image'
-import { bookPublicHistory, chatWithPeer } from '@/config/routes'
+import { bookPublicHistory, chatWithPeer, userPublicProfile } from '@/config/routes'
 import { fetchBookDetail, type BookDetailDto, type BookDetailResponse } from '@/lib/api/book-detail'
+import { escrowBookSnapshotToDetailResponse, isOrderTerminalForBookSnapshot } from '@/lib/order-book-snapshot'
 import { buildCreateEscrow, broadcastCreateEscrowAuto, signEscrowTxWithWallet } from '@/lib/api/escrow'
 import { fetchUserEncryptionPublicKey } from '@/lib/api/encryption'
 import { useAuth } from '@/components/providers/auth-provider'
@@ -161,7 +162,7 @@ function BuyModal({ book, onClose, onPurchased }: BuyModalProps) {
 
   useEffect(() => {
     if (!cancelHintOpen) return
-    const timer = window.setTimeout(() => setCancelHintOpen(false), 3000)
+    const timer = window.setTimeout(() => setCancelHintOpen(false), 2000)
     return () => window.clearTimeout(timer)
   }, [cancelHintOpen])
 
@@ -831,7 +832,7 @@ function BuyModal({ book, onClose, onPurchased }: BuyModalProps) {
           )}
         </div>
         {cancelHintOpen ? (
-          <div className="fixed top-20 left-1/2 z-[90] -translate-x-1/2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-xs text-destructive shadow-sm">
+          <div className="fixed left-1/2 top-1/2 z-[90] w-[min(92vw,20rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-center text-sm md:text-base text-destructive shadow-md">
             已取消操作
           </div>
         ) : null}
@@ -878,6 +879,12 @@ function DetailBookPriceBlock({ book }: { book: BookDetailDto }) {
 }
 
 function BookDetailPanel({ asset, onClose, onBuy, onRequireLogin, isAuthenticated }: DetailPanelProps) {
+  const searchParams = useSearchParams()
+  const orderEscrow = searchParams.get('orderEscrow')?.trim() ?? ''
+  const orderState = searchParams.get('orderState')?.trim() ?? ''
+  const fromOrder = searchParams.get('fromOrder') === '1' || Boolean(orderEscrow)
+  const orderTerminalSnapshot = fromOrder && isOrderTerminalForBookSnapshot(orderState)
+
   const { publicKey } = useWallet()
   const [favorited, setFavorited] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -930,11 +937,43 @@ function BookDetailPanel({ asset, onClose, onBuy, onRequireLogin, isAuthenticate
     onBuy(bookForBuy)
   }, [onBuy, bookForBuy])
 
-  // 加载详情
+  // 加载详情：订单上下文下，已结束订单优先用 sessionStorage 中的下单快照；进行中则拉当前链上
   useEffect(() => {
     let cancelled = false
     ;(async () => {
+      setLoading(true)
+      setError(null)
+      setBookDescription('暂无图书简介')
       try {
+        if (orderTerminalSnapshot && orderEscrow && typeof window !== 'undefined') {
+          const raw = sessionStorage.getItem(`bookchain:order-book-snapshot:${orderEscrow}`)
+          if (raw) {
+            let snap: unknown
+            try {
+              snap = JSON.parse(raw) as unknown
+            } catch {
+              snap = null
+            }
+            const synthetic = escrowBookSnapshotToDetailResponse(snap)
+            if (synthetic && !cancelled) {
+              setDetail(synthetic)
+              setActiveIndex(0)
+              if (synthetic.book.metadata_url) {
+                try {
+                  const mdRes = await fetch(synthetic.book.metadata_url)
+                  if (mdRes.ok) {
+                    const md = (await mdRes.json()) as { description?: string }
+                    const desc = md.description?.trim()
+                    if (!cancelled && desc) setBookDescription(desc)
+                  }
+                } catch { /* ignore */ }
+              }
+              setLoading(false)
+              return
+            }
+          }
+        }
+
         const res = await fetchBookDetail(asset)
         if (!cancelled) {
           setDetail(res)
@@ -955,7 +994,7 @@ function BookDetailPanel({ asset, onClose, onBuy, onRequireLogin, isAuthenticate
       }
     })()
     return () => { cancelled = true }
-  }, [asset])
+  }, [asset, orderEscrow, orderTerminalSnapshot])
 
   // 锁定 body 滚动
   useEffect(() => {
@@ -1042,17 +1081,28 @@ function BookDetailPanel({ asset, onClose, onBuy, onRequireLogin, isAuthenticate
             <p className="flex-1 min-w-0 text-sm font-semibold text-foreground truncate text-center sm:text-left">
               {loading ? '加载中…' : (detail?.book.name ?? '书籍详情')}
             </p>
-            <MarketFavoriteButton
-              variant="header"
-              favorited={favorited}
-              isAuthenticated={isAuthenticated}
-              onToggle={() => setFavorited((v) => !v)}
-              onRequireLogin={onRequireLogin}
-            />
+            {fromOrder ? (
+              <div className="w-9 shrink-0" aria-hidden />
+            ) : (
+              <MarketFavoriteButton
+                variant="header"
+                favorited={favorited}
+                isAuthenticated={isAuthenticated}
+                onToggle={() => setFavorited((v) => !v)}
+                onRequireLogin={onRequireLogin}
+              />
+            )}
           </div>
 
           {/* ── 内容区 ── */}
           <div className="flex-1 overflow-y-auto min-h-0">
+            {fromOrder && (
+              <div className="mx-3 sm:mx-5 mt-3 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[11px] sm:text-xs text-amber-950/90 dark:text-amber-100/90 leading-relaxed">
+                {orderTerminalSnapshot
+                  ? '本订单已结束：以下为下单时冻结的书目快照；若本页未带回快照则与当前链上数据一致。'
+                  : '本订单进行中：以下为当前链上书目。'}
+              </div>
+            )}
             {loading ? (
                 <div className="flex items-center justify-center h-full py-20 text-sm text-muted-foreground gap-2">
                   <Loader2 className="h-4 w-4 animate-spin" /> 加载中…
@@ -1091,6 +1141,7 @@ function BookDetailPanel({ asset, onClose, onBuy, onRequireLogin, isAuthenticate
                               aria-label="放大查看图片"
                           >
                             <Image
+                                key={`main-${activeIndex}-${activeImage.url}`}
                                 src={activeImage.url}
                                 alt={detail.book.name}
                                 fill
@@ -1144,7 +1195,7 @@ function BookDetailPanel({ asset, onClose, onBuy, onRequireLogin, isAuthenticate
                             {galleryImages.map((img, idx) => (
                                 <button
                                     type="button"
-                                    key={img.id}
+                                    key={`thumb-${img.kind}-${idx}-${img.url}`}
                                     onClick={() => setActiveIndex(idx)}
                                     className={[
                                       'relative shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-lg overflow-hidden border-2 transition-all',
@@ -1154,7 +1205,7 @@ function BookDetailPanel({ asset, onClose, onBuy, onRequireLogin, isAuthenticate
                                     ].join(' ')}
                                     aria-label={img.kind === 'cover' ? '封面' : `详情图 ${idx}`}
                                 >
-                                  <Image src={img.url} alt="" fill className="object-cover" />
+                                  <Image src={img.url} alt="" fill className="object-cover" sizes="80px" />
                                   {img.kind === 'cover' && (
                                       <span className="absolute left-0.5 top-0.5 rounded bg-black/60 px-1 py-0.5 text-[9px] text-white leading-tight">
                               封面
@@ -1225,15 +1276,6 @@ function BookDetailPanel({ asset, onClose, onBuy, onRequireLogin, isAuthenticate
                       ))}
                     </div>
 
-                    <div className="px-1">
-                      <Link
-                        href={bookPublicHistory(detail.book.asset)}
-                        className="text-sm text-primary hover:underline"
-                      >
-                        查看本书流转记录（公开）
-                      </Link>
-                    </div>
-
                     {/* 图书简介（桌面正文字号加大） */}
                     <div className="rounded-xl bg-secondary/30 border border-border/40 p-4 lg:p-5 flex-1 lg:pb-2">
                       <p className="text-xs lg:text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2 lg:mb-3">
@@ -1245,6 +1287,7 @@ function BookDetailPanel({ asset, onClose, onBuy, onRequireLogin, isAuthenticate
                     </div>
 
                     {/* 桌面端：按钮仍在信息流底部；移动端改为面板底部固定栏，见下方 footer */}
+                    {!fromOrder && (
                     <div className="hidden lg:flex flex-col gap-2.5 pb-2 lg:flex-row lg:flex-wrap lg:items-stretch">
                       {isOwner ? (
                         <span className="min-h-10 w-full rounded-xl border border-border/60 bg-secondary/30 text-sm text-muted-foreground inline-flex items-center justify-center px-3 py-2 text-center">
@@ -1275,19 +1318,26 @@ function BookDetailPanel({ asset, onClose, onBuy, onRequireLogin, isAuthenticate
                         </>
                       )}
                       <Link
+                        href={userPublicProfile(detail.book.seller)}
+                        className="w-full lg:w-auto lg:shrink-0 inline-flex items-center justify-center min-h-10 rounded-xl border border-border/60 bg-card px-4 text-sm text-primary hover:bg-secondary/50 transition-colors"
+                      >
+                        卖家主页
+                      </Link>
+                      <Link
                         href={bookPublicHistory(detail.book.asset)}
                         className="w-full lg:w-auto lg:shrink-0 inline-flex items-center justify-center min-h-10 rounded-xl border border-border/60 bg-card px-4 text-sm text-primary hover:bg-secondary/50 transition-colors"
                       >
                         流转记录
                       </Link>
                     </div>
+                    )}
                   </div>
                 </div>
             )}
           </div>
 
           {/* 移动端底部固定操作栏（不参与中间滚动，避免被底部导航/安全区遮住） */}
-          {detail && !loading && !error && (
+          {detail && !loading && !error && !fromOrder && (
             <div className="lg:hidden shrink-0 border-t border-border bg-card px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(0,0,0,0.08)] dark:shadow-[0_-8px_24px_rgba(0,0,0,0.35)]">
               {isOwner ? (
                 <span className="flex min-h-11 w-full items-center justify-center rounded-xl border border-border/60 bg-secondary/30 px-3 py-2.5 text-center text-sm text-muted-foreground">
@@ -1295,6 +1345,12 @@ function BookDetailPanel({ asset, onClose, onBuy, onRequireLogin, isAuthenticate
                 </span>
               ) : (
                 <div className="flex flex-col gap-2.5">
+                  <Link
+                    href={userPublicProfile(detail.book.seller)}
+                    className="text-center text-xs text-primary hover:underline py-0.5"
+                  >
+                    卖家主页 · 信誉与评价
+                  </Link>
                   <MarketLoginGatedAction
                     href={chatWithPeer(detail.book.seller)}
                     linkVariant="inline"
@@ -1608,10 +1664,48 @@ export function MarketPage() {
   }, [assetFromUrl])
 
   function closeBookDetail() {
+    if (!searchParams.get('asset')) {
+      setDetailAsset(null)
+      return
+    }
+
+    const rawReturn = searchParams.get('returnTo')
+    let returnTo: string | null = null
+    if (rawReturn) {
+      const t = rawReturn.trim()
+      if (t.startsWith('/') && !t.startsWith('//') && !/^[a-zA-Z][a-zA-Z+\-.]*:/.test(t)) {
+        returnTo = t
+      }
+    }
+
+    // 从订单等页点进市场详情：先整页离开，避免先关面板再 replace 导致一帧露出市场列表而闪烁
+    if (returnTo) {
+      let usedHistoryBack = false
+      try {
+        if (
+          typeof window !== 'undefined' &&
+          sessionStorage.getItem('bookchain:market-detail-use-history-back') === '1'
+        ) {
+          sessionStorage.removeItem('bookchain:market-detail-use-history-back')
+          router.back()
+          usedHistoryBack = true
+        }
+      } catch {
+        /* ignore */
+      }
+      if (!usedHistoryBack) {
+        router.replace(returnTo, { scroll: false })
+      }
+      return
+    }
+
     setDetailAsset(null)
-    if (!searchParams.get('asset')) return
     const p = new URLSearchParams(searchParams.toString())
     p.delete('asset')
+    p.delete('fromOrder')
+    p.delete('orderEscrow')
+    p.delete('orderState')
+    p.delete('returnTo')
     const q = p.toString()
     router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false })
   }

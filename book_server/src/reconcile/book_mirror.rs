@@ -38,7 +38,7 @@ pub async fn reconcile_one_book_mirror(
             repaired = true;
         }
         if detail.price != chain_price {
-            db.update_book_price(asset_str, chain_price, now).await?;
+            db.update_book_price(asset_str, chain_price, None, None, now).await?;
             repaired = true;
         }
         if !cid_trim.is_empty()

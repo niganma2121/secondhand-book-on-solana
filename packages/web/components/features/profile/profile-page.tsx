@@ -202,23 +202,32 @@ export function ProfilePage() {
   const addr = publicKey ? publicKey.toBase58() : ''
   const short = addr ? `${addr.slice(0, 4)}...${addr.slice(-4)}` : ''
 
-  const { books: myBooks } = useMyBooks()
+  const { published, owned } = useMyBooks()
 
-  const shelfBooks = myBooks.filter((b) => b.status === 'listed' || b.status === 'sold')
-  const boughtBooks = myBooks.filter((b) => b.status === 'owned')
+  const shelfBooks = published
+  const boughtBooks = owned
 
   const displayName =
     isAuthenticated && user?.username ? user.username : '匿名用户'
   const avatarUrl = profileAvatarPreview ?? user?.avatar ?? null
 
   const stats: { label: string; value: number | string }[] = [
-    { label: '上架书籍', value: shelfBooks.filter((b) => b.status === 'listed').length },
+    {
+      label: '上架书籍',
+      value: shelfBooks.filter((b) => b.listingDbStatus === 'Listed').length,
+    },
     {
       label: '历史交易',
       value: isAuthenticated && user ? user.trade_count : '—',
     },
     { label: '已购书籍', value: boughtBooks.length },
-    { label: '累计收益', value: '—' },
+    {
+      label: '信誉分',
+      value:
+        isAuthenticated && user && typeof user.reputation_score === 'number'
+          ? Math.round(user.reputation_score)
+          : '—',
+    },
   ]
 
   const apiConfigured = !env.useMockData && Boolean(env.apiBaseUrl)
@@ -924,8 +933,8 @@ export function ProfilePage() {
           {/* Tab 头 */}
           <div className="flex border-b border-border/60">
             {([
-              { key: 'shelf' as ProfileTab, label: `我上架的 (${shelfBooks.length})` },
-              { key: 'sold'  as ProfileTab, label: `我买到的 (${boughtBooks.length})` },
+              { key: 'shelf' as ProfileTab, label: `我发布的 (${shelfBooks.length})` },
+              { key: 'sold' as ProfileTab, label: `我持有 (${boughtBooks.length})` },
             ]).map((t) => (
               <button
                 key={t.key}

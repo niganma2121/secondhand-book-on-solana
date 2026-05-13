@@ -69,6 +69,8 @@ export interface MyBook {
   isCurrentOwner?: boolean
   isOnSale?: boolean
   source?: 'listed' | 'purchased' | 'created'
+  /** 仅来自 `/me/books` 时存在：数据库 books.status */
+  listingDbStatus?: string
 }
 
 export interface ChatMessage {
@@ -78,6 +80,9 @@ export interface ChatMessage {
   imageUrl?: string
   time: string
   isRead?: boolean
+  /** 仅前端展示：收货地址加密提交等卡片样式 */
+  variant?: 'address_card'
+  meta?: { escrowShort?: string }
 }
 
 export interface ChatConversation {

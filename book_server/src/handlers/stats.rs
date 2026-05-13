@@ -1,6 +1,7 @@
 use crate::handlers::error::{HandlerResult, ok};
 use crate::state::AppState;
-use axum::extract::State;
+use axum::extract::{Query, State};
+use serde::Deserialize;
 use serde_json::json;
 
 /// GET /api/stats/overview
@@ -16,5 +17,28 @@ pub async fn get_overview_stats_handler(State(state): State<AppState>) -> Handle
         "chain_transactions": chain_transactions,
         "registered_users": registered_users,
         "total_volume_sol": total_volume_sol
+    })))
+}
+
+#[derive(Deserialize, Default)]
+pub struct FxRateQuery {
+    pub refresh: Option<u8>,
+}
+
+/// GET /api/stats/fx?refresh=1
+pub async fn get_fx_rate_handler(
+    State(state): State<AppState>,
+    Query(q): Query<FxRateQuery>,
+) -> HandlerResult {
+    let force_refresh = q.refresh == Some(1);
+    let snap = state
+        .fx_rate_service
+        .get_sol_cny_rate(force_refresh)
+        .await
+        .map_err(|e| crate::handlers::error::bad_request(format!("汇率获取失败: {e}")))?;
+    Ok(ok(json!({
+        "cny_per_sol": snap.cny_per_sol,
+        "source": snap.source,
+        "updated_at": snap.updated_at,
     })))
 }

@@ -105,6 +105,29 @@ export async function broadcastShipEscrow(input: {
   })
 }
 
+export async function buildSetPreShipLock(input: {
+  seller: string
+  buyer: string
+  asset: string
+}) {
+  return apiFetch<UnsignedTxResponse>('/escrow/pre-ship-lock', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
+export async function broadcastSetPreShipLock(input: {
+  signed_tx: string
+  escrow_pda: string
+}) {
+  return apiFetch<EscrowBroadcastResponse>('/escrow/pre-ship-lock/broadcast', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
 export async function buildConfirmEscrow(input: {
   buyer: string
   seller: string

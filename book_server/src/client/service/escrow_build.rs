@@ -146,6 +146,36 @@ impl AnchorService {
         })
     }
 
+    pub async fn build_set_pre_ship_lock(
+        &self,
+        req: SetPreShipLockRequest,
+    ) -> Result<UnsignedTxResponse, ClientError> {
+        let seller = parse(&req.seller)?;
+        let buyer = parse(&req.buyer)?;
+        let asset = parse(&req.asset)?;
+        let book_pda = self.book_pda(&asset);
+        let escrow_pda = self.escrow_pda(&buyer, &book_pda);
+        let program = self.get_program()?;
+
+        let ix = program
+            .request()
+            .accounts(accounts::SetPreShipLock {
+                seller,
+                buyer,
+                escrow: escrow_pda,
+            })
+            .args(args::SetPreShipLock {})
+            .instructions()?;
+
+        let block_hash = self.get_blockhash().await?;
+        let msg = Message::new_with_blockhash(ix.as_ref(), Some(&seller), &block_hash);
+        let tx = Transaction::new_unsigned(msg);
+        Ok(UnsignedTxResponse {
+            tx: serialize_tx(&tx)?,
+            msg: "使用钱包签名以锁单备发货（链上生效，买家将不可取消托管）".into(),
+        })
+    }
+
     pub async fn build_open_dispute(
         &self,
         req: OpenDisputeRequest,

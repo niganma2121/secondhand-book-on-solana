@@ -1,5 +1,5 @@
 use super::*;
-use crate::client::utils::has_at_most_two_decimals;
+use crate::client::utils::{has_at_most_two_decimals, lamports_to_price_cny};
 use crate::reconcile::{spawn_reconcile_book_asset, spawn_reconcile_tick};
 
 /// Book广播部分
@@ -22,10 +22,10 @@ impl AnchorService {
             if !fx.is_finite() || fx <= 0.0 {
                 return Err(ClientError::TxVerifyFailed("fx_cny_per_sol 必须大于 0".into()));
             }
-            // 防篡改：后端复算人民币换算后的链上 lamports，需与前端提交的 price 基本一致
-            let expected_lamports = ((price_cny / fx) * 1_000_000_000.0).round() as i128;
-            let actual_lamports = req.price as i128;
-            if (expected_lamports - actual_lamports).abs() > 2 {
+            // 与入库时 `lamports_to_price_cny` 一致：不能用 (price_cny/fx)*1e9 反推 lamports，
+            // 人民币仅两位小数会丢失精度，反推误差可达数千 lamports。
+            let from_lamports = lamports_to_price_cny(req.price, fx);
+            if (from_lamports - price_cny).abs() > 0.01 {
                 return Err(ClientError::TxVerifyFailed(
                     "price 与 price_cny/fx_cny_per_sol 换算不一致".into(),
                 ));
@@ -202,7 +202,16 @@ impl AnchorService {
             .await
             .map_err(|e| ClientError::BroadcastFailed(e.to_string()))?;
 
-        if let Err(e) = db.update_book_price(&req.asset, req.new_price as i64, now).await {
+        if let Err(e) = db
+            .update_book_price(
+                &req.asset,
+                req.new_price as i64,
+                req.price_cny,
+                req.fx_cny_per_sol,
+                now,
+            )
+            .await
+        {
             warn!("书籍价格更新成功,数据库错误:{e}");
             spawn_reconcile_tick(db.clone(), self.clone());
         }

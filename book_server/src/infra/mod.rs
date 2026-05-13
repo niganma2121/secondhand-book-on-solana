@@ -3,5 +3,6 @@
 //! 若要统一套在路由上，可再包一层 `tower::ServiceBuilder` 的中间件。
 
 pub mod env;
+pub mod fx_rate;
 pub mod http;
 pub mod rate_limit;

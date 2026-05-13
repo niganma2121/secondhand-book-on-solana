@@ -22,6 +22,13 @@ import {
 import { ApiError } from '@/lib/api/client'
 import { env } from '@/lib/env'
 import { explorerAddressUrl, explorerTxUrl } from '@/lib/solana-explorer'
+import {
+  escrowActionDescription,
+  escrowActionTitle,
+  escrowStateZh,
+  isEscrowActionAlert,
+} from '@/lib/escrow-event-copy'
+import { shortenPubkey } from '@/lib/format-seller'
 
 const BOOK_EVENT_LABEL: Record<string, string> = {
   book_created: '书籍创建',
@@ -31,16 +38,6 @@ const BOOK_EVENT_LABEL: Record<string, string> = {
   escrow_created: '托管订单创建',
   escrow_cancelled: '托管订单取消',
   ownership_transferred: '所有权转移',
-}
-
-/** 与 book_server 写入的 `escrow_events.action` 对齐 */
-const ESCROW_ACTION_SUMMARY: Record<string, string> = {
-  create_escrow: '买家已付款，托管订单建立。',
-  ship: '卖家已标记发货。',
-  confirm_receipt: '买家确认收货，资金释放，交易完成。',
-  cancel: '订单取消，书籍恢复可售。',
-  open_dispute: '一方发起争议，托管进入仲裁流程。',
-  resolve_dispute: '仲裁投票/裁决已执行，托管状态随之更新。',
 }
 
 type MergedRow =
@@ -61,6 +58,41 @@ function mergeRows(res: PublicBookHistoryResponse): MergedRow[] {
     data: e,
   }))
   return [...book, ...esc].sort((a, b) => b.created_at - a.created_at || b.id - a.id)
+}
+
+/** 同一托管 PDA 归为一笔订单；无 PDA 的单条书目事件单独成组；组间按组内最新时间排序 */
+function groupMergedRowsByOrder(rows: MergedRow[]): MergedRow[][] {
+  const byPda = new Map<string, MergedRow[]>()
+  const singles: MergedRow[] = []
+
+  for (const row of rows) {
+    const pda =
+      row.kind === 'escrow' ? row.data.escrow_pda : row.data.escrow_pda ?? null
+    if (pda && pda.length > 0) {
+      const list = byPda.get(pda) ?? []
+      list.push(row)
+      byPda.set(pda, list)
+    } else {
+      singles.push(row)
+    }
+  }
+
+  for (const list of byPda.values()) {
+    list.sort((a, b) => b.created_at - a.created_at || b.id - a.id)
+  }
+
+  const groups: MergedRow[][] = [...singles.map((r) => [r]), ...Array.from(byPda.values())]
+  groups.sort((a, b) => {
+    const ta = Math.max(...a.map((r) => r.created_at))
+    const tb = Math.max(...b.map((r) => r.created_at))
+    return tb - ta || (b[0]?.id ?? 0) - (a[0]?.id ?? 0)
+  })
+  return groups
+}
+
+function isMergedRowTimelineAlert(row: MergedRow): boolean {
+  if (row.kind === 'escrow') return isEscrowActionAlert(row.data.action)
+  return row.data.event_type === 'escrow_cancelled'
 }
 
 function formatTime(ts: number) {
@@ -155,7 +187,7 @@ function RecordDetailDialog({
   const title =
     row.kind === 'book'
       ? BOOK_EVENT_LABEL[row.data.event_type] ?? row.data.event_type
-      : `托管 · ${row.data.action}`
+      : escrowActionTitle(row.data.action)
 
   const payload = row.kind === 'book' ? row.data.payload : null
   const escrowSnap = row.kind === 'escrow' ? row.data.book_snapshot : null
@@ -176,7 +208,7 @@ function RecordDetailDialog({
 
   const escrowSummary =
     row.kind === 'escrow'
-      ? ESCROW_ACTION_SUMMARY[row.data.action] ?? `链上动作「${row.data.action}」，状态 ${row.data.from_state ?? '—'} → ${row.data.to_state}。`
+      ? escrowActionDescription(row.data.action)
       : null
   const disputeNote = row.kind === 'escrow' ? escrowDisputeNote(row.data) : null
 
@@ -239,7 +271,7 @@ function RecordDetailDialog({
                 买家 <span className="font-mono text-foreground/90">{row.data.buyer}</span>
               </p>
               <p>
-                状态：{row.data.from_state ?? '—'} → {row.data.to_state}
+                状态：{escrowStateZh(row.data.from_state)} → {escrowStateZh(row.data.to_state)}
               </p>
               <p className="font-mono break-all">托管 PDA：{row.data.escrow_pda}</p>
               {row.data.actor_pubkey && (
@@ -339,9 +371,10 @@ function RecordDetailDialog({
                 href={explorerTxUrl(row.data.tx_signature)}
                 target="_blank"
                 rel="noreferrer"
+                title="在浏览器中打开本条记录对应的链上交易签名与明细"
                 className="text-sm text-primary hover:underline font-medium"
               >
-                链上交易
+                查看链上交易
               </a>
             )}
             {row.kind === 'escrow' && row.data.tx_signature && (
@@ -349,19 +382,10 @@ function RecordDetailDialog({
                 href={explorerTxUrl(row.data.tx_signature)}
                 target="_blank"
                 rel="noreferrer"
+                title="在浏览器中打开本条记录对应的链上交易签名与明细"
                 className="text-sm text-primary hover:underline font-medium"
               >
-                链上交易
-              </a>
-            )}
-            {row.kind === 'escrow' && (
-              <a
-                href={explorerAddressUrl(row.data.escrow_pda)}
-                target="_blank"
-                rel="noreferrer"
-                className="text-sm text-muted-foreground hover:underline"
-              >
-                托管账户
+                查看链上交易
               </a>
             )}
           </div>
@@ -409,6 +433,7 @@ export function BookPublicHistoryPage({ asset }: { asset: string }) {
   }, [load])
 
   const rows = useMemo(() => (data ? mergeRows(data) : []), [data])
+  const groups = useMemo(() => groupMergedRowsByOrder(rows), [rows])
 
   return (
     <div className="pb-28 md:pb-12">
@@ -455,123 +480,170 @@ export function BookPublicHistoryPage({ asset }: { asset: string }) {
           <p className="text-base md:text-lg text-muted-foreground py-12 text-center">暂无记录</p>
         )}
 
-        {!loading && !error && rows.length > 0 && (
+        {!loading && !error && groups.length > 0 && (
           <div className="space-y-0 -ml-1 sm:-ml-0">
-            {rows.map((row) => (
-              <div
-                key={`${row.kind}-${row.id}`}
-                className="flex gap-2 sm:gap-3 md:gap-5 pb-8 md:pb-11 last:pb-0"
-              >
-                <div className="w-[5.5rem] sm:w-24 md:w-32 shrink-0 text-left sm:text-right pt-1 md:pt-2 pr-0.5">
-                  <time
-                    className="block text-[11px] sm:text-xs md:text-sm lg:text-base font-medium text-muted-foreground tabular-nums leading-snug"
-                    dateTime={new Date(row.created_at * 1000).toISOString()}
-                  >
-                    {formatTime(row.created_at)}
-                  </time>
-                </div>
-                <div className="relative flex-1 min-w-0 border-l-2 border-primary/30 pl-3 sm:pl-4 md:pl-6">
-                  <span
-                    className="absolute left-0 top-2 md:top-3 w-2.5 h-2.5 sm:w-3 sm:h-3 md:w-3.5 md:h-3.5 -translate-x-[calc(50%+1px)] rounded-full bg-primary border-2 border-background shadow-sm"
-                    aria-hidden
-                  />
-                  <div className="rounded-xl border border-border/70 bg-card px-3 py-2.5 sm:px-4 sm:py-3 md:px-6 md:py-5 shadow-sm space-y-2 md:space-y-3">
-                    <p className="text-base md:text-xl font-semibold text-foreground leading-snug">
-                      {row.kind === 'book'
-                        ? BOOK_EVENT_LABEL[row.data.event_type] ?? row.data.event_type
-                        : `托管 · ${row.data.action}`}
-                    </p>
-                    {row.kind === 'book' && (
-                      <div className="text-sm md:text-base text-muted-foreground space-y-1.5 md:space-y-2 leading-relaxed">
-                        {row.data.from_owner && (
-                          <p>
-                            转出：<span className="font-mono text-foreground/90">{row.data.from_owner}</span>
-                          </p>
-                        )}
-                        {row.data.to_owner && (
-                          <p>
-                            转入：<span className="font-mono text-foreground/90">{row.data.to_owner}</span>
-                          </p>
-                        )}
-                        {row.data.escrow_pda && (
-                          <p className="font-mono break-all text-xs md:text-sm">
-                            托管 PDA：{row.data.escrow_pda}
-                          </p>
-                        )}
-                        {row.data.actor_pubkey && (
-                          <p>
-                            操作者：<span className="font-mono">{row.data.actor_pubkey}</span>
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {row.kind === 'escrow' && (
-                      <div className="text-sm md:text-base text-muted-foreground space-y-1.5 md:space-y-2 leading-relaxed">
-                        <p>
-                          卖家 <span className="font-mono text-foreground/90">{row.data.seller}</span>
-                          {' → '}
-                          买家 <span className="font-mono text-foreground/90">{row.data.buyer}</span>
-                        </p>
-                        <p>
-                          状态：<span className="text-foreground/90">{row.data.from_state ?? '—'}</span>
-                          {' → '}
-                          <span className="text-foreground/90">{row.data.to_state}</span>
-                        </p>
-                        <p className="font-mono break-all text-xs md:text-sm">
-                          托管 PDA：{row.data.escrow_pda}
-                        </p>
-                        {row.data.actor_pubkey && (
-                          <p>
-                            操作者：<span className="font-mono">{row.data.actor_pubkey}</span>
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    <div className="flex flex-wrap items-center gap-x-3 sm:gap-x-4 gap-y-2 pt-1">
-                      <button
-                        type="button"
-                        className="text-sm md:text-base text-primary hover:underline font-medium text-left"
-                        onClick={() => {
-                          setDetailRow(row)
-                          setDetailOpen(true)
-                        }}
-                      >
-                        查看详情
-                      </button>
-                      {row.kind === 'book' && row.data.tx_signature && (
-                        <a
-                          href={explorerTxUrl(row.data.tx_signature)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-sm md:text-base text-primary hover:underline font-medium"
-                        >
-                          链上交易
-                        </a>
-                      )}
-                      {row.kind === 'escrow' && row.data.tx_signature && (
-                        <a
-                          href={explorerTxUrl(row.data.tx_signature)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-sm md:text-base text-primary hover:underline font-medium"
-                        >
-                          链上交易
-                        </a>
-                      )}
-                      {row.kind === 'escrow' && (
-                        <a
-                          href={explorerAddressUrl(row.data.escrow_pda)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-sm md:text-base text-muted-foreground hover:underline"
-                        >
-                          托管账户
-                        </a>
-                      )}
+            {groups.map((group, gi) => (
+                <div key={gi}>
+                  {gi > 0 ? (
+                    <div
+                      className="my-10 md:my-14 flex items-center gap-3 text-muted-foreground"
+                      role="separator"
+                    >
+                      <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-border" />
+                      <span className="text-[11px] sm:text-xs font-medium shrink-0 px-2">新的流转产生</span>
+                      <div className="h-px flex-1 bg-gradient-to-l from-transparent via-border to-border" />
                     </div>
-                  </div>
+                  ) : null}
+
+                  {group.map((row) => {
+                    const alert = isMergedRowTimelineAlert(row)
+                    const rail = alert ? 'border-destructive/45' : 'border-primary/30'
+                    const dot = alert ? 'bg-destructive border-destructive' : 'bg-primary border-background'
+                    const cardTone = alert
+                      ? 'border-destructive/25 bg-destructive/[0.04]'
+                      : 'border-border/70 bg-card'
+                    return (
+                      <div
+                        key={`${row.kind}-${row.id}`}
+                        className="flex gap-2 sm:gap-3 md:gap-5 pb-8 md:pb-11 last:pb-0"
+                      >
+                        <div className="w-[5.5rem] sm:w-24 md:w-32 shrink-0 text-left sm:text-right pt-1 md:pt-2 pr-0.5">
+                          <time
+                            className={[
+                              'block text-[11px] sm:text-xs md:text-sm lg:text-base font-medium tabular-nums leading-snug',
+                              alert ? 'text-destructive' : 'text-muted-foreground',
+                            ].join(' ')}
+                            dateTime={new Date(row.created_at * 1000).toISOString()}
+                          >
+                            {formatTime(row.created_at)}
+                          </time>
+                        </div>
+                        <div className={['relative flex-1 min-w-0 border-l-2 pl-3 sm:pl-4 md:pl-6', rail].join(' ')}>
+                          <span
+                            className={[
+                              'absolute left-0 top-2 md:top-3 w-2.5 h-2.5 sm:w-3 sm:h-3 md:w-3.5 md:h-3.5 -translate-x-[calc(50%+1px)] rounded-full border-2 shadow-sm',
+                              dot,
+                            ].join(' ')}
+                            aria-hidden
+                          />
+                          <div
+                            className={[
+                              'rounded-xl border px-3 py-2.5 sm:px-4 sm:py-3 md:px-6 md:py-5 shadow-sm space-y-2 md:space-y-3',
+                              cardTone,
+                            ].join(' ')}
+                          >
+                            <p className="text-base md:text-xl font-semibold text-foreground leading-snug">
+                              {row.kind === 'book'
+                                ? BOOK_EVENT_LABEL[row.data.event_type] ?? row.data.event_type
+                                : escrowActionTitle(row.data.action)}
+                            </p>
+                            {row.kind === 'book' && (
+                              <div className="text-sm md:text-base text-muted-foreground space-y-1.5 md:space-y-2 leading-relaxed">
+                                {row.data.from_owner && (
+                                  <p>
+                                    转出：<span className="font-mono text-foreground/90">{row.data.from_owner}</span>
+                                  </p>
+                                )}
+                                {row.data.to_owner && (
+                                  <p>
+                                    转入：<span className="font-mono text-foreground/90">{row.data.to_owner}</span>
+                                  </p>
+                                )}
+                                {row.data.escrow_pda && (
+                                  <p className="text-xs md:text-sm">
+                                    <span className="text-muted-foreground">托管订单 </span>
+                                    <span className="font-mono">{shortenPubkey(row.data.escrow_pda)}</span>
+                                    {' · '}
+                                    <a
+                                      href={explorerAddressUrl(row.data.escrow_pda)}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-primary hover:underline font-medium"
+                                    >
+                                      浏览器中查看
+                                    </a>
+                                  </p>
+                                )}
+                                {row.data.actor_pubkey && (
+                                  <p>
+                                    操作者：<span className="font-mono">{row.data.actor_pubkey}</span>
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                            {row.kind === 'escrow' && (
+                              <div className="text-sm md:text-base text-muted-foreground space-y-1.5 md:space-y-2 leading-relaxed">
+                                <p>
+                                  卖家 <span className="font-mono text-foreground/90">{row.data.seller}</span>
+                                  {' → '}
+                                  买家 <span className="font-mono text-foreground/90">{row.data.buyer}</span>
+                                </p>
+                                <p>
+                                  状态：
+                                  <span className="text-foreground/90">{escrowStateZh(row.data.from_state)}</span>
+                                  {' → '}
+                                  <span className="text-foreground/90">{escrowStateZh(row.data.to_state)}</span>
+                                </p>
+                                <p className="text-xs md:text-sm">
+                                  <span className="text-muted-foreground">托管订单 </span>
+                                  <span className="font-mono">{shortenPubkey(row.data.escrow_pda)}</span>
+                                  {' · '}
+                                  <a
+                                    href={explorerAddressUrl(row.data.escrow_pda)}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-primary hover:underline font-medium"
+                                  >
+                                    浏览器中查看
+                                  </a>
+                                </p>
+                                {row.data.actor_pubkey && (
+                                  <p>
+                                    操作者：<span className="font-mono">{row.data.actor_pubkey}</span>
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                            <div className="flex flex-wrap items-center gap-x-3 sm:gap-x-4 gap-y-2 pt-1">
+                              <button
+                                type="button"
+                                className="text-sm md:text-base text-primary hover:underline font-medium text-left"
+                                onClick={() => {
+                                  setDetailRow(row)
+                                  setDetailOpen(true)
+                                }}
+                              >
+                                查看详情
+                              </button>
+                              {row.kind === 'book' && row.data.tx_signature && (
+                                <a
+                                  href={explorerTxUrl(row.data.tx_signature)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  title="在浏览器中打开本条记录对应的链上交易签名与明细"
+                                  className="text-sm md:text-base text-primary hover:underline font-medium"
+                                >
+                                  查看链上交易
+                                </a>
+                              )}
+                              {row.kind === 'escrow' && row.data.tx_signature && (
+                                <a
+                                  href={explorerTxUrl(row.data.tx_signature)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  title="在浏览器中打开本条记录对应的链上交易签名与明细"
+                                  className="text-sm md:text-base text-primary hover:underline font-medium"
+                                >
+                                  查看链上交易
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
-              </div>
             ))}
           </div>
         )}

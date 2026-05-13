@@ -3,8 +3,9 @@ use crate::client::types::{
     BroadcastCreateEscrowAutoRequest,
     BroadcastCancelEscrowRequest, BroadcastConfirmReceiptRequest,
     BroadcastOpenDisputeRequest, BroadcastResolveDisputeRequest, BroadcastShipRequest,
+    BroadcastSetPreShipLockRequest,
     CancelEscrowRequest, ConfirmReceiptRequest, CreateEscrowRequest, OpenDisputeRequest,
-    ResolveDisputeRequest, ShipBookRequest,
+    ResolveDisputeRequest, SetPreShipLockRequest, ShipBookRequest,
 };
 use crate::state::AppState;
 use axum::Extension;
@@ -30,6 +31,18 @@ pub async fn ship_book_handler(
     Ok((StatusCode::OK, Json(res)))
 }
 
+pub async fn set_pre_ship_lock_handler(
+    State(state): State<AppState>,
+    Extension(pubkey): Extension<String>,
+    Json(req): Json<SetPreShipLockRequest>,
+) -> Result<impl IntoResponse, ClientError> {
+    if req.seller != pubkey {
+        return Err(ClientError::Forbidden);
+    }
+    let res = state.anchor_service.build_set_pre_ship_lock(req).await?;
+    Ok((StatusCode::OK, Json(res)))
+}
+
 /// 买家确认收货，释放托管资金给卖家,转移NFT。
 pub async fn confirm_receipt_handler(
     State(state): State<AppState>,
@@ -39,7 +52,7 @@ pub async fn confirm_receipt_handler(
     Ok((StatusCode::OK, Json(res)))
 }
 
-/// 取消托管订单（买家或卖家均可发起，链上合约负责权限校验）。
+/// 取消托管订单（买家或卖家均可发起；本站额外拦截：锁单后买家不可构建取消交易）。
 pub async fn cancel_escrow_handler(
     State(state): State<AppState>,
     Extension(pubkey): Extension<String>,
@@ -47,6 +60,20 @@ pub async fn cancel_escrow_handler(
 ) -> Result<impl IntoResponse, ClientError> {
     if req.signer != pubkey {
         return Err(ClientError::Forbidden);
+    }
+    let escrow_row = state
+        .db_service
+        .get_active_escrow_by_asset(&req.asset)
+        .await
+        .map_err(|e| ClientError::DbError(e.to_string()))?
+        .ok_or_else(|| ClientError::BadRequest("订单不存在或已结束".into()))?;
+    if escrow_row.buyer != req.buyer || escrow_row.seller != req.seller {
+        return Err(ClientError::BadRequest("订单信息不匹配".into()));
+    }
+    if req.signer == escrow_row.buyer && escrow_row.pre_ship_locked {
+        return Err(ClientError::BadRequest(
+            "卖家已锁单备发货，买家暂不可取消订单".into(),
+        ));
     }
     let res = state.anchor_service.build_cancel_escrow(req).await?;
     Ok((StatusCode::OK, Json(res)))
@@ -94,6 +121,28 @@ pub async fn broadcast_ship_handler(
     Ok((StatusCode::OK, Json(res)))
 }
 
+pub async fn broadcast_set_pre_ship_lock_handler(
+    State(state): State<AppState>,
+    Extension(pubkey): Extension<String>,
+    Json(req): Json<BroadcastSetPreShipLockRequest>,
+) -> Result<impl IntoResponse, ClientError> {
+    let escrow = state
+        .db_service
+        .get_escrow(&req.escrow_pda)
+        .await
+        .map_err(|e| ClientError::DbError(e.to_string()))?
+        .ok_or_else(|| ClientError::BadRequest("订单不存在".into()))?;
+    if escrow.seller != pubkey {
+        return Err(ClientError::Forbidden);
+    }
+    let now = chrono::Utc::now().timestamp();
+    let res = state
+        .anchor_service
+        .broadcast_set_pre_ship_lock(req, &state.db_service, now)
+        .await?;
+    Ok((StatusCode::OK, Json(res)))
+}
+
 pub async fn broadcast_confirm_receipt_handler(
     State(state): State<AppState>,
     Json(req): Json<BroadcastConfirmReceiptRequest>,
@@ -122,6 +171,11 @@ pub async fn broadcast_cancel_escrow_handler(
     }
     if escrow.asset != req.asset {
         return Err(ClientError::BadRequest("订单与资产不匹配".into()));
+    }
+    if escrow.buyer == pubkey && escrow.pre_ship_locked {
+        return Err(ClientError::BadRequest(
+            "卖家已锁单备发货，买家暂不可取消订单".into(),
+        ));
     }
     let now = chrono::Utc::now().timestamp();
     let res = state

@@ -118,6 +118,7 @@ pub struct EscrowRow {
     pub trade_count_applied: bool,
     /// 与订单 1:1：创建/复活为 Paid 时写入，后续不重写
     pub book_snapshot: Option<Value>,
+    pub pre_ship_locked: bool,
     pub created_at: i64,
     pub updated_at: i64,
 }

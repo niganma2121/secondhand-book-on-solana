@@ -172,12 +172,21 @@ impl DBService {
         &self,
         asset: &str,
         new_price: i64,
+        price_cny: Option<f64>,
+        fx_cny_per_sol: Option<f64>,
         updated_at: i64,
     ) -> Result<(), sqlx::Error> {
         let result = sqlx::query!(
-            "UPDATE books SET price = $2, updated_at = $3 WHERE asset = $1",
+            "UPDATE books
+             SET price = $2,
+                 price_cny = COALESCE($3, price_cny),
+                 fx_cny_per_sol = COALESCE($4, fx_cny_per_sol),
+                 updated_at = $5
+             WHERE asset = $1",
             asset,
             new_price,
+            price_cny,
+            fx_cny_per_sol,
             updated_at
         )
         .execute(&self.db_pool)

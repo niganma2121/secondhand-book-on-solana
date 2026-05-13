@@ -17,7 +17,9 @@ pub struct Escrow{
     pub ship:Option<Ship>,
     pub dispute: Option<Dispute>,
     pub create_at:i64,//托管创建时间,也是购买时间
-    pub bump:u8
+    pub bump:u8,
+    /// 卖家锁单备发货：为 true 时买家不可链上取消（卖家仍可取消）
+    pub pre_ship_locked: bool,
 }
 ///卖家发货
 #[derive(Clone,InitSpace,AnchorSerialize,AnchorDeserialize)]

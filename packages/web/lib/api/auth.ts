@@ -24,6 +24,11 @@ export type CurrentUser = {
   trade_count: number
   sell_count: number
   buy_count: number
+  /** 后端迁移后返回；旧会话可能缺省 */
+  reputation_score?: number
+  dispute_total?: number
+  dispute_won?: number
+  dispute_lost?: number
 }
 
 /** 与 Axum `LoginRequest` 一致：签名为 Base58 编码的字节 */

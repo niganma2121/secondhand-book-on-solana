@@ -22,14 +22,36 @@ export function shelfMyEscrowTrades(asset: string) {
   return `/shelf/trades/${encodeURIComponent(asset)}`
 }
 
-/** 市场页打开指定书籍详情（依赖市场页读取 `asset` 查询参数） */
-export function marketBookDetail(asset: string) {
-  return `${routes.market}?asset=${encodeURIComponent(asset)}`
+/** 市场页打开指定书籍详情（依赖市场页读取 `asset` 等查询参数） */
+export function marketBookDetail(
+  asset: string,
+  opts?: { orderEscrow?: string; orderState?: string; returnTo?: string },
+) {
+  const p = new URLSearchParams()
+  p.set('asset', asset.trim())
+  if (opts?.orderEscrow?.trim()) {
+    p.set('orderEscrow', opts.orderEscrow.trim())
+    p.set('fromOrder', '1')
+  }
+  if (opts?.orderState?.trim()) {
+    p.set('orderState', opts.orderState.trim())
+  }
+  const rt = opts?.returnTo?.trim()
+  if (rt && rt.startsWith('/') && !rt.startsWith('//')) {
+    p.set('returnTo', rt)
+  }
+  return `${routes.market}?${p.toString()}`
 }
 
-/** 打开与指定钱包的会话（对方完整 Base58 地址） */
+/** 打开与指定钱包的会话 */
 export function chatWithPeer(peerPubkey: string) {
-  return `${routes.chat}?peer=${encodeURIComponent(peerPubkey)}`
+  const q = new URLSearchParams({ peer: peerPubkey })
+  return `${routes.chat}?${q.toString()}`
+}
+
+/** 公开卖家 / 用户主页（信誉、在售、评价） */
+export function userPublicProfile(pubkey: string) {
+  return `/users/${encodeURIComponent(pubkey)}`
 }
 
 export type AppRoute = (typeof routes)[keyof typeof routes]

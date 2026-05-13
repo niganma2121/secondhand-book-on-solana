@@ -59,5 +59,8 @@ pub enum AppError {
     AlreadyVoted,
     
     #[msg("管理员不匹配")]
-    AdminUnmatch
+    AdminUnmatch,
+
+    #[msg("卖家已锁单备发货，买家不可取消订单")]
+    BuyerCancelBlockedPreShip,
 }

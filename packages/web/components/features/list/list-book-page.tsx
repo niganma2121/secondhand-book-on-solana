@@ -32,6 +32,14 @@ import {
 } from '@/lib/api/book-listing'
 import { fetchBookDetail } from '@/lib/api/book-detail'
 
+type ListBookNoticeTone = 'info' | 'error' | 'success'
+
+const STAGE_LABEL: Record<'building' | 'signing' | 'minting', string> = {
+  building: '准备上架',
+  signing: '钱包签名',
+  minting: '链上确认',
+}
+
 interface FormState {
   title: string
   author: string
@@ -277,7 +285,11 @@ export function ListBookPage() {
   const [step, setStep] = useState<'form' | 'building' | 'signing' | 'minting' | 'done'>('form')
   /** 分步上架时：封面 / 详情 / 元数据 / 组交易 的当前文案 */
   const [buildPhase, setBuildPhase] = useState('')
-  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<{
+    message: string
+    tone: ListBookNoticeTone
+    durationMs?: number
+  } | null>(null)
   const [lastAsset, setLastAsset] = useState<string | null>(null)
   const [lastSignature, setLastSignature] = useState<string | null>(null)
   const [coverFile, setCoverFile] = useState<File | null>(null)
@@ -294,15 +306,25 @@ export function ListBookPage() {
   const [lookupResults, setLookupResults] = useState<GoogleBooksHit[]>([])
   const [detailImages, setDetailImages] = useState<DetailImageItem[]>([])
   const [imageProcessing, setImageProcessing] = useState(false)
-  const [duplicateHintOpen, setDuplicateHintOpen] = useState(false)
   const [relistPrefillLoading, setRelistPrefillLoading] = useState(false)
   const [relistCategoryRaw, setRelistCategoryRaw] = useState('')
+
+  function ceilLamportsFromSol(sol: number) {
+    return Math.ceil(Math.min(100, Math.max(0, sol)) * 1_000_000_000)
+  }
+
+  function trimSolTextFromLamports(lamports: number) {
+    const sol = lamports / 1_000_000_000
+    let p = sol.toFixed(9).replace(/\.?0+$/, '')
+    if (p === '') p = String(sol)
+    return p
+  }
 
   const priceNum = parseFloat(form.price) || 0
   const platformFee = priceNum * PLATFORM_FEE_RATE
   const youReceive = priceNum - platformFee
   const lamportsDisplay =
-    priceNum > 0 ? BigInt(Math.round(Math.min(100, priceNum) * 1_000_000_000)) : null
+    priceNum > 0 ? BigInt(ceilLamportsFromSol(priceNum)) : null
 
   const relistAsset = searchParams.get('asset')?.trim() ?? ''
   const isRelistMode = searchParams.get('relist') === '1' && relistAsset.length > 0
@@ -320,17 +342,20 @@ export function ListBookPage() {
       setForm((f) => ({ ...f, price: '' }))
       return
     }
-    const sol = Math.min(100, Math.max(1e-9, v / cnyPerSol))
-    let p = sol.toFixed(9).replace(/\.?0+$/, '')
-    if (p === '') p = String(sol)
+    const lamports = ceilLamportsFromSol(v / cnyPerSol)
+    const p = trimSolTextFromLamports(lamports)
     setForm((f) => (f.price === p ? f : { ...f, price: p }))
   }, [cnyPerSol, cnyDraft, priceMode])
 
+  function notify(message: string, tone: ListBookNoticeTone = 'info', durationMs = 2000) {
+    setNotice({ message, tone, durationMs })
+  }
+
   useEffect(() => {
-    if (!duplicateHintOpen) return
-    const timer = window.setTimeout(() => setDuplicateHintOpen(false), 2000)
+    if (!notice) return
+    const timer = window.setTimeout(() => setNotice(null), notice.durationMs ?? 2000)
     return () => window.clearTimeout(timer)
-  }, [duplicateHintOpen])
+  }, [notice])
 
   useEffect(() => {
     if (!isRelistMode) return
@@ -404,10 +429,9 @@ export function ListBookPage() {
         }))
         setCnyDraft('')
         setPriceMode('cny')
-        setSubmitError(null)
       } catch {
         if (!cancelled) {
-          setSubmitError('转卖预填失败，请手动填写上架信息')
+          notify('转卖预填失败，请手动填写上架信息', 'error', 2800)
         }
       } finally {
         if (!cancelled) {
@@ -459,18 +483,17 @@ export function ListBookPage() {
     const file = e.target.files?.[0]
     if (file) {
       if (!file.type.startsWith('image/')) {
-        setSubmitError('封面文件必须是图片格式')
+        notify('封面文件必须是图片格式', 'error', 2200)
         e.target.value = ''
         return
       }
       try {
         setImageProcessing(true)
         const processed = await compressImageIfNeeded(file, MAX_COVER_FILE_BYTES, COVER_MAX_EDGE)
-        setSubmitError(null)
         setCoverFile(processed)
         readFile(processed, (url) => setForm((f) => ({ ...f, coverPreview: url })))
       } catch (err) {
-        setSubmitError(err instanceof Error ? err.message : '封面处理失败')
+        notify(err instanceof Error ? err.message : '封面处理失败', 'error', 2800)
       } finally {
         setImageProcessing(false)
       }
@@ -496,14 +519,13 @@ export function ListBookPage() {
       const sourceFingerprint = await fingerprintFile(file)
       if (existingFingerprints.has(sourceFingerprint)) {
         duplicatedCount++
-        setDuplicateHintOpen(true)
         continue
       }
       let processed: File
       try {
         processed = await compressImageIfNeeded(file, MAX_DETAIL_FILE_BYTES, DETAIL_MAX_EDGE)
       } catch {
-        setSubmitError(`详情图处理失败或仍超过 5MB：${file.name}`)
+        notify(`详情图处理失败或仍超过 5MB：${file.name}`, 'error', 3200)
         continue
       }
       existingFingerprints.add(sourceFingerprint)
@@ -514,11 +536,14 @@ export function ListBookPage() {
         sourceFingerprint,
       })
     }
-    if (next.length > 0 && duplicatedCount === 0) {
-      setSubmitError(null)
-    }
-    if (duplicatedCount > 0 && next.length === 0) {
-      setSubmitError('检测到重复详情图，已自动跳过')
+    if (duplicatedCount > 0) {
+      notify(
+        next.length === 0
+          ? '所选图片与已有详情图重复，未添加新图'
+          : '已跳过与现有详情图重复的图片',
+        'info',
+        2200,
+      )
     }
     if (next.length) setDetailImages((prev) => [...prev, ...next])
     setImageProcessing(false)
@@ -546,33 +571,26 @@ export function ListBookPage() {
     if (!publicKey) { openWalletConnect(); return }
     if (!validate()) return
     if (!coverFile) {
-      setSubmitError('请先上传封面图片')
+      notify('请先上传封面图片', 'error', 2200)
       return
     }
     if (detailImages.length < MIN_DETAIL_IMAGES) {
-      setSubmitError(`请至少上传 ${MIN_DETAIL_IMAGES} 张详情图片`)
+      notify(`请至少上传 ${MIN_DETAIL_IMAGES} 张详情图片`, 'error', 2200)
       return
     }
     if (!signTransaction) {
-      setSubmitError('当前钱包不支持交易签名，请切换钱包后重试')
+      notify('当前钱包不支持交易签名，请切换钱包后重试', 'error', 2800)
       return
     }
-    setSubmitError(null)
     setLastAsset(null)
     setLastSignature(null)
     let failedStage: 'building' | 'signing' | 'minting' = 'building'
     try {
-      const priceLamports = Math.round(priceNum * 1_000_000_000)
+      const priceLamports = ceilLamportsFromSol(priceNum)
       if (!Number.isFinite(priceLamports) || priceLamports <= 0) {
-        setSubmitError('价格换算失败，请检查 SOL 定价')
+        notify('价格换算失败，请检查 SOL 定价', 'error', 2600)
         return
       }
-      const parsedCny = Number.parseFloat(cnyDraft)
-      const priceCny =
-        Number.isFinite(parsedCny) && parsedCny > 0 ? Number(parsedCny.toFixed(2)) : null
-      const fxCnyPerSolSnapshot =
-        cnyPerSol != null && Number.isFinite(cnyPerSol) && cnyPerSol > 0 ? cnyPerSol : null
-
       setBuildPhase('')
       setStep('building')
       console.info('[list-book] stage=building start', {
@@ -629,8 +647,6 @@ export function ListBookPage() {
             seller: publicKey.toBase58(),
             asset: relistAsset,
             priceLamports,
-            priceCny,
-            fxCnyPerSol: fxCnyPerSolSnapshot,
             name: form.title.trim(),
             author: form.author.trim() || undefined,
             series: undefined,
@@ -642,8 +658,6 @@ export function ListBookPage() {
             build: buildRes,
             seller: publicKey.toBase58(),
             priceLamports,
-            priceCny,
-            fxCnyPerSol: fxCnyPerSolSnapshot,
             name: form.title.trim(),
             author: form.author.trim() || undefined,
             series: undefined,
@@ -655,17 +669,19 @@ export function ListBookPage() {
       setLastAsset(buildRes.asset)
       setLastSignature(broadcast.signature)
       setStep('done')
+      notify(isRelistMode ? '转卖上架成功' : '上架成功', 'success', 2000)
     } catch (e) {
       setStep('form')
       setBuildPhase('')
       console.error('[list-book] submit failed', { stage: failedStage, error: e })
-      if (e instanceof ApiError) {
-        setSubmitError(`[${failedStage}] ${e.message}`)
-      } else if (e instanceof Error) {
-        setSubmitError(`[${failedStage}] ${e.message}`)
-      } else {
-        setSubmitError(`[${failedStage}] 上架失败，请稍后重试`)
-      }
+      const stageLabel = STAGE_LABEL[failedStage]
+      const detail =
+        e instanceof ApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : '上架失败，请稍后重试'
+      notify(`${stageLabel}：${detail}`, 'error', Math.min(9000, 2400 + detail.length * 28))
     }
   }
 
@@ -673,14 +689,13 @@ export function ListBookPage() {
     if (!publicKey) { openWalletConnect(); return }
     if (!validate()) return
     if (!coverFile) {
-      setSubmitError('请先上传封面图片')
+      notify('请先上传封面图片', 'error', 2200)
       return
     }
     if (detailImages.length < MIN_DETAIL_IMAGES) {
-      setSubmitError(`请至少上传 ${MIN_DETAIL_IMAGES} 张详情图片`)
+      notify(`请至少上传 ${MIN_DETAIL_IMAGES} 张详情图片`, 'error', 2200)
       return
     }
-    setSubmitError(null)
     setConfirmChecked(false)
     setConfirmDialogOpen(true)
   }
@@ -701,7 +716,6 @@ export function ListBookPage() {
     setDetailZoomUrl(null)
     setCnyDraft('')
     setPriceMode('cny')
-    setSubmitError(null)
     setLastAsset(null)
     setLastSignature(null)
     setBuildPhase('')
@@ -815,7 +829,7 @@ export function ListBookPage() {
                   {step === 'building'
                     ? '正在上传中，请不要关闭此页面'
                     : step === 'signing'
-                      ? '请在钱包（Phantom / MetaMask）中确认签名弹窗'
+                      ? '请在钱包中确认签名弹窗'
                       : '正在 Solana Devnet 上铸造书籍 NFT'}
                 </p>
               </div>
@@ -846,6 +860,21 @@ export function ListBookPage() {
             </>
           )}
         </div>
+        {notice ? (
+          <div
+            role="alert"
+            className={[
+              'fixed left-1/2 top-1/2 z-[130] w-[min(92vw,28rem)] -translate-x-1/2 -translate-y-1/2 rounded-xl border px-4 py-3 text-center text-sm md:text-base shadow-lg backdrop-blur-md',
+              notice.tone === 'error'
+                ? 'border-destructive/35 bg-destructive/15 text-destructive'
+                : notice.tone === 'success'
+                  ? 'border-primary/35 bg-primary/12 text-primary'
+                  : 'border-border/70 bg-card/95 text-foreground',
+            ].join(' ')}
+          >
+            <span className="whitespace-pre-wrap break-words">{notice.message}</span>
+          </div>
+        ) : null}
       </div>
     )
   }
@@ -857,7 +886,7 @@ export function ListBookPage() {
         <div className="mb-6">
           <h1 className="text-xl font-bold text-foreground">{isRelistMode ? '转卖上架' : '上架书籍'}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {isRelistMode ? '将复用原书 asset，调用转卖指令重新上架' : '填写信息后将铸造为 Solana NFT 上链出售'}
+            {isRelistMode ? '' : '填写信息后将铸造为 Solana NFT 上链出售'}
           </p>
         </div>
 
@@ -1409,26 +1438,31 @@ export function ListBookPage() {
                 <>
                   <span>
                     参考汇率：1 SOL ≈ ¥{cnyPerSol.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}
-                    {rateSource === 'coingecko' ? '（CoinGecko 现货）' : '（环境变量备用）'}
                   </span>
                   {rateUpdatedAt != null && (
                     <span className="text-muted-foreground/80">
                       更新 {new Date(rateUpdatedAt).toLocaleString('zh-CN')}
                     </span>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => void refreshRate()}
-                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-foreground/90 hover:bg-muted"
-                  >
-                    <RefreshCw className="h-3 w-3" aria-hidden />
-                    刷新
-                  </button>
                 </>
               ) : null}
+              <button
+                type="button"
+                onClick={() => void refreshRate()}
+                disabled={rateLoading}
+                className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-foreground/90 hover:bg-muted disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <RefreshCw className="h-3 w-3" aria-hidden />
+                刷新
+              </button>
             </div>
             {rateError && (
               <p className="text-xs text-amber-600 dark:text-amber-500/90">{rateError}</p>
+            )}
+            {!rateLoading && cnyPerSol == null && (
+              <p className="text-xs text-muted-foreground">
+                当前无法使用人民币参考换算，可切换到 SOL 定价继续上架。
+              </p>
             )}
             <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
               汇率随时波动，页面所示换算<strong className="text-foreground/90">仅代表当前参考时刻</strong>
@@ -1486,6 +1520,12 @@ export function ListBookPage() {
             {priceNum > 0 && cnyPerSol != null && (
               <div className="rounded-xl border border-border/50 bg-card/60 px-3 py-2.5 text-xs space-y-1.5">
                 <div className="flex justify-between gap-2 text-muted-foreground">
+                  <span>约合人民币（参考）</span>
+                  <span className="font-mono text-foreground">
+                    ¥{(priceNum * cnyPerSol).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2 text-muted-foreground">
                   <span>约合 SOL（提交链上）</span>
                   <span className="font-mono text-foreground">{priceNum.toFixed(6)} SOL</span>
                 </div>
@@ -1522,12 +1562,6 @@ export function ListBookPage() {
             <span>当前为 <strong className="text-yellow-400">Devnet</strong> 测试网络，所有交易使用测试 SOL，不涉及真实资产。上架操作将铸造 NFT 并写入链上。</span>
           </div>
 
-          {submitError && (
-            <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              {submitError}
-            </div>
-          )}
-
           {/* ── 提交 ── */}
           <Button
             onClick={handleSubmit}
@@ -1546,11 +1580,21 @@ export function ListBookPage() {
           </div>
         )}
       </div>
-      {duplicateHintOpen && (
-        <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-md border border-border/60 bg-card/95 px-3 py-2 text-xs text-foreground shadow-lg backdrop-blur">
-          你已经上传过该图片了
+      {notice ? (
+        <div
+          role="alert"
+          className={[
+            'fixed left-1/2 top-1/2 z-[130] w-[min(92vw,28rem)] -translate-x-1/2 -translate-y-1/2 rounded-xl border px-4 py-3 text-center text-sm md:text-base shadow-lg backdrop-blur-md',
+            notice.tone === 'error'
+              ? 'border-destructive/35 bg-destructive/15 text-destructive'
+              : notice.tone === 'success'
+                ? 'border-primary/35 bg-primary/12 text-primary'
+                : 'border-border/70 bg-card/95 text-foreground',
+          ].join(' ')}
+        >
+          <span className="whitespace-pre-wrap break-words">{notice.message}</span>
         </div>
-      )}
+      ) : null}
     </div>
   )
 }

@@ -5,18 +5,21 @@ import { useRouter } from 'next/navigation'
 import { useState, useRef, useEffect } from 'react'
 import { routes } from '@/config/routes'
 import type { ChatConversation, ChatMessage } from '@/lib/types'
-import { useChatConversations } from '@/lib/hooks/use-chat-conversations'
+import { useChatConversationsContext } from '@/components/providers/chat-conversations-provider'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/components/providers/auth-provider'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { tryNormalizeSolanaPubkey } from '@/lib/solana-pubkey'
+import { privacyPubkey } from '@/lib/format-seller'
+import { ChatMessageBody } from '@/components/features/chat/chat-message-body'
 
 type ChatPageProps = {
   /** 从 `/chat?peer=...` 进入时自动打开与该地址的会话 */
@@ -44,7 +47,7 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
     wsConnected,
     wsError,
     loadingList,
-  } = useChatConversations()
+  } = useChatConversationsContext()
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const imgInputRef = useRef<HTMLInputElement>(null)
@@ -216,18 +219,20 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-foreground truncate">{conv.sellerName}</p>
-            <p className="text-[10px] text-muted-foreground font-mono">{conv.sellerAddr}</p>
+            <p className="text-[10px] text-muted-foreground font-mono">{privacyPubkey(conv.sellerAddr)}</p>
           </div>
-          <Link
-            href={`${routes.market}?seller=${encodeURIComponent(conv.sellerAddr)}`}
-            className="text-xs text-primary border border-primary/30 px-2.5 py-1 rounded-lg hover:bg-primary/10 transition-colors shrink-0"
-            onClick={(e) => {
-              e.preventDefault()
-              router.push(`${routes.market}?seller=${encodeURIComponent(conv.sellerAddr)}`)
-            }}
-          >
-            查看Ta在售书籍
-          </Link>
+          <div className="flex flex-col gap-1.5 items-end shrink-0">
+            <Link
+              href={`${routes.market}?seller=${encodeURIComponent(conv.sellerAddr)}`}
+              className="text-xs text-primary border border-primary/30 px-2.5 py-1 rounded-lg hover:bg-primary/10 transition-colors"
+              onClick={(e) => {
+                e.preventDefault()
+                router.push(`${routes.market}?seller=${encodeURIComponent(conv.sellerAddr)}`)
+              }}
+            >
+              查看Ta在售书籍
+            </Link>
+          </div>
         </div>
 
         {/* 书目信息条 */}
@@ -259,8 +264,8 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
                         ? 'rounded-tr-sm'
                         : 'bg-primary text-primary-foreground rounded-tr-sm'
                       : msg.imageUrl
-                      ? 'rounded-tl-sm'
-                      : 'bg-card border border-border/60 text-foreground rounded-tl-sm',
+                        ? 'rounded-tl-sm'
+                        : 'bg-card border border-border/60 text-foreground rounded-tl-sm',
                   ].join(' ')}
                 >
                   {msg.imageUrl ? (
@@ -271,7 +276,10 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
                       className="max-w-[220px] max-h-[280px] object-cover block"
                     />
                   ) : (
-                    msg.text
+                    <ChatMessageBody
+                      text={msg.text ?? ''}
+                      variant={msg.from === 'me' ? 'me' : 'peer'}
+                    />
                   )}
                   {msg.imageUrl && msg.text && (
                     <p
@@ -280,7 +288,10 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
                         msg.from === 'me' ? 'text-primary-foreground bg-primary' : 'text-foreground',
                       ].join(' ')}
                     >
-                      {msg.text}
+                      <ChatMessageBody
+                        text={msg.text}
+                        variant={msg.from === 'me' ? 'me' : 'peer'}
+                      />
                     </p>
                   )}
                 </div>

@@ -147,6 +147,32 @@ impl AnchorService {
         Ok(BroadcastResponse::new(sig.to_string(), "发货消息已提交"))
     }
 
+    pub async fn broadcast_set_pre_ship_lock(
+        &self,
+        req: BroadcastSetPreShipLockRequest,
+        db: &DBService,
+        now: i64,
+    ) -> Result<BroadcastResponse, ClientError> {
+        let tx = deserialize_signed_tx(&req.signed_tx)?;
+        let sig = self
+            .get_program()?
+            .rpc()
+            .send_and_confirm_transaction(&tx)
+            .await
+            .map_err(|e| ClientError::BroadcastFailed(e.to_string()))?;
+        if let Err(e) = db
+            .set_escrow_pre_ship_locked(&req.escrow_pda, true, now)
+            .await
+        {
+            warn!("锁单备发货: 数据库 pre_ship_locked 更新失败: {e}");
+            spawn_reconcile_tick(db.clone(), self.clone());
+        }
+        Ok(BroadcastResponse::new(
+            sig.to_string(),
+            "已锁单备发货（链上已生效）",
+        ))
+    }
+
     pub async fn broadcast_confirm_receipt(
         &self,
         req: BroadcastConfirmReceiptRequest,

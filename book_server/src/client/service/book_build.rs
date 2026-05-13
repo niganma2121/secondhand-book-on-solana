@@ -204,12 +204,17 @@ impl AnchorService {
         hash_arr.copy_from_slice(&req.metadata_hash);
         let book_pda = self.book_pda(&asset);
         let program = self.get_program()?;
+        let collection = self.book_collection;
 
         let ix = program
             .request()
             .accounts(accounts::RelistBook {
                 owner: seller,
                 book: book_pda,
+                asset,
+                collection,
+                mpl_core_program: MPL_CORE,
+                system_program: SYSTEM_PROGRAM_ID,
             })
             .args(args::RelistBook {
                 new_price: req.price,

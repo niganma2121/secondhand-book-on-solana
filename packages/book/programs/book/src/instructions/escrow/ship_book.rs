@@ -29,6 +29,7 @@ pub fn ship_book(ctx:Context<ShipBook>,shipping_commitment:[u8;32])->Result<()>{
 
     //更新托管状态
     escrow.state=EscrowState::Shipped;
+    escrow.pre_ship_locked = false;
     emit!(BookShippedEvent{
         escrow:ctx.accounts.escrow.key(),
         seller:ctx.accounts.seller.key(),

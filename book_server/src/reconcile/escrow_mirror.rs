@@ -45,6 +45,12 @@ pub async fn reconcile_one_escrow_row(
 
             let mut repaired = false;
 
+            if row.pre_ship_locked != on_chain.pre_ship_locked {
+                db.set_escrow_pre_ship_locked(&row.escrow_pda, on_chain.pre_ship_locked, now)
+                    .await?;
+                repaired = true;
+            }
+
             if row.state != target_esc_state {
                 apply_escrow_state_from_chain(db, row, &target_esc_state, &on_chain, now).await?;
                 repaired = true;

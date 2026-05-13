@@ -81,6 +81,7 @@ impl DBService {
                    shipping_commitment = NULL,
                    trade_count_applied = false,
                    book_snapshot       = EXCLUDED.book_snapshot,
+                   pre_ship_locked     = false,
                    updated_at          = EXCLUDED.updated_at
                WHERE escrows.state = 'Cancelled'"#,
         )
@@ -154,6 +155,7 @@ impl DBService {
             "UPDATE escrows
              SET state               = 'Shipped',
                  shipping_commitment = $2,
+                 pre_ship_locked       = false,
                  updated_at          = $3
              WHERE escrow_pda = $1",
             escrow_pda,
@@ -212,7 +214,7 @@ impl DBService {
     pub async fn get_escrow(&self, escrow_pda: &str) -> Result<Option<EscrowRow>, sqlx::Error> {
         sqlx::query_as::<_, EscrowRow>(
             r#"SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
-                      shipping_commitment, trade_count_applied, book_snapshot, created_at, updated_at
+                      shipping_commitment, trade_count_applied, book_snapshot, pre_ship_locked, created_at, updated_at
                FROM escrows
                WHERE escrow_pda = $1"#,
         )
@@ -228,7 +230,7 @@ impl DBService {
     ) -> Result<Option<EscrowRow>, sqlx::Error> {
         sqlx::query_as::<_, EscrowRow>(
             r#"SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
-                      shipping_commitment, trade_count_applied, book_snapshot, created_at, updated_at
+                      shipping_commitment, trade_count_applied, book_snapshot, pre_ship_locked, created_at, updated_at
                FROM escrows
                WHERE asset = $1
                  AND state IN ('Paid', 'Shipped')"#,
@@ -246,7 +248,7 @@ impl DBService {
     ) -> Result<Vec<EscrowRow>, sqlx::Error> {
         sqlx::query_as::<_, EscrowRow>(
             r#"SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
-                      shipping_commitment, trade_count_applied, book_snapshot, created_at, updated_at
+                      shipping_commitment, trade_count_applied, book_snapshot, pre_ship_locked, created_at, updated_at
                FROM escrows
                WHERE buyer = $1
                ORDER BY created_at DESC
@@ -267,7 +269,7 @@ impl DBService {
     ) -> Result<Vec<EscrowRow>, sqlx::Error> {
         sqlx::query_as::<_, EscrowRow>(
             r#"SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
-                      shipping_commitment, trade_count_applied, book_snapshot, created_at, updated_at
+                      shipping_commitment, trade_count_applied, book_snapshot, pre_ship_locked, created_at, updated_at
                FROM escrows
                WHERE seller = $1
                ORDER BY created_at DESC
@@ -287,7 +289,7 @@ impl DBService {
     ) -> Result<Vec<EscrowRow>, sqlx::Error> {
         sqlx::query_as::<_, EscrowRow>(
             r#"SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
-                      shipping_commitment, trade_count_applied, book_snapshot, created_at, updated_at
+                      shipping_commitment, trade_count_applied, book_snapshot, pre_ship_locked, created_at, updated_at
                FROM escrows
                ORDER BY updated_at DESC
                LIMIT $1"#,
@@ -336,5 +338,23 @@ impl DBService {
         .bind(page.offset)
         .fetch_all(&self.db_pool)
         .await
+    }
+
+    /// 与链上 `pre_ship_locked` 对齐（对账或锁单广播后写入）
+    pub async fn set_escrow_pre_ship_locked(
+        &self,
+        escrow_pda: &str,
+        locked: bool,
+        updated_at: i64,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE escrows SET pre_ship_locked = $2, updated_at = $3 WHERE escrow_pda = $1",
+        )
+        .bind(escrow_pda)
+        .bind(locked)
+        .bind(updated_at)
+        .execute(&self.db_pool)
+        .await?;
+        Ok(())
     }
 }
