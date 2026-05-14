@@ -45,7 +45,7 @@ export type UserReviewsResponse = {
 /** 用户从未登录过时后端返回 404 → null */
 export async function fetchPublicUser(pubkey: string): Promise<PublicUserProfile | null> {
   try {
-    return await apiFetch<PublicUserProfile>(`/users/${encodeURIComponent(pubkey)}`)
+    return await apiFetch<PublicUserProfile>(`/users/${encodeURIComponent(pubkey)}`, { omitAuth: true })
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) return null
     throw e
@@ -56,6 +56,7 @@ export async function fetchUserReviews(pubkey: string, page = 1, pageSize = 20) 
   const q = new URLSearchParams({ page: String(page), page_size: String(pageSize) })
   return apiFetch<UserReviewsResponse>(
     `/users/${encodeURIComponent(pubkey)}/reviews?${q.toString()}`,
+    { omitAuth: true },
   )
 }
 
@@ -70,6 +71,7 @@ export async function fetchSellerBooksPage(
   })
   const json = await apiFetch<{ books: BookCardDto[] }>(
     `/users/${encodeURIComponent(pubkey)}/books?${q.toString()}`,
+    { omitAuth: true },
   )
   return (json.books ?? []).map(bookCardDtoToBook)
 }

@@ -147,6 +147,7 @@ pub async fn get_book_history_handler(
                 "action": e.action,
                 "tx_signature": e.tx_signature,
                 "actor_pubkey": e.actor_pubkey.as_deref().map(mask_pubkey),
+                "payload": e.payload,
                 "created_at": e.created_at,
                 "book_snapshot": e.book_snapshot
             })

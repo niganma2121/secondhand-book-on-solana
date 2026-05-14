@@ -33,3 +33,17 @@ pub fn tx_primary_signature(tx: &Transaction) -> Result<Signature, ClientError> 
         .copied()
         .ok_or_else(|| ClientError::TxVerifyFailed("交易缺少有效签名".into()))
 }
+
+/// 已签名交易中，第一个同时出现在 `party_a` / `party_b` 里的签名账户（用于识别买家/卖家谁发起了 open_dispute）。
+pub fn first_party_signer_among(tx: &Transaction, party_a: &str, party_b: &str) -> Option<String> {
+    let msg = &tx.message;
+    let keys = &msg.account_keys;
+    let n = msg.header.num_required_signatures as usize;
+    for i in 0..n.min(keys.len()) {
+        let k = keys[i].to_string();
+        if k == party_a || k == party_b {
+            return Some(k);
+        }
+    }
+    None
+}

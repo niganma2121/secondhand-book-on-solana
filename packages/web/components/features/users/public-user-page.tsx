@@ -13,10 +13,17 @@ import {
   type UserReviewsResponse,
 } from '@/lib/api/users'
 import { ApiError } from '@/lib/api/client'
-import { shortenPubkey } from '@/lib/format-seller'
-import { chatWithPeer, marketBookDetail, routes } from '@/config/routes'
+import { peerDisplayTitle, privacyPubkey } from '@/lib/format-seller'
+import { chatWithPeer, marketBookDetail, routes, userPublicProfile } from '@/config/routes'
 import type { Book } from '@/lib/types'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 function scoreStars(score: number) {
   const n = Math.max(0, Math.min(5, Math.round(score)))
@@ -44,6 +51,7 @@ export function PublicUserPage() {
   const [sellerBooks, setSellerBooks] = useState<Book[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [avatarLightboxOpen, setAvatarLightboxOpen] = useState(false)
 
   useEffect(() => {
     if (!pubkey.trim()) {
@@ -90,7 +98,14 @@ export function PublicUserPage() {
   }, [pubkey])
 
   const displayName =
-    profile?.username?.trim() || (pubkey ? shortenPubkey(pubkey) : '用户')
+    profile === undefined
+      ? '…'
+      : profile === null
+        ? pubkey
+          ? peerDisplayTitle(null, pubkey)
+          : '用户'
+        : peerDisplayTitle(profile.username, profile.pubkey)
+  const avatarSrc = profile?.avatar?.trim() || null
 
   return (
     <div className="max-w-2xl mx-auto px-4 sm:px-6 pt-4 pb-28 md:pb-10">
@@ -122,7 +137,14 @@ export function PublicUserPage() {
           <p className="text-sm text-muted-foreground leading-relaxed">
             该钱包尚未在本站登录过，后台暂无昵称、信誉与成交汇总。你仍可通过链上地址与对方沟通或筛选其在售书籍。
           </p>
-          <p className="font-mono text-xs text-muted-foreground break-all">{pubkey}</p>
+          <button
+            type="button"
+            className="text-left"
+            onClick={() => navigator.clipboard?.writeText(pubkey)}
+          >
+            <p className="text-xs text-muted-foreground font-mono">{privacyPubkey(pubkey, 3)}</p>
+            <p className="text-[10px] text-muted-foreground">点击复制完整地址</p>
+          </button>
           <div className="flex flex-col sm:flex-row gap-2 pt-2">
             <Button variant="outline" size="sm" className="rounded-xl" asChild>
               <Link href={`${routes.market}?seller=${encodeURIComponent(pubkey)}`}>查看其在售（市场筛选）</Link>
@@ -141,9 +163,22 @@ export function PublicUserPage() {
           <div className="rounded-2xl bg-card border border-border/60 overflow-hidden mb-5">
             <div className="h-14 bg-gradient-to-br from-primary/15 to-primary/5" />
             <div className="px-4 pb-4 -mt-8 flex gap-3">
-              <div className="relative w-16 h-16 rounded-2xl overflow-hidden border-2 border-card bg-secondary shrink-0">
-                {profile.avatar?.trim() ? (
-                  <Image src={profile.avatar} alt="" fill className="object-cover" unoptimized />
+              <button
+                type="button"
+                disabled={!avatarSrc}
+                onClick={() => {
+                  if (avatarSrc) setAvatarLightboxOpen(true)
+                }}
+                className={[
+                  'relative w-16 h-16 rounded-2xl overflow-hidden border-2 border-card bg-secondary shrink-0',
+                  avatarSrc
+                    ? 'cursor-zoom-in ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                    : 'cursor-default',
+                ].join(' ')}
+                aria-label={avatarSrc ? '查看头像大图' : '默认头像'}
+              >
+                {avatarSrc ? (
+                  <Image src={avatarSrc} alt="" fill className="object-cover" unoptimized />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-primary/40">
                     <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden>
@@ -157,15 +192,16 @@ export function PublicUserPage() {
                     </svg>
                   </div>
                 )}
-              </div>
+              </button>
               <div className="flex-1 min-w-0 pt-9">
                 <h1 className="text-lg font-bold text-foreground truncate">{displayName}</h1>
                 <button
                   type="button"
                   onClick={() => navigator.clipboard?.writeText(profile.pubkey)}
-                  className="text-xs font-mono text-muted-foreground hover:text-foreground mt-0.5"
+                  className="text-xs font-mono text-muted-foreground hover:text-foreground mt-0.5 block text-left"
+                  title="点击复制完整地址"
                 >
-                  {shortenPubkey(profile.pubkey)}
+                  {privacyPubkey(profile.pubkey, 3)}
                 </button>
               </div>
             </div>
@@ -263,7 +299,13 @@ export function PublicUserPage() {
                       </div>
                       <div className="p-2">
                         <p className="text-xs font-medium text-foreground line-clamp-2 leading-snug">{b.title}</p>
-                        <p className="text-[11px] font-mono text-primary mt-1">{b.price.toFixed(3)} SOL</p>
+                        <p className="text-[11px] text-primary mt-1 tabular-nums">
+                          {typeof b.priceCny === 'number' && b.priceCny > 0 ? (
+                            <>¥{b.priceCny.toFixed(2)} · {b.price.toFixed(3)} SOL</>
+                          ) : (
+                            <>{b.price.toFixed(3)} SOL</>
+                          )}
+                        </p>
                       </div>
                     </Link>
                   </li>
@@ -283,9 +325,12 @@ export function PublicUserPage() {
                     className="rounded-xl border border-border/50 bg-card/80 px-4 py-3 text-sm"
                   >
                     <div className="flex items-center justify-between gap-2 mb-1">
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {shortenPubkey(r.reviewer)}
-                      </span>
+                      <Link
+                        href={userPublicProfile(r.reviewer)}
+                        className="text-xs text-muted-foreground font-mono hover:text-primary hover:underline"
+                      >
+                        {privacyPubkey(r.reviewer, 3)}
+                      </Link>
                       <span className="flex items-center gap-1.5">
                         {scoreStars(r.score)}
                         <span className="text-xs text-muted-foreground tabular-nums">{r.score}/5</span>
@@ -306,6 +351,23 @@ export function PublicUserPage() {
           ) : null}
         </>
       ) : null}
+
+      <Dialog open={avatarLightboxOpen} onOpenChange={setAvatarLightboxOpen}>
+        <DialogContent className="max-w-[min(96vw,560px)] border-border/80 bg-card p-2 sm:p-4">
+          <DialogHeader>
+            <DialogTitle>{displayName} 的头像</DialogTitle>
+            <DialogDescription className="sr-only">放大查看</DialogDescription>
+          </DialogHeader>
+          {avatarSrc ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={avatarSrc}
+              alt=""
+              className="max-h-[min(80vh,720px)] w-auto max-w-full mx-auto rounded-lg object-contain block"
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

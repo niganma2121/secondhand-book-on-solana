@@ -18,17 +18,28 @@ impl DBService {
             .await
     }
 
-    // 首次登录插入用户，已存在则忽略
+    // 首次登录插入用户，已存在则忽略；可选环境变量 `DEFAULT_AVATAR_URL` 写入默认头像
     pub async fn insert_user(&self, pubkey: &str, created_at: i64) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            "INSERT INTO users (pubkey, created_at)
-             VALUES ($1, $2)
-             ON CONFLICT (pubkey) DO NOTHING",
-            pubkey,
-            created_at
+        let default_avatar = std::env::var(crate::DEFAULT_AVATAR_URL_ENV)
+            .ok()
+            .and_then(|s| {
+                let t = s.trim().to_owned();
+                if t.is_empty() {
+                    None
+                } else {
+                    Some(t)
+                }
+            });
+        sqlx::query(
+            r#"INSERT INTO users (pubkey, created_at, avatar)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (pubkey) DO NOTHING"#,
         )
-            .execute(&self.db_pool)
-            .await?;
+        .bind(pubkey)
+        .bind(created_at)
+        .bind(default_avatar.as_deref())
+        .execute(&self.db_pool)
+        .await?;
         Ok(())
     }
 
@@ -50,6 +61,33 @@ impl DBService {
         )
             .execute(&self.db_pool)
             .await?;
+        Ok(())
+    }
+
+    /// 更新资料并写入「当日昵称修改次数」（仅在昵称实际变更时由上层调用）
+    pub async fn update_user_profile_with_username_quota(
+        &self,
+        pubkey: &str,
+        username: Option<&str>,
+        avatar: Option<&str>,
+        quota_day: i32,
+        quota_count: i32,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE users
+               SET username = COALESCE($2, username),
+                   avatar = COALESCE($3, avatar),
+                   username_edit_day = $4,
+                   username_edit_count = $5
+               WHERE pubkey = $1"#,
+        )
+        .bind(pubkey)
+        .bind(username)
+        .bind(avatar)
+        .bind(quota_day)
+        .bind(quota_count)
+        .execute(&self.db_pool)
+        .await?;
         Ok(())
     }
 

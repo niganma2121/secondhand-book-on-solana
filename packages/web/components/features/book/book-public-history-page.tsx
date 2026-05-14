@@ -25,7 +25,8 @@ import { env } from '@/lib/env'
 import { explorerAddressUrl, explorerTxUrl } from '@/lib/solana-explorer'
 import {
   escrowActionDescription,
-  escrowActionTitle,
+  escrowEventPrimaryLine,
+  escrowResolveSummary,
   escrowStateZh,
   isEscrowActionAlert,
 } from '@/lib/escrow-event-copy'
@@ -215,7 +216,9 @@ function escrowDisputeNote(data: PublicEscrowEvent): string | null {
   const to = (data.to_state ?? '').toLowerCase()
   if (a.includes('dispute') || to.includes('disputed') || from.includes('disputed')) {
     if (a === 'open_dispute') return '本步已发起争议，托管进入待裁状态。'
-    if (a === 'resolve_dispute') return '本步为争议裁决相关链上动作。'
+    if (a === 'resolve_dispute') {
+      return escrowResolveSummary(data.payload) ?? '本步为争议裁决相关链上动作。'
+    }
     if (to.includes('disputed')) return '本条记录后托管处于争议/仲裁流程中（以链上状态为准）。'
   }
   return null
@@ -237,7 +240,7 @@ function RecordDetailDialog({
   const title =
     row.kind === 'book'
       ? BOOK_EVENT_LABEL[row.data.event_type] ?? row.data.event_type
-      : escrowActionTitle(row.data.action)
+      : escrowEventPrimaryLine(row.data.action, row.data.payload)
 
   const payload = row.kind === 'book' ? row.data.payload : null
   const escrowSnap = row.kind === 'escrow' ? row.data.book_snapshot : null
@@ -258,7 +261,7 @@ function RecordDetailDialog({
 
   const escrowSummary =
     row.kind === 'escrow'
-      ? escrowActionDescription(row.data.action)
+      ? escrowActionDescription(row.data.action, row.data.payload)
       : null
   const disputeNote = row.kind === 'escrow' ? escrowDisputeNote(row.data) : null
 
@@ -578,7 +581,7 @@ export function BookPublicHistoryPage({ asset }: { asset: string }) {
                             <p className="text-base md:text-xl font-semibold text-foreground leading-snug">
                               {row.kind === 'book'
                                 ? BOOK_EVENT_LABEL[row.data.event_type] ?? row.data.event_type
-                                : escrowActionTitle(row.data.action)}
+                                : escrowEventPrimaryLine(row.data.action, row.data.payload)}
                             </p>
                             {row.kind === 'book' && (
                               <div className="text-sm md:text-base text-muted-foreground space-y-1.5 md:space-y-2 leading-relaxed">

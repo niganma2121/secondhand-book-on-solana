@@ -21,6 +21,7 @@ import { ApiError } from '@/lib/api/client'
 import { clearAccessToken, setAccessToken } from '@/lib/auth/token-store'
 import { ensureCommKeyReady } from '@/lib/encryption/comm-key-provision'
 import { env } from '@/lib/env'
+import { useWallet } from '@solana/wallet-adapter-react'
 
 type SessionStatus = 'loading' | 'unauthenticated' | 'authenticated'
 
@@ -43,6 +44,7 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const { publicKey } = useWallet()
   const [user, setUser] = useState<CurrentUser | null>(null)
   const [sessionStatus, setSessionStatus] = useState<SessionStatus>('loading')
   const [authLoading, setAuthLoading] = useState(false)
@@ -73,6 +75,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void refreshSession()
   }, [refreshSession])
+
+  /**
+   * 切换连接的钱包地址后，JWT 仍代表旧地址会导致「已登录为 A 但当前钱包为 B」。
+   * 在已连接且会话已加载的前提下，若与 JWT 身份不一致则清本地会话，便于用户用新钱包重新验证登录。
+   * `authLoading` 期间跳过，避免与 `login()` 内先换 token、再 `fetchMe` 的时序打架。
+   */
+  useEffect(() => {
+    if (env.useMockData || !env.apiBaseUrl) return
+    if (authLoading) return
+    if (!publicKey || !user) return
+    if (publicKey.toBase58() === user.pubkey.trim()) return
+    clearAccessToken()
+    setUser(null)
+    setSessionStatus('unauthenticated')
+  }, [publicKey, user, authLoading])
 
   const login = useCallback(async ({ publicKey, signMessage }: LoginArgs) => {
     if (!signMessage) {

@@ -26,6 +26,22 @@ pub const PINATA_DEFAULT_IMAGE_MIME: &str = "image/jpeg";
 pub const PINATA_METADATA_FILENAME: &str = "metadata.json";
 pub const GOOGLE_BOOKS_API_KEY_ENV: &str = "GOOGLE_BOOKS_API_KEY";
 
+/// 七牛云 AccessKey（头像直传用上传凭证）。未配置则 `/me/upload/qiniu-avatar` 不可用。
+pub const QINIU_ACCESS_KEY_ENV: &str = "QINIU_ACCESS_KEY";
+/// 七牛云 SecretKey。
+pub const QINIU_SECRET_KEY_ENV: &str = "QINIU_SECRET_KEY";
+/// 存储空间名（bucket）。
+pub const QINIU_BUCKET_ENV: &str = "QINIU_BUCKET";
+/// 文件对外访问前缀（不含末尾 `/`）：绑定在 Bucket 上的 CDN 或默认源站域名，例如
+/// `https://cdn.example.com`、`https://xxx.clouddn.com`。不要填 `up-*.qiniup.com`（那是上传接口域名，见 `QINIU_UPLOAD_HOST`）。
+pub const QINIU_PUBLIC_BASE_ENV: &str = "QINIU_PUBLIC_BASE";
+/// 表单直传的上传 Host（不含路径），默认 `https://up.qiniup.com`（华东 z0）。
+/// Bucket 在华南 z2 时应设为 `https://up-z2.qiniup.com` 等，与控制台「存储区域」一致。
+pub const QINIU_UPLOAD_HOST_ENV: &str = "QINIU_UPLOAD_HOST";
+
+/// 新用户入库时的默认头像 URL（可选）。与前端 `NEXT_PUBLIC_DEFAULT_AVATAR_URL` 可设为同一地址。
+pub const DEFAULT_AVATAR_URL_ENV: &str = "DEFAULT_AVATAR_URL";
+
 /// Pinata v3 创建「直传签名 URL」时，链接有效期（秒）。可选，默认 120。
 pub const PINATA_SIGN_EXPIRES_SECS_ENV: &str = "PINATA_SIGN_EXPIRES_SECS";
 /// 每用户每分钟最多请求几次「直传签名 URL」。可选，默认 30。

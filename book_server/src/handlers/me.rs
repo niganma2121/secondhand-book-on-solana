@@ -1,6 +1,6 @@
 use crate::AppError;
 use crate::arbitration::is_arbitrator;
-use crate::db::types::{EscrowDisputeSubmissionRevisionRow, EscrowRow, Page};
+use crate::db::types::{EscrowDisputeSubmissionRevisionRow, EscrowRow, Page, UserRow};
 use crate::handlers::error::{HandlerResult, bad_request, ok};
 use crate::state::AppState;
 use axum::Extension;
@@ -389,10 +389,49 @@ pub async fn update_my_profile_handler(
         }
     }
 
-    state
+    let user = state
         .db_service
-        .update_user_profile(&pubkey, username_trimmed, req.avatar.as_deref())
-        .await?;
+        .get_user(&pubkey)
+        .await?
+        .ok_or_else(|| bad_request("用户不存在"))?;
+
+    let old_name = user.username.as_deref().map(str::trim).unwrap_or("");
+    let mut consume_username_quota = false;
+    let mut quota_day = user.username_edit_day;
+    let mut quota_count = user.username_edit_count;
+
+    if let Some(name) = username_trimmed {
+        if name != old_name {
+            let today = UserRow::utc_yyyymmdd();
+            if quota_day != today {
+                quota_count = 0;
+            }
+            if quota_count >= 3 {
+                return Err(bad_request("今日修改昵称次数已用完（每天最多 3 次）"));
+            }
+            quota_count += 1;
+            quota_day = today;
+            consume_username_quota = true;
+        }
+    }
+
+    if consume_username_quota {
+        state
+            .db_service
+            .update_user_profile_with_username_quota(
+                &pubkey,
+                username_trimmed,
+                req.avatar.as_deref(),
+                quota_day,
+                quota_count,
+            )
+            .await?;
+    } else {
+        state
+            .db_service
+            .update_user_profile(&pubkey, username_trimmed, req.avatar.as_deref())
+            .await?;
+    }
 
     let user = state
         .db_service
@@ -412,6 +451,81 @@ pub async fn update_my_profile_handler(
         "dispute_total": user.dispute_total,
         "dispute_won": user.dispute_won,
         "dispute_lost": user.dispute_lost,
+        "username_changes_remaining_today": user.username_changes_remaining_today(),
+    })))
+}
+
+/// POST /api/me/upload/qiniu-avatar — 签发七牛头像直传凭证（前端再 POST file 到 `upload_url`）。
+#[derive(Deserialize)]
+pub struct QiniuAvatarClaimRequest {
+    pub mime_type: Option<String>,
+}
+
+pub async fn issue_qiniu_avatar_upload_claim_handler(
+    State(_state): State<AppState>,
+    Extension(pubkey): Extension<String>,
+    Json(req): Json<QiniuAvatarClaimRequest>,
+) -> HandlerResult {
+    let ak = std::env::var(crate::QINIU_ACCESS_KEY_ENV)
+        .map_err(|_| bad_request("服务端未配置 QINIU_ACCESS_KEY"))?
+        .trim()
+        .to_string();
+    let sk = std::env::var(crate::QINIU_SECRET_KEY_ENV)
+        .map_err(|_| bad_request("服务端未配置 QINIU_SECRET_KEY"))?
+        .trim()
+        .to_string();
+    let bucket = std::env::var(crate::QINIU_BUCKET_ENV)
+        .map_err(|_| bad_request("服务端未配置 QINIU_BUCKET"))?
+        .trim()
+        .to_string();
+    let public_base = std::env::var(crate::QINIU_PUBLIC_BASE_ENV)
+        .map_err(|_| bad_request("服务端未配置 QINIU_PUBLIC_BASE"))?
+        .trim()
+        .trim_end_matches('/')
+        .to_string();
+    if public_base.contains("qiniup.com")
+        && (public_base.contains("://up.") || public_base.contains("://up-"))
+    {
+        return Err(bad_request(
+            "QINIU_PUBLIC_BASE 不能填上传域名（如 up-z2.qiniup.com）。\
+请把对外访问域名填在 QINIU_PUBLIC_BASE（CDN 或源站域名），\
+把上传域名填在 QINIU_UPLOAD_HOST（如华南 https://up-z2.qiniup.com）",
+        ));
+    }
+    let upload_host = std::env::var(crate::QINIU_UPLOAD_HOST_ENV)
+        .unwrap_or_else(|_| "https://up.qiniup.com".to_string())
+        .trim()
+        .trim_end_matches('/')
+        .to_string();
+
+    let mime = req.mime_type.as_deref().unwrap_or("image/jpeg").trim().to_lowercase();
+    let ext = match mime.as_str() {
+        "image/png" => "png",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
+        "image/jpeg" | "image/jpg" => "jpg",
+        _ => return Err(bad_request("仅支持 image/jpeg、png、webp、gif")),
+    };
+
+    let safe_pk = pubkey.trim().replace(['/', '\\', ':'], "");
+    let oid = uuid::Uuid::new_v4();
+    let key = format!("avatars/{safe_pk}/{oid}.{ext}");
+    let scope = format!("{bucket}:{key}");
+    let deadline = Utc::now().timestamp() + 600;
+    let policy = json!({
+        "scope": scope,
+        "deadline": deadline,
+        "fsizeLimit": 2097152_i64,
+    });
+    let token = crate::infra::qiniu_upload::qiniu_upload_token(&ak, &sk, &policy)
+        .map_err(|e| bad_request(format!("上传凭证生成失败:{e}")))?;
+
+    let public_url = format!("{public_base}/{key}");
+    Ok(ok(json!({
+        "token": token,
+        "key": key,
+        "upload_url": upload_host,
+        "public_url": public_url,
     })))
 }
 

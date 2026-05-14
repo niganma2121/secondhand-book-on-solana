@@ -70,19 +70,20 @@ impl DBService {
         .await
     }
 
-    // 查用户所有会话列表，每个会话取最新一条 + 未读数
+    // 查用户所有会话列表，每个会话取最新一条 + 未读数，并 JOIN users 取对方昵称与头像
     pub async fn list_conversations(
         &self,
         user_pubkey: &str,
     ) -> Result<Vec<ConversationRow>, sqlx::Error> {
-        sqlx::query_as!(
-            ConversationRow,
+        sqlx::query_as::<_, ConversationRow>(
             r#"
             SELECT
-                peer_pubkey,
-                last_content,
-                last_timestamp,
-                unread_count
+                sub.peer_pubkey,
+                sub.last_content,
+                sub.last_timestamp,
+                sub.unread_count,
+                u.username AS peer_username,
+                u.avatar AS peer_avatar
             FROM (
                 SELECT
                     CASE
@@ -101,13 +102,14 @@ impl DBService {
                     ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
                 )
             ) sub
-            WHERE rn = 1
-            ORDER BY last_timestamp DESC
+            LEFT JOIN users u ON u.pubkey = sub.peer_pubkey
+            WHERE sub.rn = 1
+            ORDER BY sub.last_timestamp DESC
             "#,
-            user_pubkey
         )
-            .fetch_all(&self.db_pool)
-            .await
+        .bind(user_pubkey)
+        .fetch_all(&self.db_pool)
+        .await
     }
 
     // 标记两人对话中发给自己的消息全部已读

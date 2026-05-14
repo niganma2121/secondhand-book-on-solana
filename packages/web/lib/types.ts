@@ -89,6 +89,10 @@ export interface ChatConversation {
   id: string
   sellerName: string
   sellerAddr: string
+  /** 对方站内昵称（若有） */
+  peerUsername?: string | null
+  /** 对方头像 URL（若有） */
+  peerAvatar?: string | null
   bookTitle: string
   bookCover: string
   lastMsg: string

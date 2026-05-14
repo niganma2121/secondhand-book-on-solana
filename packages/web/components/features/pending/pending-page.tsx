@@ -51,7 +51,7 @@ import {
 import { splitDisputePrivateText } from '@/lib/dispute-private-text'
 import { requestMarketListRefresh } from '@/lib/market-refresh'
 import Link from 'next/link'
-import { shortenPubkey } from '@/lib/format-seller'
+import { shortenPubkey, privacyPubkey } from '@/lib/format-seller'
 import { marketBookDetail, routes, shelfMyEscrowTrades, userPublicProfile } from '@/config/routes'
 import { isArbitratorPubkey } from '@/lib/arbitration-access'
 import { isOrderTerminalForBookSnapshot } from '@/lib/order-book-snapshot'
@@ -441,7 +441,7 @@ function disputeDeadlineNote(order: EscrowOrder): string {
   const baseSec = order.disputed_at ?? order.updated_at
   const end = disputeArbitrationDeadlineLocal(baseSec)
   const endStr = end.toLocaleString('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })
-  return `仲裁结束最晚时间为：发起仲裁所在自然日起第 5 天的 24:00 前（按本地时区不晚于 ${endStr}）。演示环境无链上自动处罚。`
+  return `仲裁结束最晚时间为：${endStr}。`
 }
 
 /** 与后端 `post_dispute_submission_handler` 一致 */
@@ -2174,17 +2174,11 @@ export function PendingPage() {
             <DialogTitle>
               {disputeMaterialView?.scope === 'peer' ? '对方公开材料' : '我方仲裁材料'}
             </DialogTitle>
-            <DialogDescription className="text-xs leading-relaxed">
-              {disputeMaterialView?.scope === 'peer' ? (
-                <>
-                  以下为<strong>对方</strong>历次保存中的<strong>公开说明与公开图</strong>（不含仅仲裁员项）。
-                </>
-              ) : (
-                <>
-                  以下为<strong>你方</strong>历次保存；含<strong>仅仲裁员可见</strong>的补充说明与物流单号，便于核对。
-                </>
-              )}
-            </DialogDescription>
+            {disputeMaterialView?.scope === 'peer' ? null : (
+              <DialogDescription className="text-xs leading-relaxed">
+                以下为<strong>你方</strong>历次保存；含<strong>仅仲裁员可见</strong>的补充说明与物流单号，便于核对。
+              </DialogDescription>
+            )}
           </DialogHeader>
           {disputeMaterialLoading ? (
             <p className="text-sm text-muted-foreground py-4">加载中…</p>
@@ -2847,7 +2841,9 @@ export function PendingPage() {
                       )}
                       className="text-primary underline-offset-2 hover:underline font-mono"
                     >
-                      {shortenPubkey(reviewOrder.role === 'buyer' ? reviewOrder.seller : reviewOrder.buyer)}
+                      {privacyPubkey(
+                        reviewOrder.role === 'buyer' ? reviewOrder.seller : reviewOrder.buyer,
+                      )}
                     </Link>
                     。同一笔托管每人仅可提交一条评价。
                   </>

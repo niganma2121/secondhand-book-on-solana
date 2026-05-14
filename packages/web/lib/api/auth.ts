@@ -29,6 +29,8 @@ export type CurrentUser = {
   dispute_total?: number
   dispute_won?: number
   dispute_lost?: number
+  /** GET /auth/getme、PATCH /me/profile 返回；缺省按 3 次展示 */
+  username_changes_remaining_today?: number
 }
 
 /** 与 Axum `LoginRequest` 一致：签名为 Base58 编码的字节 */

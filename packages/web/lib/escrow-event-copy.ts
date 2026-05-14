@@ -65,6 +65,27 @@ export function groupMyEscrowEventsByLifecycle(events: MyEscrowEventRow[]): MyEs
   return chunks
 }
 
+/** 仲裁结案 payload（后端 `escrow_events.payload`） */
+export function escrowResolveSummary(payload: unknown): string | null {
+  if (payload == null || typeof payload !== 'object' || Array.isArray(payload)) return null
+  const p = payload as { winner?: unknown; return_book?: unknown }
+  const w = p.winner
+  if (w === 'buyer') {
+    if (p.return_book === true) return '买家胜诉，书籍退回卖家（可再次上架）。'
+    return '买家胜诉，书籍归买家，订单按成交完成。'
+  }
+  if (w === 'seller') return '卖家胜诉，书籍归买家，订单按成交完成。'
+  return null
+}
+
+/** 列表主标题：对 `resolve_dispute` 附带胜负说明 */
+export function escrowEventPrimaryLine(action: string, payload?: unknown): string {
+  const base = escrowActionTitle(action)
+  if (action.trim().toLowerCase() !== 'resolve_dispute') return base
+  const s = escrowResolveSummary(payload)
+  return s ? `${base}：${s}` : base
+}
+
 /** 列表/时间线主标题（短） */
 export function escrowActionTitle(action: string): string {
   const k = action.trim().toLowerCase()
@@ -80,7 +101,7 @@ export function escrowActionTitle(action: string): string {
 }
 
 /** 卡片/弹窗补充说明（可与标题同时展示） */
-export function escrowActionDescription(action: string): string {
+export function escrowActionDescription(action: string, payload?: unknown): string {
   const k = action.trim().toLowerCase()
   const map: Record<string, string> = {
     create_escrow: '买家已付款，托管订单建立，等待卖家发货。',
@@ -89,6 +110,9 @@ export function escrowActionDescription(action: string): string {
     cancel: '订单取消，书籍恢复可售（具体以链上状态为准）。',
     open_dispute: '一方发起争议，托管进入仲裁流程。',
     resolve_dispute: '仲裁结果已执行，托管状态已更新。',
+  }
+  if (k === 'resolve_dispute') {
+    return escrowResolveSummary(payload) ?? map.resolve_dispute
   }
   return map[k] ?? `链上动作「${action}」。请以链上状态与交易为准。`
 }

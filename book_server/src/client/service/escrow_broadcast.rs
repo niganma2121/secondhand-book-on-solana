@@ -2,7 +2,16 @@ use super::*;
 use super::escrow_event_log::{
     load_escrow_snapshot, try_log_create_event, try_log_transition_event,
 };
-use crate::reconcile::spawn_reconcile_tick;
+use crate::client::utils::first_party_signer_among;
+use crate::client::{ArbitrationResult, Escrow};
+use crate::reconcile::{
+    chain_escrow_state_str, reconcile_one_escrow_row, released_arbitration_outcome,
+    spawn_reconcile_tick,
+};
+use anchor_client::anchor_lang::prelude::Pubkey;
+use anchor_lang::AccountDeserialize;
+use serde_json::json;
+use std::str::FromStr;
 use std::time::Duration;
 use tracing::{info, warn};
 
@@ -296,31 +305,35 @@ impl AnchorService {
         now: i64,
     ) -> Result<BroadcastResponse, ClientError> {
         let tx = deserialize_signed_tx(&req.signed_tx)?;
+        let row_opt = db.get_escrow(&req.escrow_pda).await.ok().flatten();
+        let initiator = row_opt
+            .as_ref()
+            .and_then(|r| first_party_signer_among(&tx, &r.buyer, &r.seller));
+
         let sig = self
             .get_program()?
             .rpc()
             .send_and_confirm_transaction(&tx)
             .await
             .map_err(|e| ClientError::BroadcastFailed(e.to_string()))?;
-        let snapshot = load_escrow_snapshot(db, &req.escrow_pda).await;
-        if let Err(e) = db.update_escrow_state(&req.escrow_pda, "Disputed", now).await {
-            warn!("数据库:更新托管状态错误:{e}");
-            spawn_reconcile_tick(db.clone(), self.clone());
-        } else if let Some(esc) = snapshot.as_ref() {
-            try_log_transition_event(
-                db,
-                esc,
-                "Disputed",
-                "open_dispute",
-                &sig.to_string(),
-                Some(&esc.buyer),
-                now,
-            )
-            .await;
+        let sig_str = sig.to_string();
+
+        match db
+            .mark_escrow_disputed_with_event(&req.escrow_pda, &sig_str, initiator.as_deref(), now)
+            .await
+        {
+            Ok(()) => {}
+            Err(e) => {
+                warn!(
+                    "open_dispute 托管状态/流水事务失败 escrow={} err={}；已触发对账补偿",
+                    req.escrow_pda, e
+                );
+                spawn_reconcile_tick(db.clone(), self.clone());
+            }
         }
 
         Ok(BroadcastResponse::new(
-            sig.to_string(),
+            sig_str,
             "仲裁发起成功,等待仲裁员投票",
         ))
     }
@@ -328,6 +341,7 @@ impl AnchorService {
     pub async fn broadcast_resolve_dispute(
         &self,
         req: BroadcastResolveDisputeRequest,
+        db: &DBService,
         now: i64,
     ) -> Result<BroadcastResponse, ClientError> {
         let tx = deserialize_signed_tx(&req.signed_tx)?;
@@ -342,6 +356,71 @@ impl AnchorService {
             "仲裁投票已广播 escrow={} sig={},time:{}",
             req.escrow_pda, sig, now
         );
-        Ok(BroadcastResponse::new(sig.to_string(), "投票成功"))
+
+        let sig_str = sig.to_string();
+
+        if let Ok(Some(row)) = db.get_escrow(&req.escrow_pda).await {
+            match reconcile_one_escrow_row(db, self, &row).await {
+                Ok(true) => info!("仲裁广播后立即对账已修正 escrow={}", req.escrow_pda),
+                Ok(false) => {}
+                Err(e) => warn!(
+                    "仲裁广播后对账失败 escrow={} err={:#}；可依赖 WebSocket/定时对账修复",
+                    req.escrow_pda, e
+                ),
+            }
+        }
+
+        if let Ok(program) = self.get_program() {
+            if let Ok(escrow_pk) = Pubkey::from_str(&req.escrow_pda) {
+                if let Ok(account) = program.rpc().get_account(&escrow_pk).await {
+                    let mut data: &[u8] = &account.data;
+                    if let Ok(on_chain) = Escrow::try_deserialize(&mut data) {
+                        if chain_escrow_state_str(&on_chain.state) == "Released" {
+                            if let Some((res, return_book, refund_amount)) =
+                                released_arbitration_outcome(&on_chain)
+                            {
+                                if let Ok(Some(r)) = db.get_escrow(&req.escrow_pda).await {
+                                    let winner = match res {
+                                        ArbitrationResult::BuyerWin => "buyer",
+                                        ArbitrationResult::SellerWin => "seller",
+                                        ArbitrationResult::Voting => "unknown",
+                                    };
+                                    let payload = json!({
+                                        "winner": winner,
+                                        "return_book": return_book,
+                                        "refund_lamports": refund_amount,
+                                    });
+                                    match db
+                                        .try_insert_escrow_resolve_event(
+                                            &r.escrow_pda,
+                                            &r.asset,
+                                            &r.seller,
+                                            &r.buyer,
+                                            Some("Disputed"),
+                                            &sig_str,
+                                            &payload,
+                                            None,
+                                            now,
+                                        )
+                                        .await
+                                    {
+                                        Ok(true) => {
+                                            info!("已写入仲裁结案流水 escrow={}", req.escrow_pda)
+                                        }
+                                        Ok(false) => {}
+                                        Err(e) => warn!(
+                                            "仲裁结案流水写入失败 escrow={} err={}",
+                                            req.escrow_pda, e
+                                        ),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(BroadcastResponse::new(sig_str, "投票成功"))
     }
 }

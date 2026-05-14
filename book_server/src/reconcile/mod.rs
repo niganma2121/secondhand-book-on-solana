@@ -12,12 +12,16 @@
 mod book_mirror;
 mod common;
 mod dispute_listener;
+mod dispute_outcome;
 mod escrow_mirror;
 mod tick;
 
 pub use book_mirror::reconcile_one_book_mirror;
+pub use common::chain_escrow_state_str;
 pub use common::ReconcileStats;
 pub use dispute_listener::listen_dispute_resolved;
+pub use dispute_outcome::released_arbitration_outcome;
+pub use escrow_mirror::reconcile_one_escrow_row;
 pub use tick::{
     reconcile_loop, run_reconcile_tick, spawn_reconcile_book_asset, spawn_reconcile_tick,
 };

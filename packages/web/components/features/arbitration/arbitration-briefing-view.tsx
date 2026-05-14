@@ -8,7 +8,7 @@ import type { DisputeSubmissionResponse, DisputeSubmissionRevision } from '@/lib
 import { briefMessageParts } from '@/lib/arbitration-briefing-messages'
 import { splitDisputePrivateText } from '@/lib/dispute-private-text'
 import { bookPublicHistory } from '@/config/routes'
-import { escrowActionDescription, escrowActionTitle, escrowStateZh } from '@/lib/escrow-event-copy'
+import { escrowActionDescription, escrowEventPrimaryLine, escrowStateZh } from '@/lib/escrow-event-copy'
 import { shortenPubkey } from '@/lib/format-seller'
 import { explorerAddressUrl, explorerTxUrl } from '@/lib/solana-explorer'
 import { cn } from '@/lib/utils'
@@ -412,13 +412,13 @@ export function ArbitrationBriefingView({
                   )}
                 >
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <span className="font-semibold text-foreground">{escrowActionTitle(ev.action)}</span>
+                    <span className="font-semibold text-foreground">{escrowEventPrimaryLine(ev.action, ev.payload)}</span>
                     <time className={cn('text-muted-foreground tabular-nums', comfortable ? 'text-sm' : 'text-[11px]')}>
                       {new Date(ev.created_at * 1000).toLocaleString('zh-CN')}
                     </time>
                   </div>
                   <p className={cn('text-muted-foreground leading-snug', comfortable ? 'text-base' : 'text-xs')}>
-                    {escrowActionDescription(ev.action)}
+                    {escrowActionDescription(ev.action, ev.payload)}
                   </p>
                   <p className={cn('text-muted-foreground', comfortable ? 'text-sm sm:text-base' : 'text-[11px]')}>
                     状态 {escrowStateZh(ev.from_state)} → <span className="text-foreground">{escrowStateZh(ev.to_state)}</span>

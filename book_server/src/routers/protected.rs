@@ -35,6 +35,7 @@ use crate::handlers::me::{
     update_my_shipping_address_handler, upsert_order_shipping_cipher_by_asset_handler,
     get_order_tracking_cipher_handler, upsert_order_tracking_cipher_handler,
     update_my_profile_handler,
+    issue_qiniu_avatar_upload_claim_handler,
 };
 use crate::handlers::transactions::list_my_transactions_handler;
 use crate::handlers::encryption::{
@@ -130,6 +131,7 @@ pub fn me_router() -> Router<AppState> {
             get(get_dispute_submission_handler).post(post_dispute_submission_handler),
         )
         .route("/profile", patch(update_my_profile_handler))
+        .route("/upload/qiniu-avatar", post(issue_qiniu_avatar_upload_claim_handler))
         .route("/orders/{escrow_pda}/shipping-cipher", get(get_order_shipping_cipher_handler))
         .route("/orders/{escrow_pda}/shipping-cipher", post(upsert_order_shipping_cipher_handler))
         .route("/orders/{escrow_pda}/tracking-cipher", get(get_order_tracking_cipher_handler))

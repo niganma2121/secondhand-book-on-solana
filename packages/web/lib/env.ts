@@ -51,6 +51,11 @@ export const env = {
   isDev: process.env.NODE_ENV === 'development',
   /** 未配置则不显示人民币参考价 */
   solCnyApprox,
+  /** 用户未上传头像时的占位图；可与后端 `DEFAULT_AVATAR_URL` 设为同一 CDN 地址 */
+  defaultAvatarUrl: (() => {
+    const u = process.env.NEXT_PUBLIC_DEFAULT_AVATAR_URL?.trim() ?? ''
+    return u.length > 0 ? u : null
+  })(),
   /** 与链上 `ARBITRATORS` 对齐；可用 `NEXT_PUBLIC_ARBITRATOR_PUBKEYS`（逗号分隔）覆盖 */
   arbitratorPubkeys: (() => {
     const raw = process.env.NEXT_PUBLIC_ARBITRATOR_PUBKEYS?.trim()

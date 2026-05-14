@@ -49,5 +49,6 @@ export async function upsertMyEncryptionBackup(input: UpsertEncryptionBackupInpu
 export async function fetchUserEncryptionPublicKey(pubkey: string) {
   return apiFetch<{ pubkey: string; encryption_public_key: string | null; configured?: boolean }>(
     `/users/${encodeURIComponent(pubkey)}/encryption-pubkey`,
+    { omitAuth: true },
   )
 }

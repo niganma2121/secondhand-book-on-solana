@@ -11,10 +11,12 @@ pub struct ResolveDispute<'info> {
         constraint=ARBITRATORS.contains(&arbitrator.key()) @ AppError::UnauthorizedArbitrator
     )]
     pub arbitrator: Signer<'info>, //仲裁员
+    /// 须 `mut`：作为 MPL Core CPI 的 payer 会扣 lamports；外层若只读会触发 writable privilege escalated
     #[account(
+        mut,
         constraint=admin_signer.key()==ADMIN_SIGNER @ AppError::AdminUnmatch
     )]
-    pub admin_signer:Signer<'info>,//后端签名,承担NFT转移相关payer
+    pub admin_signer: Signer<'info>,
     #[account(
         mut,
         constraint=escrow.state==EscrowState::Disputed @ AppError::InvalidEscrowState,

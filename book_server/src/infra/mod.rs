@@ -5,4 +5,5 @@
 pub mod env;
 pub mod fx_rate;
 pub mod http;
+pub mod qiniu_upload;
 pub mod rate_limit;

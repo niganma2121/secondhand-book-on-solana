@@ -202,6 +202,9 @@ pub async fn broadcast_resolve_dispute_handler(
     Json(req): Json<BroadcastResolveDisputeRequest>,
 ) -> Result<impl IntoResponse, ClientError> {
     let now = chrono::Utc::now().timestamp();
-    let res = state.anchor_service.broadcast_resolve_dispute(req, now).await?;
+    let res = state
+        .anchor_service
+        .broadcast_resolve_dispute(req, &state.db_service, now)
+        .await?;
     Ok((StatusCode::OK, Json(res)))
 }

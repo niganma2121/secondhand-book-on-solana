@@ -13,8 +13,9 @@ import { useMyBooks } from '@/lib/hooks/use-my-books'
 import { useAuth } from '@/components/providers/auth-provider'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { toast } from '@/hooks/use-toast'
 import { ApiError } from '@/lib/api/client'
-import { updateMyProfile } from '@/lib/api/profile'
+import { claimQiniuAvatarUpload, updateMyProfile, uploadAvatarFileToQiniu } from '@/lib/api/profile'
 import {
   fetchEncryptionTemplates,
   fetchMyEncryptionBackup,
@@ -38,8 +39,13 @@ import {
 } from '@/lib/api/shipping-addresses'
 import { fetchMyFavorites, postToggleFavorite } from '@/lib/api/favorites'
 import { bookCardDtoToBook } from '@/lib/api/adapters/book-card'
+import { compressAvatarImage } from '@/lib/image-compress-avatar'
+import { Loader2 } from 'lucide-react'
 
 type ProfileTab = 'shelf' | 'sold' | 'favorites'
+
+const PROFILE_LIST_INITIAL = 3
+const PROFILE_LIST_STEP = 5
 type ShippingAddress = {
   id: string
   label: string
@@ -214,12 +220,20 @@ export function ProfilePage() {
   const { publicKey, disconnect, signMessage } = useWallet()
   const openWalletConnect = useOpenWalletConnect()
   const [profileTab, setProfileTab] = useState<ProfileTab>('shelf')
+  const [profileListVisible, setProfileListVisible] = useState<Record<ProfileTab, number>>({
+    shelf: PROFILE_LIST_INITIAL,
+    sold: PROFILE_LIST_INITIAL,
+    favorites: PROFILE_LIST_INITIAL,
+  })
+  const [helpFeedbackDialogOpen, setHelpFeedbackDialogOpen] = useState(false)
+  const [profileAvatarViewerOpen, setProfileAvatarViewerOpen] = useState(false)
+  const [profileAvatarLightboxSrc, setProfileAvatarLightboxSrc] = useState<string | null>(null)
   const [favoriteBooks, setFavoriteBooks] = useState<Book[]>([])
   const [favoritesLoading, setFavoritesLoading] = useState(false)
   const [favoritesError, setFavoritesError] = useState<string | null>(null)
   const [addressDialogOpen, setAddressDialogOpen] = useState(false)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
-  const [securityDialogOpen, setSecurityDialogOpen] = useState(false)
+  const [profileNicknameEditing, setProfileNicknameEditing] = useState(false)
   const [templates, setTemplates] = useState<EncryptionTemplate[]>([])
   const [backupPayload, setBackupPayload] = useState<MyEncryptionBackup | null>(null)
   const [backupVersion, setBackupVersion] = useState<string | null>(null)
@@ -241,10 +255,9 @@ export function ProfilePage() {
   const [addressFormMode, setAddressFormMode] = useState<'hidden' | 'create' | 'edit'>('hidden')
   const [profileNameDraft, setProfileNameDraft] = useState('')
   const [profileAvatarPreview, setProfileAvatarPreview] = useState<string | null>(null)
+  const [profileAvatarFile, setProfileAvatarFile] = useState<File | null>(null)
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileError, setProfileError] = useState<string | null>(null)
-  const [securityAutoLock, setSecurityAutoLock] = useState(true)
-  const [securityHideAddress, setSecurityHideAddress] = useState(true)
   const avatarFileRef = useRef<HTMLInputElement>(null)
   const {
     user,
@@ -266,7 +279,10 @@ export function ProfilePage() {
 
   const displayName =
     isAuthenticated && user?.username ? user.username : '匿名用户'
-  const avatarUrl = profileAvatarPreview ?? user?.avatar ?? null
+  const defaultAvatarUrl = env.defaultAvatarUrl
+  const avatarUrl = profileAvatarPreview || user?.avatar?.trim() || defaultAvatarUrl || null
+  const headerAvatarSrc = user?.avatar?.trim() || defaultAvatarUrl || null
+  const nicknameChangesLeft = user?.username_changes_remaining_today ?? 3
 
   const stats: { label: string; value: number | string }[] = [
     {
@@ -319,6 +335,15 @@ export function ProfilePage() {
       cancelled = true
     }
   }, [profileTab, isAuthenticated, apiConfigured])
+
+  useEffect(() => {
+    setProfileListVisible({
+      shelf: PROFILE_LIST_INITIAL,
+      sold: PROFILE_LIST_INITIAL,
+      favorites: PROFILE_LIST_INITIAL,
+    })
+  }, [addr])
+
   const provinceMap = areaList.province_list as Record<string, string>
   const cityMap = areaList.city_list as Record<string, string>
   const districtMap = areaList.county_list as Record<string, string>
@@ -607,6 +632,14 @@ export function ProfilePage() {
     }
   }, [isAuthenticated])
 
+  useEffect(() => {
+    if (!profileDialogOpen) return
+    setProfileNameDraft((user?.username ?? '').trim())
+    setProfileAvatarPreview(user?.avatar?.trim() || env.defaultAvatarUrl || null)
+    setProfileAvatarFile(null)
+    setProfileNicknameEditing(false)
+  }, [profileDialogOpen, user?.username, user?.avatar])
+
   async function handleSaveShippingProfile() {
     if (!profileShippingStorageKey) return
     const phone = shippingPhone.trim()
@@ -822,23 +855,56 @@ export function ProfilePage() {
   }
 
   async function handleSaveMyProfile() {
-    const name = profileNameDraft.trim()
-    if (!name) {
-      setProfileError('昵称不能为空')
+    if (profileNicknameEditing) {
+      const name = profileNameDraft.trim()
+      if (!name) {
+        setProfileError('昵称不能为空')
+        return
+      }
+      if (name.length > 32) {
+        setProfileError('昵称不能超过 32 个字符')
+        return
+      }
+    }
+    if (profileAvatarFile && profileAvatarFile.size > 2 * 1024 * 1024) {
+      const msg = '头像须小于 2MB'
+      setProfileError(msg)
+      toast({ title: msg, variant: 'destructive', duration: 3000 })
       return
     }
-    if (name.length > 32) {
-      setProfileError('昵称不能超过 32 个字符')
-      return
-    }
+
     setProfileSaving(true)
     setProfileError(null)
     try {
-      await updateMyProfile({ username: name })
+      const patch: { username?: string | null; avatar?: string | null } = {}
+      if (profileNicknameEditing) {
+        patch.username = profileNameDraft.trim()
+      }
+      if (profileAvatarFile) {
+        const mime = profileAvatarFile.type || 'image/jpeg'
+        const claim = await claimQiniuAvatarUpload(mime)
+        patch.avatar = await uploadAvatarFileToQiniu(claim, profileAvatarFile)
+      }
+      if (Object.keys(patch).length === 0) {
+        toast({ title: '没有需要保存的修改', duration: 2200 })
+        return
+      }
+      await updateMyProfile(patch)
       await refreshSession()
+      setProfileAvatarFile(null)
+      setProfileNicknameEditing(false)
       setProfileDialogOpen(false)
+      toast({ title: '保存成功', duration: 2800 })
     } catch (err) {
-      setProfileError(err instanceof Error ? err.message : '保存失败')
+      const msg =
+        err instanceof ApiError ? err.message : err instanceof Error ? err.message : '保存失败'
+      setProfileError(msg)
+      toast({
+        title: '保存失败',
+        description: msg,
+        variant: 'destructive',
+        duration: 3000,
+      })
     } finally {
       setProfileSaving(false)
     }
@@ -893,14 +959,44 @@ export function ProfilePage() {
           </div>
           {/* 头像 + 信息 */}
           <div className="px-4 pb-4 -mt-8 flex items-end gap-3">
-            <div className="w-16 h-16 rounded-2xl bg-primary/20 border-2 border-card flex items-center justify-center shrink-0">
-              <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true" className="text-primary">
-                <circle cx="14" cy="10" r="5" fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="1.5" />
-                <path d="M4 26c0-5.523 4.477-10 10-10s10 4.477 10 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-            </div>
+            <button
+              type="button"
+              disabled={!headerAvatarSrc}
+              onClick={() => {
+                if (!headerAvatarSrc) return
+                setProfileAvatarLightboxSrc(headerAvatarSrc)
+                setProfileAvatarViewerOpen(true)
+              }}
+              className={[
+                'w-16 h-16 rounded-2xl border-2 border-card shrink-0 overflow-hidden flex items-center justify-center',
+                'bg-primary/20',
+                headerAvatarSrc
+                  ? 'cursor-zoom-in ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                  : 'cursor-default',
+              ].join(' ')}
+              aria-label={headerAvatarSrc ? '查看头像大图' : '默认头像'}
+            >
+              {headerAvatarSrc ? (
+                <Image
+                  src={headerAvatarSrc}
+                  alt=""
+                  width={64}
+                  height={64}
+                  className="object-cover w-full h-full"
+                  unoptimized
+                />
+              ) : (
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true" className="text-primary">
+                  <circle cx="14" cy="10" r="5" fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="1.5" />
+                  <path d="M4 26c0-5.523 4.477-10 10-10s10 4.477 10 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              )}
+            </button>
             <div className="flex-1 min-w-0 pb-1">
               <p className="font-bold text-foreground text-base">{displayName}</p>
+              <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
+                支持修改昵称、上传头像
+              </p>
               <button
                 onClick={() => navigator.clipboard?.writeText(addr)}
                 className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors mt-0.5"
@@ -1005,7 +1101,7 @@ export function ProfilePage() {
                   />
                 </svg>
               ),
-              label: '收藏',
+              label: `收藏 (${favoriteBooks.length})`,
               desc: '市场收藏的书',
               href: null as string | null,
               accent: false,
@@ -1059,7 +1155,7 @@ export function ProfilePage() {
               [
                 { key: 'shelf' as ProfileTab, label: `我发布的 (${shelfBooks.length})` },
                 { key: 'sold' as ProfileTab, label: `我持有 (${boughtBooks.length})` },
-                { key: 'favorites' as ProfileTab, label: '我的收藏' },
+                { key: 'favorites' as ProfileTab, label: `收藏 (${favoriteBooks.length})` },
               ] as const
             ).map((t) => (
               <button
@@ -1092,19 +1188,56 @@ export function ProfilePage() {
                     暂无收藏。在「书籍市场」登录后点击心形即可收藏。
                   </p>
                 ) : (
-                  favoriteBooks.map((book) => (
-                    <FavoriteBookRow
-                      key={book.id}
-                      book={book}
-                      onRemoved={(asset) => setFavoriteBooks((prev) => prev.filter((b) => b.id !== asset))}
-                    />
-                  ))
+                  <>
+                    {favoriteBooks.slice(0, profileListVisible.favorites).map((book) => (
+                      <FavoriteBookRow
+                        key={book.id}
+                        book={book}
+                        onRemoved={(asset) => setFavoriteBooks((prev) => prev.filter((b) => b.id !== asset))}
+                      />
+                    ))}
+                    {favoriteBooks.length > profileListVisible.favorites ? (
+                      <button
+                        type="button"
+                        className="w-full py-2.5 text-sm font-medium text-primary hover:bg-secondary/40 rounded-lg border border-dashed border-primary/25 transition-colors"
+                        onClick={() =>
+                          setProfileListVisible((p) => ({
+                            ...p,
+                            favorites: p.favorites + PROFILE_LIST_STEP,
+                          }))
+                        }
+                      >
+                        查看更多
+                      </button>
+                    ) : null}
+                  </>
                 )}
               </>
             ) : (profileTab === 'shelf' ? shelfBooks : boughtBooks).length === 0 ? (
               <p className="text-center text-sm text-muted-foreground py-10">暂无记录</p>
             ) : (
-              (profileTab === 'shelf' ? shelfBooks : boughtBooks).map((book) => <MiniBookCard key={book.id} book={book} />)
+              <>
+                {(profileTab === 'shelf' ? shelfBooks : boughtBooks)
+                  .slice(0, profileListVisible[profileTab])
+                  .map((book) => (
+                    <MiniBookCard key={book.id} book={book} />
+                  ))}
+                {(profileTab === 'shelf' ? shelfBooks : boughtBooks).length >
+                profileListVisible[profileTab] ? (
+                  <button
+                    type="button"
+                    className="w-full py-2.5 text-sm font-medium text-primary hover:bg-secondary/40 rounded-lg border border-dashed border-primary/25 transition-colors"
+                    onClick={() =>
+                      setProfileListVisible((p) => ({
+                        ...p,
+                        [profileTab]: p[profileTab] + PROFILE_LIST_STEP,
+                      }))
+                    }
+                  >
+                    查看更多
+                  </button>
+                ) : null}
+              </>
             )}
           </div>
 
@@ -1138,21 +1271,10 @@ export function ProfilePage() {
             {
               label: '个人信息',
               icon: '👤',
-              desc: '修改昵称，头像上传功能即将上线',
+              desc: '支持修改昵称、上传头像',
               onClick: () => {
                 setProfileError(null)
                 setProfileDialogOpen(true)
-              },
-            },
-            {
-              label: '我的收藏',
-              icon: '❤️',
-              desc: '在市场收藏的书籍，可跳转或取消收藏',
-              onClick: () => {
-                setProfileTab('favorites')
-                requestAnimationFrame(() => {
-                  document.getElementById('profile-book-tabs')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                })
               },
             },
             {
@@ -1165,20 +1287,25 @@ export function ProfilePage() {
                 void handleOpenAddressDialog()
               },
             },
-            { label: '订单提醒', icon: '🔔', desc: '买家提交地址后，可在订单里直接查看' },
-            { label: '安全设置', icon: '🔒', desc: '自动锁定与隐私保护开关', onClick: () => setSecurityDialogOpen(true) },
-            { label: '帮助与反馈', icon: '💬', desc: '联系支持团队' },
-            { label: '关于 BookChain', icon: '📖', desc: '版本 0.1.0 · Solana Devnet' },
+            { label: '帮助与反馈', icon: '💬', desc: '联系支持团队', onClick: () => setHelpFeedbackDialogOpen(true) },
+            {
+              label: '关于 BookChain',
+              icon: '📖',
+              desc: '版本 0.1.0 · Solana Devnet',
+              onClick: () => {
+                window.open(
+                  'https://github.com/niganma2121/secondhand-book-on-solana',
+                  '_blank',
+                  'noopener,noreferrer',
+                )
+              },
+            },
           ].map((item) => (
             <button
               key={item.label}
               type="button"
-              onClick={() => item.onClick?.()}
-              disabled={!item.onClick}
-              className={[
-                'w-full flex items-center gap-3 px-4 py-3.5 transition-colors text-left',
-                item.onClick ? 'hover:bg-secondary/40' : 'opacity-70 cursor-default',
-              ].join(' ')}
+              onClick={() => item.onClick()}
+              className="w-full flex items-center gap-3 px-4 py-3.5 transition-colors text-left hover:bg-secondary/40"
             >
               <span className="text-base" role="img" aria-label={item.label}>{item.icon}</span>
               <div className="flex-1 min-w-0">
@@ -1396,70 +1523,194 @@ export function ProfilePage() {
           </DialogContent>
         </Dialog>
 
-        <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
-          <DialogContent className="max-w-[min(92vw,560px)]">
+        <Dialog
+          open={profileDialogOpen}
+          onOpenChange={(open) => {
+            setProfileDialogOpen(open)
+            if (!open) {
+              setProfileError(null)
+              setProfileAvatarFile(null)
+              setProfileNicknameEditing(false)
+            }
+          }}
+        >
+          <DialogContent className="max-w-[min(92vw,440px)]">
             <DialogHeader>
               <DialogTitle>我的信息</DialogTitle>
-              <DialogDescription>可修改昵称。头像先占位，后续接入 OSS 上传。</DialogDescription>
             </DialogHeader>
-            <div className="space-y-3">
-              <div className="flex items-center gap-3">
-                <div className="w-14 h-14 rounded-2xl bg-secondary border border-border flex items-center justify-center overflow-hidden">
+            <div className="space-y-5">
+              <div className="flex flex-col items-center gap-2.5">
+                <button
+                  type="button"
+                  disabled={!avatarUrl}
+                  onClick={() => {
+                    if (!avatarUrl) return
+                    setProfileAvatarLightboxSrc(avatarUrl)
+                    setProfileAvatarViewerOpen(true)
+                  }}
+                  className={[
+                    'relative w-36 h-36 rounded-3xl overflow-hidden border border-border bg-secondary',
+                    avatarUrl
+                      ? 'cursor-zoom-in ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                      : 'cursor-default opacity-80',
+                  ].join(' ')}
+                  aria-label={avatarUrl ? '查看头像大图' : '头像'}
+                >
                   {avatarUrl ? (
-                    <Image src={avatarUrl} alt="avatar preview" width={56} height={56} className="object-cover w-full h-full" />
+                    // eslint-disable-next-line @next/next/no-img-element -- 含 data URL / 外链
+                    <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
                   ) : (
-                    <span className="text-xs text-muted-foreground">头像</span>
+                    <span className="text-sm text-muted-foreground">无头像</span>
                   )}
-                </div>
-                <div className="flex gap-2">
-                  <Button type="button" variant="outline" onClick={() => avatarFileRef.current?.click()}>
-                    选择头像（占位）
-                  </Button>
-                  <input
-                    ref={avatarFileRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0]
-                      if (!f) return
+                </button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl"
+                  disabled={profileSaving}
+                  onClick={() => avatarFileRef.current?.click()}
+                >
+                  更改头像
+                </Button>
+                <input
+                  ref={avatarFileRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    e.target.value = ''
+                    if (!f) return
+                    void (async () => {
+                      setProfileError(null)
+                      let out = f
+                      try {
+                        out = await compressAvatarImage(f, { maxEdge: 512, quality: 0.82 })
+                      } catch {
+                        out = f
+                      }
+                      setProfileAvatarFile(out)
                       const reader = new FileReader()
                       reader.onload = (ev) => setProfileAvatarPreview(ev.target?.result as string)
-                      reader.readAsDataURL(f)
-                    }}
-                  />
-                </div>
+                      reader.readAsDataURL(out)
+                    })()
+                  }}
+                />
               </div>
-              <input
-                value={profileNameDraft}
-                onChange={(e) => setProfileNameDraft(e.target.value)}
-                placeholder="请输入昵称（最多 32 字）"
-                className="w-full h-10 rounded-md bg-input border border-border px-3 text-sm"
-              />
+
+              <div className="rounded-xl border border-border/60 bg-secondary/25 px-3 py-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">昵称</span>
+                  {!profileNicknameEditing ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 text-xs shrink-0"
+                      disabled={profileSaving || nicknameChangesLeft <= 0}
+                      title={nicknameChangesLeft <= 0 ? '今日修改昵称次数已用完' : undefined}
+                      onClick={() => {
+                        setProfileError(null)
+                        setProfileNicknameEditing(true)
+                      }}
+                    >
+                      修改
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 text-xs shrink-0"
+                      disabled={profileSaving}
+                      onClick={() => {
+                        setProfileError(null)
+                        setProfileNicknameEditing(false)
+                        setProfileNameDraft((user?.username ?? '').trim())
+                      }}
+                    >
+                      取消
+                    </Button>
+                  )}
+                </div>
+                {profileNicknameEditing ? (
+                  <>
+                    <input
+                      value={profileNameDraft}
+                      onChange={(e) => setProfileNameDraft(e.target.value)}
+                      placeholder="请输入昵称（最多 32 字）"
+                      disabled={profileSaving}
+                      className="w-full h-10 rounded-md bg-input border border-border px-3 text-sm disabled:opacity-60"
+                    />
+                    <p className="text-[11px] text-muted-foreground leading-snug">
+                      今日还可修改{' '}
+                      <span className="font-semibold text-foreground tabular-nums">{nicknameChangesLeft}</span>{' '}
+                      次。
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-foreground min-h-[2.5rem] flex items-center leading-snug break-words">
+                    {profileNameDraft ? profileNameDraft : (
+                      <span className="text-muted-foreground">未设置昵称</span>
+                    )}
+                  </p>
+                )}
+              </div>
+
               {profileError ? <p className="text-xs text-destructive">{profileError}</p> : null}
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setProfileDialogOpen(false)} disabled={profileSaving}>取消</Button>
-                <Button onClick={handleSaveMyProfile} disabled={profileSaving}>{profileSaving ? '保存中...' : '保存'}</Button>
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" onClick={() => setProfileDialogOpen(false)} disabled={profileSaving}>
+                  取消
+                </Button>
+                <Button onClick={() => void handleSaveMyProfile()} disabled={profileSaving}>
+                  {profileSaving ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                      保存中…
+                    </>
+                  ) : (
+                    '保存'
+                  )}
+                </Button>
               </div>
             </div>
           </DialogContent>
         </Dialog>
 
-        <Dialog open={securityDialogOpen} onOpenChange={setSecurityDialogOpen}>
-          <DialogContent className="max-w-[min(92vw,520px)]">
+        <Dialog
+          open={profileAvatarViewerOpen}
+          onOpenChange={(open) => {
+            setProfileAvatarViewerOpen(open)
+            if (!open) setProfileAvatarLightboxSrc(null)
+          }}
+        >
+          <DialogContent className="max-w-[min(96vw,560px)] border-border/80 bg-card p-2 sm:p-4">
             <DialogHeader>
-              <DialogTitle>安全设置</DialogTitle>
-              <DialogDescription>本地安全偏好设置（不上传服务器）。</DialogDescription>
+              <DialogTitle>头像</DialogTitle>
+              <DialogDescription className="sr-only">放大查看头像</DialogDescription>
             </DialogHeader>
-            <div className="space-y-3 text-sm">
-              <label className="flex items-center justify-between gap-2">
-                <span>离开页面后自动锁定敏感操作</span>
-                <input type="checkbox" checked={securityAutoLock} onChange={(e) => setSecurityAutoLock(e.target.checked)} />
-              </label>
-              <label className="flex items-center justify-between gap-2">
-                <span>默认隐藏订单中的完整地址明文</span>
-                <input type="checkbox" checked={securityHideAddress} onChange={(e) => setSecurityHideAddress(e.target.checked)} />
-              </label>
+            {profileAvatarLightboxSrc ? (
+              // eslint-disable-next-line @next/next/no-img-element -- 含 data URL / 外链
+              <img
+                src={profileAvatarLightboxSrc}
+                alt="头像大图"
+                className="max-h-[min(80vh,720px)] w-auto max-w-full mx-auto rounded-lg object-contain block"
+              />
+            ) : null}
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={helpFeedbackDialogOpen} onOpenChange={setHelpFeedbackDialogOpen}>
+          <DialogContent className="max-w-[min(92vw,400px)]">
+            <DialogHeader>
+              <DialogTitle>帮助与反馈</DialogTitle>
+              <DialogDescription className="text-base text-foreground pt-1">功能开发中~</DialogDescription>
+            </DialogHeader>
+            <div className="flex justify-end pt-2">
+              <Button type="button" onClick={() => setHelpFeedbackDialogOpen(false)}>
+                知道了
+              </Button>
             </div>
           </DialogContent>
         </Dialog>

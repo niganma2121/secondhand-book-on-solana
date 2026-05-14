@@ -20,6 +20,8 @@ export type ConversationRow = {
   last_content: MessageContentJson | null
   last_timestamp: number | null
   unread_count: number | null
+  peer_username?: string | null
+  peer_avatar?: string | null
 }
 
 export type WsTicketResponse = {

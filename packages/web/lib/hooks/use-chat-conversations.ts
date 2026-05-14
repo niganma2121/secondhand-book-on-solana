@@ -6,6 +6,7 @@ import {
   fetchChatConversations,
   fetchChatMessages,
   fetchChatWsTicket,
+  markChatConversationRead,
   type ChatMessageRow,
   type ConversationRow,
   type MessageContentJson,
@@ -14,12 +15,21 @@ import { env, getChatWebSocketUrl } from '@/lib/env'
 import { getAccessToken } from '@/lib/auth/token-store'
 import { useAuth } from '@/components/providers/auth-provider'
 import { tryNormalizeSolanaPubkey } from '@/lib/solana-pubkey'
+import { peerDisplayTitle } from '@/lib/format-seller'
+import { fetchPublicUser } from '@/lib/api/users'
 
 const LAST_SYNC_MSG_ID_KEY = 'bookchain_chat_last_msg_id'
 
-function shortPubkey(pubkey: string) {
-  if (pubkey.length <= 12) return pubkey
-  return `${pubkey.slice(0, 4)}…${pubkey.slice(-4)}`
+function tryBrowserNotifyChat(peerPubkey: string, snippet: string) {
+  if (typeof window === 'undefined' || typeof Notification === 'undefined') return
+  if (Notification.permission !== 'granted') return
+  if (typeof document !== 'undefined' && document.visibilityState === 'visible') return
+  try {
+    const body = `${peerDisplayTitle(null, peerPubkey)}：${snippet || '[消息]'}`.slice(0, 140)
+    new Notification('Bookchain 新消息', { body, tag: `chat-${peerPubkey}` })
+  } catch {
+    /* 部分环境禁止通知 */
+  }
 }
 
 function formatMsgTime(tsSeconds: number) {
@@ -168,6 +178,40 @@ function mergeServerEcho(
   return dedupMessagesById(copy)
 }
 
+/** 用服务端会话列表刷新未读与摘要；保留 prev 里已拉取的消息与 book 元信息 */
+function mapServerRowsToConversations(
+  rows: ConversationRow[],
+  prev: ChatConversation[],
+): ChatConversation[] {
+  const prevByPeer = new Map(prev.map((c) => [c.sellerAddr, c]))
+  const seen = new Set<string>()
+  const out: ChatConversation[] = []
+  for (const r of rows) {
+    const peer = r.peer_pubkey?.trim()
+    if (!peer) continue
+    seen.add(peer)
+    const old = prevByPeer.get(peer)
+    out.push({
+      id: `conv-${peer}`,
+      sellerName: peerDisplayTitle(r.peer_username ?? null, peer),
+      sellerAddr: peer,
+      peerUsername: r.peer_username ?? null,
+      peerAvatar: r.peer_avatar?.trim() || null,
+      bookTitle: old?.bookTitle ?? '会话',
+      bookCover: old?.bookCover ?? '/placeholder.svg',
+      lastMsg: snippetFromContent(r.last_content),
+      lastTime:
+        r.last_timestamp != null ? formatConvTime(normalizeTs(r.last_timestamp)) : '',
+      unread: Number(r.unread_count ?? 0),
+      messages: old?.messages ?? [],
+    })
+  }
+  for (const c of prev) {
+    if (!seen.has(c.sellerAddr)) out.push(c)
+  }
+  return out
+}
+
 export function useChatConversations() {
   const { user, isAuthenticated } = useAuth()
   const usingBackend = !env.useMockData && Boolean(env.apiBaseUrl)
@@ -181,6 +225,48 @@ export function useChatConversations() {
 
   const wsRef = useRef<WebSocket | null>(null)
   const activePeerRef = useRef<string | null>(null)
+  const enrichedPeersRef = useRef(new Set<string>())
+
+  useEffect(() => {
+    enrichedPeersRef.current.clear()
+  }, [user?.pubkey])
+
+  const reloadConversationList = useCallback(async () => {
+    if (!usingBackend || !user || !isAuthenticated) return
+    try {
+      const { conversations: rows } = await fetchChatConversations()
+      setConversations((prev) => mapServerRowsToConversations(rows, prev))
+    } catch {
+      /* 保留当前列表 */
+    }
+  }, [usingBackend, user, isAuthenticated])
+
+  const enrichPeerFromPublicProfile = useCallback(
+    async (peerPubkey: string) => {
+      if (!usingBackend || !env.apiBaseUrl) return
+      if (enrichedPeersRef.current.has(peerPubkey)) return
+      enrichedPeersRef.current.add(peerPubkey)
+      try {
+        const u = await fetchPublicUser(peerPubkey)
+        if (!u) return
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.sellerAddr !== peerPubkey
+              ? c
+              : {
+                ...c,
+                peerUsername: u.username,
+                peerAvatar: u.avatar?.trim() || null,
+                sellerName: peerDisplayTitle(u.username, peerPubkey),
+              },
+          ),
+        )
+      } catch {
+        enrichedPeersRef.current.delete(peerPubkey)
+      }
+    },
+    [usingBackend],
+  )
 
   useEffect(() => {
     if (!usingBackend || !user || !isAuthenticated) return
@@ -190,24 +276,7 @@ export function useChatConversations() {
       try {
         const { conversations: rows } = await fetchChatConversations()
         if (cancelled) return
-        const mapped: ChatConversation[] = []
-        for (const r of rows) {
-          const peer = r.peer_pubkey
-          if (!peer) continue
-          mapped.push({
-            id: `conv-${peer}`,
-            sellerName: shortPubkey(peer),
-            sellerAddr: peer,
-            bookTitle: '会话',
-            bookCover: '/placeholder.svg',
-            lastMsg: snippetFromContent(r.last_content),
-            lastTime:
-              r.last_timestamp != null ? formatConvTime(normalizeTs(r.last_timestamp)) : '',
-            unread: Number(r.unread_count ?? 0),
-            messages: [],
-          })
-        }
-        setConversations(mapped)
+        setConversations((prev) => mapServerRowsToConversations(rows, prev))
       } catch {
         if (!cancelled) setConversations([])
       } finally {
@@ -228,6 +297,7 @@ export function useChatConversations() {
 
     let ws: WebSocket | null = null
     let cancelled = false
+    let syncResyncTimer: ReturnType<typeof setTimeout> | null = null
 
     ;(async () => {
       try {
@@ -255,6 +325,13 @@ export function useChatConversations() {
               : '0',
           )
           socket.send(JSON.stringify({ action: 'Sync', data: { last_id: lastId } }))
+          // Sync 会逐条推送离线消息；列表接口里的 unread 已含这些条数，再 +1 会重复。
+          // 短暂后拉一次会话列表，用服务端未读数对齐。
+          if (syncResyncTimer) clearTimeout(syncResyncTimer)
+          syncResyncTimer = setTimeout(() => {
+            syncResyncTimer = null
+            void reloadConversationList()
+          }, 550)
         }
 
         socket.onclose = () => {
@@ -320,24 +397,39 @@ export function useChatConversations() {
               ui.isRead = true
               void ensurePeerMessagesLoaded(peer)
             }
+            if (incomingFromPeer && !readingThisConversation) {
+              tryBrowserNotifyChat(peer, snippet)
+            }
 
+            let wsOpenedNewPeerConv = false
             setConversations((prev) => {
               const idx = prev.findIndex((c) => c.sellerAddr === peer)
               const prevMsgs = idx >= 0 ? prev[idx]!.messages : []
+              const serverMsgId =
+                raw.id != null && Number(raw.id) > 0 ? String(raw.id) : null
+              const alreadyHad =
+                Boolean(serverMsgId) && prevMsgs.some((m) => m.id === serverMsgId)
               const nextMsgs = mergeServerEcho(prevMsgs, ui)
+              const bumpUnread =
+                incomingFromPeer && !readingThisConversation && !alreadyHad
+              const prevConv = idx >= 0 ? prev[idx]! : null
               const nextConv: ChatConversation = {
                 id: `conv-${peer}`,
-                sellerName: shortPubkey(peer),
+                sellerName: prevConv?.sellerName ?? peerDisplayTitle(null, peer),
                 sellerAddr: peer,
+                peerUsername: prevConv?.peerUsername ?? null,
+                peerAvatar: prevConv?.peerAvatar ?? null,
                 bookTitle: idx >= 0 ? prev[idx]!.bookTitle : '会话',
                 bookCover: idx >= 0 ? prev[idx]!.bookCover : '/placeholder.svg',
                 lastMsg: snippet || '[消息]',
                 lastTime: '刚刚',
                 unread: idx >= 0
-                  ? prev[idx]!.unread + (incomingFromPeer && !readingThisConversation ? 1 : 0)
-                  : (incomingFromPeer && !readingThisConversation ? 1 : 0),
+                  ? prev[idx]!.unread + (bumpUnread ? 1 : 0)
+                  : (bumpUnread ? 1 : 0),
                 messages: nextMsgs,
               }
+
+              if (idx < 0) wsOpenedNewPeerConv = true
 
               if (idx >= 0) {
                 const copy = [...prev]
@@ -346,6 +438,11 @@ export function useChatConversations() {
               }
               return [nextConv, ...prev]
             })
+            if (wsOpenedNewPeerConv && incomingFromPeer) {
+              queueMicrotask(() => {
+                void enrichPeerFromPublicProfile(peer)
+              })
+            }
           } catch {
             /* ignore malformed */
           }
@@ -359,6 +456,7 @@ export function useChatConversations() {
 
     return () => {
       cancelled = true
+      if (syncResyncTimer) clearTimeout(syncResyncTimer)
       if (ws) {
         ws.onopen = null
         ws.onclose = null
@@ -368,7 +466,7 @@ export function useChatConversations() {
       }
       if (wsRef.current === ws) wsRef.current = null
     }
-  }, [usingBackend, user?.pubkey, isAuthenticated])
+  }, [usingBackend, user?.pubkey, isAuthenticated, reloadConversationList, enrichPeerFromPublicProfile])
 
   const ensurePeerMessagesLoaded = useCallback(
     async (peerPubkey: string) => {
@@ -409,9 +507,18 @@ export function useChatConversations() {
             : c,
         ),
       )
+      if (usingBackend) {
+        void markChatConversationRead(peerPubkey).catch(() => {
+          /* 与拉取消息时的已读标记互为兜底 */
+        })
+      }
     },
-    [],
+    [usingBackend],
   )
+
+  const clearWsError = useCallback(() => {
+    setWsError(null)
+  }, [])
 
   const clearActiveConversation = useCallback(() => {
     activePeerRef.current = null
@@ -451,6 +558,7 @@ export function useChatConversations() {
           ? { variant: localUi.variant, meta: localUi.meta }
           : {}),
       }
+      let sentNewThread = false
       setConversations((prev) => {
         const idx = prev.findIndex((c) => c.sellerAddr === peerPubkey)
         if (idx >= 0) {
@@ -464,10 +572,13 @@ export function useChatConversations() {
           }
           return copy
         }
+        sentNewThread = true
         const conv: ChatConversation = {
           id: `conv-${peerPubkey}`,
-          sellerName: shortPubkey(peerPubkey),
+          sellerName: peerDisplayTitle(null, peerPubkey),
           sellerAddr: peerPubkey,
+          peerUsername: null,
+          peerAvatar: null,
           bookTitle: '会话',
           bookCover: '/placeholder.svg',
           lastMsg: t,
@@ -477,9 +588,14 @@ export function useChatConversations() {
         }
         return [conv, ...prev]
       })
+      if (sentNewThread) {
+        queueMicrotask(() => {
+          void enrichPeerFromPublicProfile(peerPubkey)
+        })
+      }
       return true
     },
-    [user],
+    [user, enrichPeerFromPublicProfile],
   )
 
   /** 按地址打开会话（列表无则插入一条空会话，便于首条消息发给陌生人） */
@@ -490,8 +606,10 @@ export function useChatConversations() {
       if (!pk || pk === user.pubkey) return null
       const fresh: ChatConversation = {
         id: `conv-${pk}`,
-        sellerName: shortPubkey(pk),
+        sellerName: peerDisplayTitle(null, pk),
         sellerAddr: pk,
+        peerUsername: null,
+        peerAvatar: null,
         bookTitle: '会话',
         bookCover: '/placeholder.svg',
         lastMsg: '',
@@ -500,18 +618,25 @@ export function useChatConversations() {
         messages: [],
       }
       let out: ChatConversation = fresh
+      let addedNew = false
       setConversations((prev) => {
         const hit = prev.find((c) => c.sellerAddr === pk)
         if (hit) {
           out = hit
           return prev
         }
+        addedNew = true
         out = fresh
         return [fresh, ...prev]
       })
+      if (addedNew) {
+        queueMicrotask(() => {
+          void enrichPeerFromPublicProfile(pk)
+        })
+      }
       return out
     },
-    [user],
+    [user, enrichPeerFromPublicProfile],
   )
 
   return {
@@ -520,6 +645,7 @@ export function useChatConversations() {
     loadingList,
     wsConnected,
     wsError,
+    clearWsError,
     usingBackend,
     ensurePeerMessagesLoaded,
     markConversationReadNow,

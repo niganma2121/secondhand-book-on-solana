@@ -15,11 +15,12 @@ impl DBService {
         tx_signature: Option<&str>,
         actor_pubkey: Option<&str>,
         created_at: i64,
+        payload: Option<serde_json::Value>,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"INSERT INTO escrow_events
-               (escrow_pda, asset, seller, buyer, from_state, to_state, action, tx_signature, actor_pubkey, created_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
+               (escrow_pda, asset, seller, buyer, from_state, to_state, action, tx_signature, actor_pubkey, created_at, payload)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#,
         )
         .bind(escrow_pda)
         .bind(asset)
@@ -31,8 +32,123 @@ impl DBService {
         .bind(tx_signature)
         .bind(actor_pubkey)
         .bind(created_at)
+        .bind(payload)
         .execute(&self.db_pool)
         .await?;
+        Ok(())
+    }
+
+    /// 幂等写入仲裁结案流水（同一 `tx_signature` 只写一条）。
+    pub async fn try_insert_escrow_resolve_event(
+        &self,
+        escrow_pda: &str,
+        asset: &str,
+        seller: &str,
+        buyer: &str,
+        from_state: Option<&str>,
+        tx_signature: &str,
+        payload: &serde_json::Value,
+        actor_pubkey: Option<&str>,
+        created_at: i64,
+    ) -> Result<bool, sqlx::Error> {
+        let exists: bool = sqlx::query_scalar(
+            r#"SELECT EXISTS(
+                SELECT 1 FROM escrow_events
+                WHERE escrow_pda = $1 AND tx_signature = $2 AND action = 'resolve_dispute'
+            )"#,
+        )
+        .bind(escrow_pda)
+        .bind(tx_signature)
+        .fetch_one(&self.db_pool)
+        .await?;
+        if exists {
+            return Ok(false);
+        }
+        self.insert_escrow_event(
+            escrow_pda,
+            asset,
+            seller,
+            buyer,
+            from_state,
+            "Released",
+            "resolve_dispute",
+            Some(tx_signature),
+            actor_pubkey,
+            created_at,
+            Some(payload.clone()),
+        )
+        .await?;
+        Ok(true)
+    }
+
+    /// 链上 `open_dispute` 已确认后：在同一事务内更新为 `Disputed` 并写入 `open_dispute` 流水（避免拆开写漏记）。
+    pub async fn mark_escrow_disputed_with_event(
+        &self,
+        escrow_pda: &str,
+        tx_signature: &str,
+        actor_pubkey: Option<&str>,
+        updated_at: i64,
+    ) -> Result<(), sqlx::Error> {
+        let mut tx = self.db_pool.begin().await?;
+        let rec = sqlx::query(
+            r#"SELECT asset, seller, buyer, state
+               FROM escrows
+               WHERE escrow_pda = $1
+               FOR UPDATE"#,
+        )
+        .bind(escrow_pda)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(rec) = rec else {
+            return Err(sqlx::Error::RowNotFound);
+        };
+        let asset: String = rec.get("asset");
+        let seller: String = rec.get("seller");
+        let buyer: String = rec.get("buyer");
+        let prev_state: String = rec.get("state");
+
+        sqlx::query(
+            r#"UPDATE escrows
+               SET state = 'Disputed',
+                   updated_at = $2,
+                   disputed_at = COALESCE(disputed_at, $2)
+               WHERE escrow_pda = $1"#,
+        )
+        .bind(escrow_pda)
+        .bind(updated_at)
+        .execute(&mut *tx)
+        .await?;
+
+        let dup_open: bool = sqlx::query_scalar(
+            r#"SELECT EXISTS(
+                SELECT 1 FROM escrow_events
+                WHERE escrow_pda = $1 AND tx_signature = $2 AND action = 'open_dispute'
+            )"#,
+        )
+        .bind(escrow_pda)
+        .bind(tx_signature)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if !dup_open {
+            sqlx::query(
+                r#"INSERT INTO escrow_events
+                   (escrow_pda, asset, seller, buyer, from_state, to_state, action, tx_signature, actor_pubkey, created_at, payload)
+                   VALUES ($1, $2, $3, $4, $5, 'Disputed', 'open_dispute', $6, $7, $8, NULL)"#,
+            )
+            .bind(escrow_pda)
+            .bind(&asset)
+            .bind(&seller)
+            .bind(&buyer)
+            .bind(&prev_state)
+            .bind(tx_signature)
+            .bind(actor_pubkey)
+            .bind(updated_at)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
         Ok(())
     }
 
@@ -43,7 +159,7 @@ impl DBService {
     ) -> Result<Vec<EscrowEventRow>, sqlx::Error> {
         sqlx::query_as::<_, EscrowEventRow>(
             r#"SELECT ee.id, ee.escrow_pda, ee.asset, ee.seller, ee.buyer, ee.from_state, ee.to_state, ee.action,
-                      ee.tx_signature, ee.actor_pubkey, ee.created_at, e.book_snapshot
+                      ee.tx_signature, ee.actor_pubkey, ee.created_at, ee.payload, e.book_snapshot
                FROM escrow_events ee
                LEFT JOIN escrows e ON e.escrow_pda = ee.escrow_pda
                WHERE ee.escrow_pda = $1
@@ -64,7 +180,7 @@ impl DBService {
     ) -> Result<Vec<EscrowEventRow>, sqlx::Error> {
         sqlx::query_as::<_, EscrowEventRow>(
             r#"SELECT ee.id, ee.escrow_pda, ee.asset, ee.seller, ee.buyer, ee.from_state, ee.to_state, ee.action,
-                      ee.tx_signature, ee.actor_pubkey, ee.created_at, e.book_snapshot
+                      ee.tx_signature, ee.actor_pubkey, ee.created_at, ee.payload, e.book_snapshot
                FROM escrow_events ee
                LEFT JOIN escrows e ON e.escrow_pda = ee.escrow_pda
                WHERE ee.asset = $1
@@ -87,7 +203,7 @@ impl DBService {
     ) -> Result<Vec<EscrowEventRow>, sqlx::Error> {
         sqlx::query_as::<_, EscrowEventRow>(
             r#"SELECT ee.id, ee.escrow_pda, ee.asset, ee.seller, ee.buyer, ee.from_state, ee.to_state, ee.action,
-                      ee.tx_signature, ee.actor_pubkey, ee.created_at, e.book_snapshot
+                      ee.tx_signature, ee.actor_pubkey, ee.created_at, ee.payload, e.book_snapshot
                FROM escrow_events ee
                LEFT JOIN escrows e ON e.escrow_pda = ee.escrow_pda
                WHERE ee.asset = $1 AND (ee.seller = $2 OR ee.buyer = $2)

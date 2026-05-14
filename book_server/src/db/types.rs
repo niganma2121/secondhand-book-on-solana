@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use chrono::Utc;
 
 //-------------------用户
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
@@ -17,6 +18,27 @@ pub struct UserRow {
     pub dispute_won: i32,
     pub dispute_lost: i32,
     pub created_at: i64,
+    /// UTC 自然日 YYYYMMDD，与 `username_edit_count` 同属「当日昵称修改次数」统计
+    pub username_edit_day: i32,
+    pub username_edit_count: i32,
+}
+
+impl UserRow {
+    /// UTC 自然日 `YYYYMMDD`
+    pub fn utc_yyyymmdd() -> i32 {
+        Utc::now().format("%Y%m%d").to_string().parse().unwrap_or(0)
+    }
+
+    /// 当日还可修改昵称的次数（每天最多成功修改 3 次）
+    pub fn username_changes_remaining_today(&self) -> i32 {
+        let today = Self::utc_yyyymmdd();
+        let used = if self.username_edit_day == today {
+            self.username_edit_count
+        } else {
+            0
+        };
+        (3 - used).max(0)
+    }
 }
 
 //---------------------- 书籍
@@ -176,6 +198,8 @@ pub struct EscrowEventRow {
     pub tx_signature: Option<String>,
     pub actor_pubkey: Option<String>,
     pub created_at: i64,
+    /// 仲裁结案等结构化字段（如 winner、return_book）
+    pub payload: Option<Value>,
     /// 来自 `escrows.book_snapshot`（JOIN），同一 escrow_pda 多行事件值相同
     pub book_snapshot: Option<Value>,
 }
@@ -263,6 +287,8 @@ pub struct ConversationRow {
     pub last_content: Option<serde_json::Value>,
     pub last_timestamp: Option<i64>,
     pub unread_count: Option<i64>,
+    pub peer_username: Option<String>,
+    pub peer_avatar: Option<String>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]

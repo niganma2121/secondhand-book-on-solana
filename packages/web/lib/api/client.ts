@@ -18,6 +18,11 @@ type FetchOptions = RequestInit & {
   token?: string | null
   /** 覆盖默认超时（毫秒）；设为 0 表示不额外限制 */
   timeoutMs?: number
+  /**
+   * 为 true 时不自动附带本地 JWT（用于 `/users/:pubkey` 等匿名可读接口）。
+   * 避免本地过期 token 仍写入 Authorization 导致部分环境下 401。
+   */
+  omitAuth?: boolean
 }
 
 function defaultCredentials(): RequestCredentials {
@@ -64,12 +69,17 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
   const url = path.startsWith('http') ? path : `${base}${path.startsWith('/') ? path : `/${path}`}`
   const headers = new Headers(options.headers)
   headers.set('Accept', 'application/json')
-  const bearer = options.token ?? getAccessToken()
+  const omitAuth = options.omitAuth === true
+  const bearer = omitAuth
+    ? typeof options.token === 'string' && options.token.length > 0
+      ? options.token
+      : null
+    : (options.token !== undefined ? options.token : getAccessToken())
   if (bearer) {
     headers.set('Authorization', `Bearer ${bearer}`)
   }
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
-  const { timeoutMs: _tm, token: _token, ...fetchInit } = options
+  const { timeoutMs: _tm, token: _token, omitAuth: _omitAuth, ...fetchInit } = options
   const signal = mergeAbortSignals(fetchInit.signal, timeoutMs)
 
   let res: Response

@@ -566,6 +566,10 @@
         },
         {
           "name": "admin_signer",
+          "docs": [
+            "须 `mut`：作为 MPL Core CPI 的 payer 会扣 lamports；外层若只读会触发 writable privilege escalated"
+          ],
+          "writable": true,
           "signer": true
         },
         {

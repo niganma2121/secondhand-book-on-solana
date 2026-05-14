@@ -9,6 +9,7 @@ use anchor_lang::AnchorDeserialize;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use futures::StreamExt;
+use serde_json::json;
 use tracing::{info, warn};
 
 pub async fn listen_dispute_resolved(db: DBService, ws_url: String) -> ! {
@@ -37,12 +38,14 @@ async fn run_listener(db: &DBService, ws_url: &str) -> anyhow::Result<()> {
     while let Some(log) = stream.next().await {
         let slot = log.context.slot as i64;
         let signature = log.value.signature.clone();
-        let has_event = log
-            .value
-            .logs
-            .iter()
-            .any(|l| l.contains("DisputeResolvedEvent"));
-        if !has_event {
+        // 仅解析「含 ResolveDispute 指令」的交易里的 Program data，避免每条 Book 程序交易都全量扫日志
+        let should_parse_logs = log.value.logs.iter().any(|l| l.contains("ResolveDispute"))
+            && log
+                .value
+                .logs
+                .iter()
+                .any(|l| l.trim_start().starts_with("Program data:"));
+        if !should_parse_logs {
             continue;
         }
         if let Err(e) = handle_dispute_resolved(&log.value.logs, &signature, slot, db).await {
@@ -61,9 +64,22 @@ async fn handle_dispute_resolved(
     let now = chrono::Utc::now().timestamp();
 
     for (idx, line) in logs.iter().enumerate() {
-        if !line.starts_with("Program data:") {
+        if !line.trim_start().starts_with("Program data:") {
             continue;
         }
+        let b64 = line.trim_start_matches("Program data:").trim();
+        let bytes = match STANDARD.decode(b64) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        if bytes.len() < 8 {
+            continue;
+        }
+        let event = match DisputeResolvedEvent::deserialize(&mut &bytes[8..]) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
         let inserted = db
             .try_insert_chain_event_dedup(
                 signature,
@@ -76,18 +92,7 @@ async fn handle_dispute_resolved(
         if !inserted {
             continue;
         }
-        let b64 = line.trim_start_matches("Program data:").trim();
-        let bytes = STANDARD.decode(b64)?;
 
-        if bytes.len() < 8 {
-            continue;
-        }
-        let event = DisputeResolvedEvent::deserialize(&mut &bytes[8..]);
-
-        let event = match event {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
         let escrow_pda = event.escrow.to_string();
 
         let escrow = db.get_escrow(&escrow_pda).await?;
@@ -118,6 +123,38 @@ async fn handle_dispute_resolved(
             .await
         {
             warn!("仲裁结案信誉统计失败 escrow={}: {e}", escrow_pda);
+        }
+
+        let winner = match event.result {
+            ArbitrationResult::BuyerWin => "buyer",
+            ArbitrationResult::SellerWin => "seller",
+            ArbitrationResult::Voting => {
+                warn!("仲裁链上事件 result=Voting（非终局），跳过结案流水 escrow={}", escrow_pda);
+                continue;
+            }
+        };
+        let payload = json!({
+            "winner": winner,
+            "return_book": event.return_book,
+            "refund_lamports": event.refund_amount,
+        });
+        match db
+            .try_insert_escrow_resolve_event(
+                &escrow.escrow_pda,
+                &escrow.asset,
+                &escrow.seller,
+                &escrow.buyer,
+                Some("Disputed"),
+                signature,
+                &payload,
+                None,
+                now,
+            )
+            .await
+        {
+            Ok(true) => info!("WS 已写入仲裁结案流水 escrow={}", escrow_pda),
+            Ok(false) => {}
+            Err(e) => warn!("WS 仲裁结案流水写入失败 escrow={} err={}", escrow_pda, e),
         }
 
         info!(

@@ -1,9 +1,10 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useState, useRef, useEffect } from 'react'
-import { routes } from '@/config/routes'
+import { routes, userPublicProfile } from '@/config/routes'
 import type { ChatConversation, ChatMessage } from '@/lib/types'
 import { useChatConversationsContext } from '@/components/providers/chat-conversations-provider'
 import { Button } from '@/components/ui/button'
@@ -20,6 +21,37 @@ import { Input } from '@/components/ui/input'
 import { tryNormalizeSolanaPubkey } from '@/lib/solana-pubkey'
 import { privacyPubkey } from '@/lib/format-seller'
 import { ChatMessageBody } from '@/components/features/chat/chat-message-body'
+
+function ChatPeerAvatar({
+  avatarUrl,
+  title,
+  className,
+}: {
+  avatarUrl?: string | null
+  title: string
+  className?: string
+}) {
+  const initial = Array.from((title || '?').trim() || '?')[0] ?? '?'
+  if (avatarUrl) {
+    return (
+      <div className={['relative overflow-hidden bg-secondary', className].filter(Boolean).join(' ')}>
+        <Image src={avatarUrl} alt="" fill className="object-cover" sizes="64px" unoptimized />
+      </div>
+    )
+  }
+  return (
+    <div
+      className={[
+        'flex items-center justify-center bg-secondary text-primary font-bold',
+        className,
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      <span className="leading-none select-none">{initial}</span>
+    </div>
+  )
+}
 
 type ChatPageProps = {
   /** 从 `/chat?peer=...` 进入时自动打开与该地址的会话 */
@@ -46,6 +78,7 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
     openConversationWithPeer,
     wsConnected,
     wsError,
+    clearWsError,
     loadingList,
   } = useChatConversationsContext()
   const [imagePreview, setImagePreview] = useState<string | null>(null)
@@ -214,13 +247,20 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
               <path d="M12.5 4.5L7 10l5.5 5.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
-          <div className="w-9 h-9 rounded-xl bg-secondary flex items-center justify-center shrink-0">
-            <span className="text-base font-bold text-primary">{conv.sellerName[0]}</span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-foreground truncate">{conv.sellerName}</p>
-            <p className="text-[10px] text-muted-foreground font-mono">{privacyPubkey(conv.sellerAddr)}</p>
-          </div>
+          <Link
+            href={userPublicProfile(conv.sellerAddr)}
+            className="flex items-center gap-3 flex-1 min-w-0 rounded-xl pr-1 -m-1 p-1 hover:bg-secondary/40 transition-colors"
+          >
+            <ChatPeerAvatar
+              avatarUrl={conv.peerAvatar}
+              title={conv.sellerName}
+              className="w-9 h-9 rounded-xl shrink-0"
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-foreground truncate">{conv.sellerName}</p>
+              <p className="text-[10px] text-muted-foreground font-mono">{privacyPubkey(conv.sellerAddr)}</p>
+            </div>
+          </Link>
           <div className="flex flex-col gap-1.5 items-end shrink-0">
             <Link
               href={`${routes.market}?seller=${encodeURIComponent(conv.sellerAddr)}`}
@@ -249,9 +289,17 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
               className={['flex gap-2.5', msg.from === 'me' ? 'flex-row-reverse' : ''].join(' ')}
             >
               {msg.from === 'seller' && (
-                <div className="w-7 h-7 rounded-lg bg-secondary flex items-center justify-center shrink-0 mt-0.5">
-                  <span className="text-xs font-bold text-primary">{conv.sellerName[0]}</span>
-                </div>
+                <Link
+                  href={userPublicProfile(conv.sellerAddr)}
+                  className="shrink-0 mt-0.5 rounded-lg overflow-hidden ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label="查看对方资料"
+                >
+                  <ChatPeerAvatar
+                    avatarUrl={conv.peerAvatar}
+                    title={conv.sellerName}
+                    className="w-7 h-7 rounded-lg"
+                  />
+                </Link>
               )}
               <div className="max-w-[72%]">
                 <div
@@ -299,11 +347,11 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
               <div
                 className={[
                   'shrink-0 self-end pb-1 text-[10px]',
-                  msg.isRead ? 'text-muted-foreground' : 'text-primary',
-                  msg.from === 'me' ? 'text-right' : 'text-left',
+                  msg.from === 'seller' ? (msg.isRead ? 'text-muted-foreground' : 'text-primary') : '',
+                  msg.from === 'seller' ? 'text-left' : '',
                 ].join(' ')}
               >
-                {msg.isRead ? '已读' : '未读'}
+                {msg.from === 'seller' ? (msg.isRead ? '已读' : '未读') : null}
               </div>
             </div>
           ))}
@@ -395,7 +443,16 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
               <p className="text-xs text-muted-foreground">正在加载会话…</p>
             )}
             {wsError && (
-              <p className="text-xs text-destructive">{wsError}</p>
+              <div className="flex items-start gap-2 rounded-lg border border-destructive/35 bg-destructive/10 px-2.5 py-2">
+                <p className="text-xs text-destructive flex-1 min-w-0 leading-snug">{wsError}</p>
+                <button
+                  type="button"
+                  className="text-[11px] shrink-0 text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                  onClick={() => clearWsError()}
+                >
+                  清除
+                </button>
+              </div>
             )}
             {!wsError && isAuthenticated && !wsConnected && (
               <p className="text-xs text-muted-foreground">正在连接实时聊天…</p>
@@ -404,7 +461,23 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
         )}
         <div className="flex items-center justify-between mb-4 gap-3">
           <h1 className="text-xl font-bold text-foreground">消息</h1>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+            {isAuthenticated &&
+            typeof globalThis !== 'undefined' &&
+            typeof globalThis.Notification !== 'undefined' &&
+            globalThis.Notification.permission === 'default' ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="rounded-xl text-xs h-8 px-2 text-muted-foreground"
+                onClick={() => {
+                  void globalThis.Notification.requestPermission()
+                }}
+              >
+                开启桌面通知
+              </Button>
+            ) : null}
             {isAuthenticated && (
               <Button
                 type="button"
@@ -480,9 +553,18 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
               className="flex items-center gap-3 p-3.5 bg-card border border-border/50 rounded-2xl hover:border-primary/30 transition-all duration-150 text-left active:scale-[0.99]"
             >
               <div className="relative shrink-0">
-                <div className="w-11 h-11 rounded-2xl bg-secondary flex items-center justify-center">
-                  <span className="text-base font-bold text-primary">{conv.sellerName[0]}</span>
-                </div>
+                <Link
+                  href={userPublicProfile(conv.sellerAddr)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="block rounded-2xl overflow-hidden ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label="查看对方资料"
+                >
+                  <ChatPeerAvatar
+                    avatarUrl={conv.peerAvatar}
+                    title={conv.sellerName}
+                    className="w-11 h-11 rounded-2xl"
+                  />
+                </Link>
                 {conv.unread > 0 && (
                   <span className="absolute -top-1 -right-1 w-[18px] h-[18px] rounded-full bg-primary flex items-center justify-center">
                     <span className="text-[10px] font-bold text-primary-foreground leading-none">{conv.unread}</span>

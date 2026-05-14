@@ -10,13 +10,19 @@ pub struct EscrowSnapshot {
 }
 
 pub async fn load_escrow_snapshot(db: &DBService, escrow_pda: &str) -> Option<EscrowSnapshot> {
-    db.get_escrow(escrow_pda).await.ok().flatten().map(|x| EscrowSnapshot {
-        escrow_pda: x.escrow_pda,
-        asset: x.asset,
-        seller: x.seller,
-        buyer: x.buyer,
-        state: x.state,
-    })
+    match db.get_escrow(escrow_pda).await {
+        Ok(opt) => opt.map(|x| EscrowSnapshot {
+            escrow_pda: x.escrow_pda,
+            asset: x.asset,
+            seller: x.seller,
+            buyer: x.buyer,
+            state: x.state,
+        }),
+        Err(e) => {
+            warn!("读取托管快照失败 escrow_pda={} err={}", escrow_pda, e);
+            None
+        }
+    }
 }
 
 pub async fn try_log_create_event(
@@ -41,6 +47,7 @@ pub async fn try_log_create_event(
             Some(tx_signature),
             Some(buyer),
             occurred_at,
+            None,
         )
         .await
     {
@@ -69,6 +76,7 @@ pub async fn try_log_transition_event(
             Some(tx_signature),
             actor_pubkey,
             occurred_at,
+            None,
         )
         .await
     {

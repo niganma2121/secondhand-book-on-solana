@@ -27,6 +27,8 @@ export type PublicEscrowEvent = PublicBookHistoryEvent & {
   actor_pubkey?: string | null
   /** 与 `escrows.book_snapshot` 一致：本单创建时冻结的书目（多行事件重复同一份） */
   book_snapshot?: unknown
+  /** 仲裁结案等结构化字段 */
+  payload?: unknown
 }
 
 export type PublicBookHistoryResponse = {
@@ -57,6 +59,8 @@ export type MyEscrowEventRow = {
   actor_pubkey?: string | null
   created_at: number
   book_snapshot?: unknown
+  /** 仲裁结案等结构化字段 */
+  payload?: unknown
 }
 
 export type MyAssetEscrowEventsResponse = {

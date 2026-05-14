@@ -6,6 +6,7 @@ import { MobileHeader } from '@/components/layout/mobile-header'
 import { MobileTabBar } from '@/components/layout/mobile-tab-bar'
 import { ChatConversationsProvider } from '@/components/providers/chat-conversations-provider'
 import { OrderAttentionProvider } from '@/components/providers/order-attention-provider'
+import { Toaster } from '@/components/ui/toaster'
 
 export function AppShell({ children }: { children: ReactNode }) {
   return (
@@ -20,6 +21,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </main>
           <MobileTabBar />
         </div>
+        <Toaster />
       </OrderAttentionProvider>
     </ChatConversationsProvider>
   )

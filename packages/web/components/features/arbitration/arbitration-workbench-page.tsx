@@ -437,7 +437,7 @@ export function ArbitrationWorkbenchPage() {
             <DialogDescription className="text-xs">
               {voteOutcome
                 ? voteOutcome.ok
-                  ? '交易已上链。若需两名仲裁员同边票，请等待另一名仲裁员投票。'
+                  ? '投票记录已上链。'
                   : '请根据下方说明修改后重试，或联系运维查看链上日志。'
                 : '管理员已 partial sign；你确认后由钱包完成仲裁员签名并广播。'}
             </DialogDescription>

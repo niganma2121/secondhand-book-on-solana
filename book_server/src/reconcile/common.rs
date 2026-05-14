@@ -11,7 +11,7 @@ pub struct ReconcileStats {
     pub repaired: usize,
 }
 
-pub(crate) fn chain_escrow_state_str(s: &EscrowState) -> &'static str {
+pub fn chain_escrow_state_str(s: &EscrowState) -> &'static str {
     match s {
         EscrowState::Paid => "Paid",
         EscrowState::Shipped => "Shipped",

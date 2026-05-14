@@ -20,7 +20,7 @@ import { fetchMyAssetEscrowEvents, type MyEscrowEventRow } from '@/lib/api/book-
 import { ApiError } from '@/lib/api/client'
 import { env } from '@/lib/env'
 import {
-  escrowActionTitle,
+  escrowEventPrimaryLine,
   escrowStateZh,
   groupMyEscrowEventsByLifecycle,
   isEscrowActionAlert,
@@ -235,7 +235,7 @@ export function ShelfMyEscrowTradesPage({
                           ].join(' ')}
                         >
                           <p className="text-base md:text-xl font-semibold text-foreground leading-snug">
-                            {escrowActionTitle(ev.action)}
+                            {escrowEventPrimaryLine(ev.action, ev.payload)}
                           </p>
                           <div className="text-sm md:text-base text-muted-foreground space-y-1.5 md:space-y-2 leading-relaxed">
                             <p className="break-all">
@@ -301,7 +301,7 @@ export function ShelfMyEscrowTradesPage({
                 <DialogHeader>
                   <DialogTitle>本单下单快照与托管信息</DialogTitle>
                   <DialogDescription className="text-xs font-mono break-all">
-                    {formatTime(detailEv.created_at)} · {escrowActionTitle(detailEv.action)}
+                    {formatTime(detailEv.created_at)} · {escrowEventPrimaryLine(detailEv.action, detailEv.payload)}
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-3 text-sm text-muted-foreground">
