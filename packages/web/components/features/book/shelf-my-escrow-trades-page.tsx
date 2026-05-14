@@ -2,10 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { Loader2 } from 'lucide-react'
+import { EscrowTimelineSegmentSeparator } from '@/components/features/book/escrow-timeline-segment-separator'
 import { Button } from '@/components/ui/button'
-import { bookPublicHistory, routes } from '@/config/routes'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { bookPublicHistory, routes, shelfMyEscrowTrades } from '@/config/routes'
 import { fetchBookDetail } from '@/lib/api/book-detail'
 import { fetchMyAssetEscrowEvents, type MyEscrowEventRow } from '@/lib/api/book-history'
 import { ApiError } from '@/lib/api/client'
@@ -13,12 +22,13 @@ import { env } from '@/lib/env'
 import {
   escrowActionTitle,
   escrowStateZh,
-  groupMyEscrowEventsByPda,
+  groupMyEscrowEventsByLifecycle,
   isEscrowActionAlert,
 } from '@/lib/escrow-event-copy'
 import { shortenPubkey } from '@/lib/format-seller'
 import { useOpenWalletConnect } from '@/lib/hooks/use-open-wallet-connect'
 import { explorerAddressUrl, explorerTxUrl } from '@/lib/solana-explorer'
+import { escrowBookSnapshotToDetailResponse } from '@/lib/order-book-snapshot'
 
 function formatTime(ts: number) {
   try {
@@ -35,13 +45,21 @@ function formatTime(ts: number) {
   }
 }
 
-export function ShelfMyEscrowTradesPage({ asset }: { asset: string }) {
+export function ShelfMyEscrowTradesPage({
+  asset,
+  escrowFilter,
+}: {
+  asset: string
+  /** 仅展示该托管 PDA 下的事件（与「待处理订单」中单笔订单对应） */
+  escrowFilter?: string | null
+}) {
   const { publicKey } = useWallet()
   const openWalletConnect = useOpenWalletConnect()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [events, setEvents] = useState<MyEscrowEventRow[]>([])
   const [bookName, setBookName] = useState<string | null>(null)
+  const [detailEv, setDetailEv] = useState<MyEscrowEventRow | null>(null)
 
   const load = useCallback(async () => {
     if (!asset || !env.apiBaseUrl) {
@@ -78,7 +96,16 @@ export function ShelfMyEscrowTradesPage({ asset }: { asset: string }) {
     void load()
   }, [load, publicKey])
 
-  const groups = useMemo(() => groupMyEscrowEventsByPda(events), [events])
+  const filteredEvents = useMemo(() => {
+    const f = escrowFilter?.trim()
+    if (!f) return events
+    return events.filter((e) => e.escrow_pda === f)
+  }, [events, escrowFilter])
+
+  const groups = useMemo(
+    () => groupMyEscrowEventsByLifecycle(filteredEvents),
+    [filteredEvents],
+  )
 
   if (!publicKey) {
     return (
@@ -103,8 +130,27 @@ export function ShelfMyEscrowTradesPage({ asset }: { asset: string }) {
               {bookName ? `${bookName} · 托管流水` : '托管流水'}
             </h1>
             <p className="text-xs md:text-sm text-muted-foreground mt-2 leading-relaxed">
-              仅展示你作为买家或卖家参与的记录（完整地址）。
+              {escrowFilter?.trim() ? (
+                <>
+                  当前仅展示所选托管订单（PDA 与链接一致）下、你作为买家或卖家的链上事件；同一托管地址被复用时会在分段处显示「新的流动产生」。
+                </>
+              ) : (
+                <>
+                  本书下你作为买家或卖家参与过的<strong className="text-foreground/90">全部</strong>
+                  托管事件（完整地址）。若只想看某一单，请在「待处理订单」中从该订单进入。
+                </>
+              )}
             </p>
+            {escrowFilter?.trim() ? (
+              <p className="text-[11px] md:text-xs mt-1.5">
+                <Link
+                  href={shelfMyEscrowTrades(asset)}
+                  className="text-primary font-medium hover:underline"
+                >
+                  查看本书全部托管流水
+                </Link>
+              </p>
+            ) : null}
             <p className="text-[11px] md:text-xs text-muted-foreground mt-2 break-all">
               <span className="text-muted-foreground font-sans">资产地址：</span>
               <span className="font-mono">{asset}</span>
@@ -136,20 +182,20 @@ export function ShelfMyEscrowTradesPage({ asset }: { asset: string }) {
           <p className="text-base md:text-lg text-muted-foreground py-12 text-center">暂无与你相关的托管事件</p>
         )}
 
+        {!loading && !error && events.length > 0 && filteredEvents.length === 0 && escrowFilter?.trim() && (
+          <p className="text-base md:text-lg text-muted-foreground py-12 text-center space-y-3">
+            <span className="block">未找到该托管订单下与你相关的事件，请核对链接是否属于本书订单。</span>
+            <Link href={shelfMyEscrowTrades(asset)} className="text-primary font-medium hover:underline text-base">
+              查看本书全部托管流水
+            </Link>
+          </p>
+        )}
+
         {!loading && !error && groups.length > 0 && (
           <div className="space-y-0 -ml-1 sm:-ml-0">
             {groups.map((group, gi) => (
-              <div key={`${group[0]?.escrow_pda}-${gi}`}>
-                {gi > 0 ? (
-                  <div
-                    className="my-10 md:my-14 flex items-center gap-3 text-muted-foreground"
-                    role="separator"
-                  >
-                    <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-border" />
-                    <span className="text-[11px] sm:text-xs font-medium shrink-0 px-2">新的流转产生</span>
-                    <div className="h-px flex-1 bg-gradient-to-l from-transparent via-border to-border" />
-                  </div>
-                ) : null}
+              <div key={`${group[0]?.escrow_pda}-${group[0]?.id}-${gi}`}>
+                {gi > 0 ? <EscrowTimelineSegmentSeparator /> : null}
 
                 {group.map((ev) => {
                   const alert = isEscrowActionAlert(ev.action)
@@ -204,15 +250,9 @@ export function ShelfMyEscrowTradesPage({ asset }: { asset: string }) {
                             <p className="text-xs md:text-sm">
                               <span className="text-muted-foreground">托管订单 </span>
                               <span className="font-mono">{shortenPubkey(ev.escrow_pda)}</span>
-                              {' · '}
-                              <a
-                                href={explorerAddressUrl(ev.escrow_pda)}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-primary hover:underline font-medium"
-                              >
-                                浏览器中查看完整地址
-                              </a>
+                              {ev.action.trim().toLowerCase() === 'create_escrow' ? (
+                                <span className="text-muted-foreground"> · 点下方「下单快照」查看完整 PDA 与浏览器核对</span>
+                              ) : null}
                             </p>
                             {ev.actor_pubkey ? (
                               <p className="break-all">
@@ -221,6 +261,17 @@ export function ShelfMyEscrowTradesPage({ asset }: { asset: string }) {
                             ) : null}
                           </div>
                           <div className="flex flex-wrap items-center gap-x-3 sm:gap-x-4 gap-y-2 pt-1">
+                            {ev.action.trim().toLowerCase() === 'create_escrow' ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-auto px-0 text-sm md:text-base text-primary hover:underline font-medium"
+                                onClick={() => setDetailEv(ev)}
+                              >
+                                下单快照 / 详情
+                              </Button>
+                            ) : null}
                             {ev.tx_signature ? (
                               <a
                                 href={explorerTxUrl(ev.tx_signature)}
@@ -242,6 +293,125 @@ export function ShelfMyEscrowTradesPage({ asset }: { asset: string }) {
             ))}
           </div>
         )}
+
+        <Dialog open={Boolean(detailEv)} onOpenChange={(open) => !open && setDetailEv(null)}>
+          <DialogContent className="max-w-[min(92vw,480px)] max-h-[85vh] overflow-y-auto">
+            {detailEv ? (
+              <>
+                <DialogHeader>
+                  <DialogTitle>本单下单快照与托管信息</DialogTitle>
+                  <DialogDescription className="text-xs font-mono break-all">
+                    {formatTime(detailEv.created_at)} · {escrowActionTitle(detailEv.action)}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3 text-sm text-muted-foreground">
+                  <p className="break-all">
+                    托管 PDA：<span className="font-mono text-foreground">{detailEv.escrow_pda}</span>
+                  </p>
+                  <p>
+                    <a
+                      href={explorerAddressUrl(detailEv.escrow_pda)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-primary font-medium hover:underline"
+                    >
+                      在浏览器中查看托管账户
+                    </a>
+                    <span className="block text-[11px] mt-1.5 leading-relaxed">
+                      链上账户与交易均为公开数据；此链接便于核对，不构成对买卖双方的合约级攻击。请勿在第三方页面输入助记词。
+                    </span>
+                  </p>
+                  <p className="break-all">
+                    卖家 <span className="font-mono text-foreground/90">{detailEv.seller}</span>
+                    {' → '}
+                    买家 <span className="font-mono text-foreground/90">{detailEv.buyer}</span>
+                  </p>
+                  <p>
+                    状态：{escrowStateZh(detailEv.from_state)} → {escrowStateZh(detailEv.to_state)}
+                  </p>
+                  {(() => {
+                    const parsed = escrowBookSnapshotToDetailResponse(detailEv.book_snapshot)
+                    if (!parsed) {
+                      return (
+                        <p className="text-xs">
+                          本事件未附带下单时书目快照（多为旧数据）；可与当前在售信息或链上交易对照。
+                        </p>
+                      )
+                    }
+                    const { book, images } = parsed
+                    const cover = book.cover_url?.trim() || null
+                    const sortedImgs = [...images]
+                      .filter((im) => typeof im.url === 'string' && im.url.trim().length > 0)
+                      .sort((a, b) => a.sort - b.sort || a.id - b.id)
+                    const detailGrid = cover
+                      ? sortedImgs.filter((im) => im.url.trim() !== cover)
+                      : sortedImgs
+
+                    return (
+                      <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 space-y-3">
+                        <p className="font-medium text-foreground">本单创建时的书目快照</p>
+                        {book.name ? <p className="text-foreground">{book.name}</p> : null}
+                        {book.author ? <p className="text-xs">作者：{book.author}</p> : null}
+                        {cover ? (
+                          <div className="space-y-1.5">
+                            <p className="text-xs font-medium text-foreground">封面</p>
+                            <div className="relative w-28 h-40 rounded-lg overflow-hidden border border-border bg-muted">
+                              <Image src={cover} alt="" fill className="object-cover" unoptimized />
+                            </div>
+                          </div>
+                        ) : null}
+                        {detailGrid.length > 0 ? (
+                          <div className="space-y-1.5">
+                            <p className="text-xs font-medium text-foreground">
+                              {cover ? `详情图（${detailGrid.length} 张）` : `快照图片（${detailGrid.length} 张）`}
+                            </p>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                              {detailGrid.map((im) => (
+                                <div
+                                  key={`${im.id}-${im.sort}-${im.url}`}
+                                  className="relative aspect-[3/4] w-full max-h-48 rounded-lg overflow-hidden border border-border bg-muted"
+                                >
+                                  <Image
+                                    src={im.url.trim()}
+                                    alt=""
+                                    fill
+                                    className="object-cover"
+                                    unoptimized
+                                    sizes="(max-width:640px) 45vw, 120px"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                        {book.metadata_url ? (
+                          <a
+                            href={book.metadata_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs text-primary hover:underline break-all inline-block"
+                          >
+                            元数据链接
+                          </a>
+                        ) : null}
+                      </div>
+                    )
+                  })()}
+                  {detailEv.tx_signature ? (
+                    <a
+                      href={explorerTxUrl(detailEv.tx_signature)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-block text-primary font-medium hover:underline"
+                    >
+                      查看链上交易
+                    </a>
+                  ) : null}
+                </div>
+              </>
+            ) : null}
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   )

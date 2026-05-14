@@ -7,7 +7,7 @@ type MarketFavoriteButtonProps = {
   variant: 'card' | 'header'
   favorited: boolean
   isAuthenticated: boolean
-  onToggle: () => void
+  onToggle: () => void | Promise<void>
   /** 未登录时调用；可传入详情专用文案 */
   onRequireLogin: (message?: string) => void
 }
@@ -31,7 +31,7 @@ export function MarketFavoriteButton({
       )
       return
     }
-    onToggle()
+    void Promise.resolve(onToggle())
   }
 
   if (variant === 'card') {

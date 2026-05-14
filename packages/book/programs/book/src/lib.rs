@@ -28,9 +28,10 @@ pub mod book {
         ctx:Context<RelistBook>,
         new_price:u64,
         metadata_id:String,
-        metadata_hash:[u8;32]
+        metadata_hash:[u8;32],
+        metadata_url:String,
     )->Result<()>{
-        instructions::relist_book(ctx,new_price,metadata_id,metadata_hash)
+        instructions::relist_book(ctx,new_price,metadata_id,metadata_hash,metadata_url)
     }
     pub fn delist_book(ctx:Context<DelistBook>)->Result<()>{
         instructions::delist_book(ctx)

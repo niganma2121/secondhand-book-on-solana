@@ -51,6 +51,22 @@ export const env = {
   isDev: process.env.NODE_ENV === 'development',
   /** 未配置则不显示人民币参考价 */
   solCnyApprox,
+  /** 与链上 `ARBITRATORS` 对齐；可用 `NEXT_PUBLIC_ARBITRATOR_PUBKEYS`（逗号分隔）覆盖 */
+  arbitratorPubkeys: (() => {
+    const raw = process.env.NEXT_PUBLIC_ARBITRATOR_PUBKEYS?.trim()
+    if (raw) {
+      return raw
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+    }
+    const DEFAULT: string[] = [
+      'A5JSJ3J184YKqB71dFG47XrmmxmZqTZRUah9udC4dsnZ',
+      'CCiL4DCuzwKGSMYDDWA3E84XtNhsGc1SeWekNJvVF71j',
+      'EKufV8XKB5QfX52xDbEjsYts8CHsiz8QihXCw9A6G6Fj',
+    ]
+    return DEFAULT
+  })(),
 } as const
 
 /**

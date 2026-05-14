@@ -102,6 +102,32 @@ pub struct BookImageRow {
     pub created_at: i64,
 }
 
+/// 仲裁工作台：争议中托管 + 书籍 collection（用于组 `resolve_dispute` 交易）
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct ArbitrationDisputeRow {
+    pub escrow_pda: String,
+    pub asset: String,
+    pub seller: String,
+    pub buyer: String,
+    pub price: i64,
+    pub book_snapshot: Option<Value>,
+    pub collection: String,
+    pub updated_at: i64,
+    /// 已在 `escrow_dispute_submissions` 中提交过材料的公钥列表（顺序按提交时间）
+    pub dispute_submitters: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct EscrowDisputeSubmissionRow {
+    pub escrow_pda: String,
+    pub initiator: String,
+    pub public_text: String,
+    pub public_attachment_urls: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub private_text: Option<String>,
+    pub created_at: i64,
+}
+
 // 托管
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct EscrowRow {
@@ -121,6 +147,20 @@ pub struct EscrowRow {
     pub pre_ship_locked: bool,
     pub created_at: i64,
     pub updated_at: i64,
+    /// 首次进入仲裁的 Unix 秒（材料更新不改）
+    pub disputed_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct EscrowDisputeSubmissionRevisionRow {
+    pub id: i64,
+    pub escrow_pda: String,
+    pub initiator: String,
+    pub public_text: String,
+    pub public_attachment_urls: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub private_text: Option<String>,
+    pub created_at: i64,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]

@@ -1,6 +1,7 @@
 use crate::db::DBService;
 use crate::db::types::Page;
 use serde::{Deserialize, Serialize};
+use sqlx::QueryBuilder;
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct ReviewRow {
@@ -76,6 +77,30 @@ impl DBService {
             escrow_pda, reviewer
         )
             .fetch_optional(&self.db_pool)
+            .await
+    }
+
+    /// 在给定 `escrow_pda` 列表中，返回已由 `reviewer` 提交过评价的托管 PDA。
+    pub async fn escrow_pdas_reviewed_by(
+        &self,
+        reviewer:     &str,
+        escrow_pdas:  &[String],
+    ) -> Result<Vec<String>, sqlx::Error> {
+        if escrow_pdas.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut qb = QueryBuilder::new("SELECT escrow_pda FROM reviews WHERE reviewer = ");
+        qb.push_bind(reviewer);
+        qb.push(" AND escrow_pda IN (");
+        {
+            let mut sep = qb.separated(", ");
+            for p in escrow_pdas {
+                sep.push_bind(p);
+            }
+        }
+        qb.push(")");
+        qb.build_query_scalar::<String>()
+            .fetch_all(&self.db_pool)
             .await
     }
 

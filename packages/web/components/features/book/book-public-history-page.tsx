@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
+import { EscrowTimelineSegmentSeparator } from '@/components/features/book/escrow-timeline-segment-separator'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -88,6 +89,55 @@ function groupMergedRowsByOrder(rows: MergedRow[]): MergedRow[][] {
     return tb - ta || (b[0]?.id ?? 0) - (a[0]?.id ?? 0)
   })
   return groups
+}
+
+function mergedGroupPrimaryEscrowPda(group: MergedRow[]): string | null {
+  for (const r of group) {
+    if (r.kind === 'escrow') return r.data.escrow_pda
+    const p = r.data.escrow_pda
+    if (typeof p === 'string' && p.length > 0) return p
+  }
+  return null
+}
+
+/** 同一托管 PDA 链上复用：上一单 Released/Cancelled 后再次出现 create_escrow 时拆段（与私有流水一致） */
+function splitMergedGroupByEscrowLifecycle(group: MergedRow[]): MergedRow[][] {
+  if (group.length <= 1) return [group]
+  const asc = [...group].sort((a, b) => a.created_at - b.created_at || a.id - b.id)
+  const segments: MergedRow[][] = []
+  let cur: MergedRow[] = []
+  let lastEscrow: MergedRow | null = null
+
+  const escrowTerminal = (r: MergedRow) =>
+    r.kind === 'escrow' &&
+    (r.data.to_state === 'Released' || r.data.to_state === 'Cancelled')
+  const isEscrowCreate = (r: MergedRow) =>
+    r.kind === 'escrow' && r.data.action.trim().toLowerCase() === 'create_escrow'
+
+  for (const row of asc) {
+    if (isEscrowCreate(row) && lastEscrow && escrowTerminal(lastEscrow)) {
+      if (cur.length) segments.push(cur)
+      cur = []
+      lastEscrow = null
+    }
+    cur.push(row)
+    if (row.kind === 'escrow') lastEscrow = row
+  }
+  if (cur.length) segments.push(cur)
+  return segments.map((seg) => [...seg].sort((a, b) => b.created_at - a.created_at || b.id - a.id))
+}
+
+function groupMergedRowsByOrderWithLifecycle(rows: MergedRow[]): MergedRow[][] {
+  const base = groupMergedRowsByOrder(rows)
+  const expanded = base.flatMap((g) =>
+    g.length <= 1 ? [g] : splitMergedGroupByEscrowLifecycle(g),
+  )
+  expanded.sort((a, b) => {
+    const ta = Math.max(...a.map((r) => r.created_at))
+    const tb = Math.max(...b.map((r) => r.created_at))
+    return tb - ta || (b[0]?.id ?? 0) - (a[0]?.id ?? 0)
+  })
+  return expanded
 }
 
 function isMergedRowTimelineAlert(row: MergedRow): boolean {
@@ -433,7 +483,7 @@ export function BookPublicHistoryPage({ asset }: { asset: string }) {
   }, [load])
 
   const rows = useMemo(() => (data ? mergeRows(data) : []), [data])
-  const groups = useMemo(() => groupMergedRowsByOrder(rows), [rows])
+  const groups = useMemo(() => groupMergedRowsByOrderWithLifecycle(rows), [rows])
 
   return (
     <div className="pb-28 md:pb-12">
@@ -482,18 +532,11 @@ export function BookPublicHistoryPage({ asset }: { asset: string }) {
 
         {!loading && !error && groups.length > 0 && (
           <div className="space-y-0 -ml-1 sm:-ml-0">
-            {groups.map((group, gi) => (
-                <div key={gi}>
-                  {gi > 0 ? (
-                    <div
-                      className="my-10 md:my-14 flex items-center gap-3 text-muted-foreground"
-                      role="separator"
-                    >
-                      <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-border" />
-                      <span className="text-[11px] sm:text-xs font-medium shrink-0 px-2">新的流转产生</span>
-                      <div className="h-px flex-1 bg-gradient-to-l from-transparent via-border to-border" />
-                    </div>
-                  ) : null}
+            {groups.map((group, gi) => {
+              const pdaCur = mergedGroupPrimaryEscrowPda(group)
+              return (
+                <div key={`${pdaCur ?? 'na'}-${group[0]?.kind}-${group[0]?.id}-g${gi}`}>
+                  {gi > 0 ? <EscrowTimelineSegmentSeparator /> : null}
 
                   {group.map((row) => {
                     const alert = isMergedRowTimelineAlert(row)
@@ -644,7 +687,8 @@ export function BookPublicHistoryPage({ asset }: { asset: string }) {
                     )
                   })}
                 </div>
-            ))}
+              )
+            })}
           </div>
         )}
 

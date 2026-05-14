@@ -204,3 +204,35 @@ export async function broadcastOpenDispute(input: {
     body: JSON.stringify(input),
   })
 }
+
+export async function buildResolveDispute(input: {
+  arbitrator: string
+  buyer: string
+  seller: string
+  asset: string
+  collection: string
+  choice: 1 | 2
+  refund_amount: number
+  return_book: boolean
+}) {
+  return apiFetch<UnsignedTxResponse>('/escrow/resolve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
+export async function broadcastResolveDispute(input: {
+  signed_tx: string
+  escrow_pda: string
+  asset: string
+  seller: string
+  buyer: string
+  choice: 1 | 2
+}) {
+  return apiFetch<EscrowBroadcastResponse>('/escrow/resolve/broadcast', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}

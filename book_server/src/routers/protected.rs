@@ -27,6 +27,10 @@ use crate::handlers::me::{
     list_buyer_escrows_handler, list_favorites_handler,
     list_order_events_handler,
     list_my_books_handler, list_seller_escrows_handler, toggle_favorite_handler,
+    list_arbitration_disputes_handler,
+    get_arbitration_briefing_handler,
+    get_dispute_submission_handler,
+    post_dispute_submission_handler,
     get_order_shipping_cipher_handler, upsert_order_shipping_cipher_handler,
     update_my_shipping_address_handler, upsert_order_shipping_cipher_by_asset_handler,
     get_order_tracking_cipher_handler, upsert_order_tracking_cipher_handler,
@@ -115,7 +119,16 @@ pub fn me_router() -> Router<AppState> {
         .route("/favorites/{asset}", post(toggle_favorite_handler))
         .route("/orders/buying", get(list_buyer_escrows_handler))
         .route("/orders/selling", get(list_seller_escrows_handler))
+        .route("/arbitration/disputes", get(list_arbitration_disputes_handler))
+        .route(
+            "/arbitration/escrows/{escrow_pda}/briefing",
+            get(get_arbitration_briefing_handler),
+        )
         .route("/orders/{escrow_pda}/events", get(list_order_events_handler))
+        .route(
+            "/orders/{escrow_pda}/dispute-submission",
+            get(get_dispute_submission_handler).post(post_dispute_submission_handler),
+        )
         .route("/profile", patch(update_my_profile_handler))
         .route("/orders/{escrow_pda}/shipping-cipher", get(get_order_shipping_cipher_handler))
         .route("/orders/{escrow_pda}/shipping-cipher", post(upsert_order_shipping_cipher_handler))

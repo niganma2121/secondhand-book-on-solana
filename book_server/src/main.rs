@@ -25,10 +25,7 @@ async fn main() {
     let port=var(PORT_ENV).unwrap_or_else(|_|"3005".to_string());
     let addr:SocketAddr=format!("0.0.0.0:{}",port).parse().expect("无效的地址");
 
-    let cors_origins_raw = var(CORS_ORIGINS_ENV).unwrap_or_else(|_| {
-        "http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001"
-            .to_string()
-    });
+    let cors_origins_raw = var(CORS_ORIGINS_ENV).expect("访问源环境变量读取失败");
     let origin_list: Vec<HeaderValue> = cors_origins_raw
         .split(',')
         .map(str::trim)

@@ -1,5 +1,7 @@
 use crate::db::DBService;
-use crate::db::types::{BookDetailRow, BookImageRow, EscrowActivityRow, EscrowRow, Page};
+use crate::db::types::{
+    ArbitrationDisputeRow, BookDetailRow, BookImageRow, EscrowActivityRow, EscrowRow, Page,
+};
 use serde_json::{json, Value};
 
 /// 写入 `escrows.book_snapshot` 的冻结 JSON（每笔托管一行，不在 `escrow_events` 重复存）
@@ -82,6 +84,7 @@ impl DBService {
                    trade_count_applied = false,
                    book_snapshot       = EXCLUDED.book_snapshot,
                    pre_ship_locked     = false,
+                   disputed_at         = NULL,
                    updated_at          = EXCLUDED.updated_at
                WHERE escrows.state = 'Cancelled'"#,
         )
@@ -109,14 +112,19 @@ impl DBService {
         state: &str,
         updated_at: i64,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            "UPDATE escrows
-             SET state = $2, updated_at = $3
-             WHERE escrow_pda = $1",
-            escrow_pda,
-            state,
-            updated_at
+        sqlx::query(
+            r#"UPDATE escrows
+               SET state = $2,
+                   updated_at = $3,
+                   disputed_at = CASE
+                       WHEN $2 = 'Disputed' THEN COALESCE(disputed_at, $3)
+                       ELSE disputed_at
+                   END
+               WHERE escrow_pda = $1"#,
         )
+        .bind(escrow_pda)
+        .bind(state)
+        .bind(updated_at)
         .execute(&self.db_pool)
         .await?;
         Ok(())
@@ -214,7 +222,7 @@ impl DBService {
     pub async fn get_escrow(&self, escrow_pda: &str) -> Result<Option<EscrowRow>, sqlx::Error> {
         sqlx::query_as::<_, EscrowRow>(
             r#"SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
-                      shipping_commitment, trade_count_applied, book_snapshot, pre_ship_locked, created_at, updated_at
+                      shipping_commitment, trade_count_applied, book_snapshot, pre_ship_locked, created_at, updated_at, disputed_at
                FROM escrows
                WHERE escrow_pda = $1"#,
         )
@@ -230,7 +238,7 @@ impl DBService {
     ) -> Result<Option<EscrowRow>, sqlx::Error> {
         sqlx::query_as::<_, EscrowRow>(
             r#"SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
-                      shipping_commitment, trade_count_applied, book_snapshot, pre_ship_locked, created_at, updated_at
+                      shipping_commitment, trade_count_applied, book_snapshot, pre_ship_locked, created_at, updated_at, disputed_at
                FROM escrows
                WHERE asset = $1
                  AND state IN ('Paid', 'Shipped')"#,
@@ -248,7 +256,7 @@ impl DBService {
     ) -> Result<Vec<EscrowRow>, sqlx::Error> {
         sqlx::query_as::<_, EscrowRow>(
             r#"SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
-                      shipping_commitment, trade_count_applied, book_snapshot, pre_ship_locked, created_at, updated_at
+                      shipping_commitment, trade_count_applied, book_snapshot, pre_ship_locked, created_at, updated_at, disputed_at
                FROM escrows
                WHERE buyer = $1
                ORDER BY created_at DESC
@@ -269,7 +277,7 @@ impl DBService {
     ) -> Result<Vec<EscrowRow>, sqlx::Error> {
         sqlx::query_as::<_, EscrowRow>(
             r#"SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
-                      shipping_commitment, trade_count_applied, book_snapshot, pre_ship_locked, created_at, updated_at
+                      shipping_commitment, trade_count_applied, book_snapshot, pre_ship_locked, created_at, updated_at, disputed_at
                FROM escrows
                WHERE seller = $1
                ORDER BY created_at DESC
@@ -289,7 +297,7 @@ impl DBService {
     ) -> Result<Vec<EscrowRow>, sqlx::Error> {
         sqlx::query_as::<_, EscrowRow>(
             r#"SELECT escrow_pda, asset, seller, buyer, cancelled_by, price, state,
-                      shipping_commitment, trade_count_applied, book_snapshot, pre_ship_locked, created_at, updated_at
+                      shipping_commitment, trade_count_applied, book_snapshot, pre_ship_locked, created_at, updated_at, disputed_at
                FROM escrows
                ORDER BY updated_at DESC
                LIMIT $1"#,
@@ -334,6 +342,35 @@ impl DBService {
                LIMIT $2 OFFSET $3"#,
         )
         .bind(pubkey)
+        .bind(page.limit)
+        .bind(page.offset)
+        .fetch_all(&self.db_pool)
+        .await
+    }
+
+    /// 仲裁工作台：`Disputed` 且带 `books.collection`（组 resolve 交易用）
+    pub async fn list_disputed_escrows_for_arbitration(
+        &self,
+        page: &Page,
+    ) -> Result<Vec<ArbitrationDisputeRow>, sqlx::Error> {
+        sqlx::query_as::<_, ArbitrationDisputeRow>(
+            r#"SELECT e.escrow_pda, e.asset, e.seller, e.buyer, e.price,
+                      e.book_snapshot, b.collection, e.updated_at,
+                      COALESCE(
+                        (
+                          SELECT ARRAY_AGG(s.initiator ORDER BY s.created_at ASC)
+                          FROM escrow_dispute_submissions s
+                          WHERE s.escrow_pda = e.escrow_pda
+                            AND BTRIM(s.initiator) <> ''
+                        ),
+                        ARRAY[]::text[]
+                      ) AS dispute_submitters
+               FROM escrows e
+               INNER JOIN books b ON b.asset = e.asset
+               WHERE e.state = 'Disputed'
+               ORDER BY e.updated_at DESC
+               LIMIT $1 OFFSET $2"#,
+        )
         .bind(page.limit)
         .bind(page.offset)
         .fetch_all(&self.db_pool)

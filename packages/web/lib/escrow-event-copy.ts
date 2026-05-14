@@ -24,6 +24,47 @@ export function groupMyEscrowEventsByPda(events: MyEscrowEventRow[]): MyEscrowEv
   return groups
 }
 
+function escrowLifecycleTerminal(toState: string | null | undefined): boolean {
+  return toState === 'Released' || toState === 'Cancelled'
+}
+
+/** 同一 PDA 复用：前一段 Released/Cancelled 后再次出现 `create_escrow` 时拆成新的一段；时间线居中标签（本书流转 / 我的托管流水共用） */
+export const ESCROW_TIMELINE_SEGMENT_LABEL = '新的流动产生'
+
+/** 同一 PDA 可能被复用：上一单已 Released/Cancelled 后再次出现 `create_escrow` 时拆成新的一段并显示分割线 */
+export function groupMyEscrowEventsByLifecycle(events: MyEscrowEventRow[]): MyEscrowEventRow[][] {
+  const byPda = new Map<string, MyEscrowEventRow[]>()
+  for (const ev of events) {
+    const list = byPda.get(ev.escrow_pda) ?? []
+    list.push(ev)
+    byPda.set(ev.escrow_pda, list)
+  }
+  const chunks: MyEscrowEventRow[][] = []
+  for (const list of byPda.values()) {
+    list.sort((a, b) => a.created_at - b.created_at || a.id - b.id)
+    let cur: MyEscrowEventRow[] = []
+    for (const ev of list) {
+      const prev = cur[cur.length - 1]
+      const startNew =
+        Boolean(prev) &&
+        ev.action.trim().toLowerCase() === 'create_escrow' &&
+        escrowLifecycleTerminal(prev.to_state)
+      if (startNew && cur.length > 0) {
+        chunks.push(cur)
+        cur = []
+      }
+      cur.push(ev)
+    }
+    if (cur.length > 0) chunks.push(cur)
+  }
+  chunks.sort((a, b) => {
+    const ta = a[0]?.created_at ?? 0
+    const tb = b[0]?.created_at ?? 0
+    return ta - tb
+  })
+  return chunks
+}
+
 /** 列表/时间线主标题（短） */
 export function escrowActionTitle(action: string): string {
   const k = action.trim().toLowerCase()

@@ -6,9 +6,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { areaList } from '@vant/area-data'
 import { useOpenWalletConnect } from '@/lib/hooks/use-open-wallet-connect'
-import { routes } from '@/config/routes'
+import { routes, marketBookDetail } from '@/config/routes'
 import { env } from '@/lib/env'
-import type { MyBook } from '@/lib/types'
+import type { Book, MyBook } from '@/lib/types'
 import { useMyBooks } from '@/lib/hooks/use-my-books'
 import { useAuth } from '@/components/providers/auth-provider'
 import { Button } from '@/components/ui/button'
@@ -36,8 +36,10 @@ import {
   updateMyShippingAddress,
   type ShippingAddressPayload,
 } from '@/lib/api/shipping-addresses'
+import { fetchMyFavorites, postToggleFavorite } from '@/lib/api/favorites'
+import { bookCardDtoToBook } from '@/lib/api/adapters/book-card'
 
-type ProfileTab = 'shelf' | 'sold'
+type ProfileTab = 'shelf' | 'sold' | 'favorites'
 type ShippingAddress = {
   id: string
   label: string
@@ -82,6 +84,58 @@ const STATUS_LABEL: Record<MyBook['status'], { text: string; cls: string }> = {
   listed: { text: '在售', cls: 'text-primary bg-primary/10' },
   sold:   { text: '已售', cls: 'text-muted-foreground bg-secondary' },
   owned:  { text: '已购', cls: 'text-blue-400 bg-blue-400/10' },
+}
+
+function FavoriteBookRow({
+  book,
+  onRemoved,
+}: {
+  book: Book
+  onRemoved: (asset: string) => void
+}) {
+  const [busy, setBusy] = useState(false)
+  async function handleRemove() {
+    if (busy) return
+    setBusy(true)
+    try {
+      const { favorited } = await postToggleFavorite(book.id)
+      if (!favorited) onRemoved(book.id)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="flex gap-3 p-3 rounded-2xl bg-secondary/40 border border-border/50 items-center">
+      <Link
+        href={marketBookDetail(book.id)}
+        className="relative w-10 h-14 rounded-lg overflow-hidden shrink-0 bg-card block ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Image src={book.cover} alt={book.title} fill className="object-cover" />
+      </Link>
+      <div className="flex-1 min-w-0">
+        <Link href={marketBookDetail(book.id)} className="block min-w-0 hover:opacity-90">
+          <p className="text-sm font-semibold text-foreground truncate">{book.title}</p>
+          <p className="text-xs text-muted-foreground">{book.author}</p>
+        </Link>
+        <div className="flex items-center gap-2 mt-1">
+          <span className="font-mono text-xs text-primary font-bold">{book.price} SOL</span>
+          {typeof book.priceCny === 'number' && book.priceCny > 0 ? (
+            <span className="text-[10px] text-muted-foreground">约 ¥{book.priceCny.toFixed(2)}</span>
+          ) : null}
+        </div>
+      </div>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="h-8 shrink-0 text-xs"
+        disabled={busy}
+        onClick={() => void handleRemove()}
+      >
+        {busy ? '…' : '取消收藏'}
+      </Button>
+    </div>
+  )
 }
 
 function MiniBookCard({ book }: { book: MyBook }) {
@@ -160,6 +214,9 @@ export function ProfilePage() {
   const { publicKey, disconnect, signMessage } = useWallet()
   const openWalletConnect = useOpenWalletConnect()
   const [profileTab, setProfileTab] = useState<ProfileTab>('shelf')
+  const [favoriteBooks, setFavoriteBooks] = useState<Book[]>([])
+  const [favoritesLoading, setFavoritesLoading] = useState(false)
+  const [favoritesError, setFavoritesError] = useState<string | null>(null)
   const [addressDialogOpen, setAddressDialogOpen] = useState(false)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
   const [securityDialogOpen, setSecurityDialogOpen] = useState(false)
@@ -233,6 +290,35 @@ export function ProfilePage() {
   const apiConfigured = !env.useMockData && Boolean(env.apiBaseUrl)
   const localCommKeyStorageKey = addr ? commKeyLocalStorageKey(addr) : ''
   const profileShippingStorageKey = addr ? `bookchain:shipping-profile:${addr}` : ''
+
+  useEffect(() => {
+    if (profileTab !== 'favorites') return
+    if (!isAuthenticated || !apiConfigured) {
+      setFavoriteBooks([])
+      setFavoritesError(null)
+      setFavoritesLoading(false)
+      return
+    }
+    let cancelled = false
+    setFavoritesLoading(true)
+    setFavoritesError(null)
+    void fetchMyFavorites(1, 100)
+      .then(({ books }) => {
+        if (!cancelled) setFavoriteBooks(books.map(bookCardDtoToBook))
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setFavoritesError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : '加载失败')
+          setFavoriteBooks([])
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setFavoritesLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [profileTab, isAuthenticated, apiConfigured])
   const provinceMap = areaList.province_list as Record<string, string>
   const cityMap = areaList.city_list as Record<string, string>
   const districtMap = areaList.county_list as Record<string, string>
@@ -908,39 +994,79 @@ export function ProfilePage() {
               href: routes.chat,
               accent: false,
             },
-          ].map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={[
-                'flex flex-col items-center gap-2 p-3.5 rounded-2xl border transition-all duration-150 active:scale-95',
-                item.accent
-                  ? 'bg-primary/10 border-primary/30 text-primary'
-                  : 'bg-card border-border/60 text-foreground hover:border-primary/30',
-              ].join(' ')}
-            >
-              {item.icon}
-              <div className="text-center">
-                <p className="text-xs font-semibold leading-tight">{item.label}</p>
-                <p className="text-[10px] text-muted-foreground mt-0.5">{item.desc}</p>
-              </div>
-            </Link>
-          ))}
+            {
+              icon: (
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <path
+                    d="M10 16.5s-5.5-3.2-5.5-7.2A3.2 3.2 0 0110 5.5a3.2 3.2 0 015.5 3.8c0 4-5.5 7.2-5.5 7.2z"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              ),
+              label: '收藏',
+              desc: '市场收藏的书',
+              href: null as string | null,
+              accent: false,
+              onPress: () => {
+                setProfileTab('favorites')
+                requestAnimationFrame(() => {
+                  document.getElementById('profile-book-tabs')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                })
+              },
+            },
+          ].map((item) =>
+            item.href ? (
+              <Link
+                key={item.label}
+                href={item.href}
+                className={[
+                  'flex flex-col items-center gap-2 p-3.5 rounded-2xl border transition-all duration-150 active:scale-95',
+                  item.accent
+                    ? 'bg-primary/10 border-primary/30 text-primary'
+                    : 'bg-card border-border/60 text-foreground hover:border-primary/30',
+                ].join(' ')}
+              >
+                {item.icon}
+                <div className="text-center">
+                  <p className="text-xs font-semibold leading-tight">{item.label}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{item.desc}</p>
+                </div>
+              </Link>
+            ) : (
+              <button
+                key={item.label}
+                type="button"
+                onClick={item.onPress}
+                className="flex flex-col items-center gap-2 p-3.5 rounded-2xl border transition-all duration-150 active:scale-95 bg-card border-border/60 text-foreground hover:border-primary/30 text-left"
+              >
+                {item.icon}
+                <div className="text-center">
+                  <p className="text-xs font-semibold leading-tight">{item.label}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{item.desc}</p>
+                </div>
+              </button>
+            ),
+          )}
         </div>
 
-        {/* 书架 Tab */}
-        <div className="rounded-2xl bg-card border border-border/60 overflow-hidden">
+        {/* 书架 / 收藏 Tab */}
+        <div id="profile-book-tabs" className="rounded-2xl bg-card border border-border/60 overflow-hidden">
           {/* Tab 头 */}
           <div className="flex border-b border-border/60">
-            {([
-              { key: 'shelf' as ProfileTab, label: `我发布的 (${shelfBooks.length})` },
-              { key: 'sold' as ProfileTab, label: `我持有 (${boughtBooks.length})` },
-            ]).map((t) => (
+            {(
+              [
+                { key: 'shelf' as ProfileTab, label: `我发布的 (${shelfBooks.length})` },
+                { key: 'sold' as ProfileTab, label: `我持有 (${boughtBooks.length})` },
+                { key: 'favorites' as ProfileTab, label: '我的收藏' },
+              ] as const
+            ).map((t) => (
               <button
                 key={t.key}
                 onClick={() => setProfileTab(t.key)}
                 className={[
-                  'flex-1 py-3 text-sm font-medium border-b-2 -mb-px transition-colors',
+                  'flex-1 py-3 text-sm font-medium border-b-2 -mb-px transition-colors px-1',
                   profileTab === t.key
                     ? 'border-primary text-primary'
                     : 'border-transparent text-muted-foreground hover:text-foreground',
@@ -953,25 +1079,57 @@ export function ProfilePage() {
 
           {/* 书籍列表 */}
           <div className="p-3 flex flex-col gap-2.5">
-            {(profileTab === 'shelf' ? shelfBooks : boughtBooks).length === 0 ? (
+            {profileTab === 'favorites' ? (
+              <>
+                {!apiConfigured ? (
+                  <p className="text-center text-sm text-muted-foreground py-10">配置后端 API 后可同步收藏列表。</p>
+                ) : favoritesLoading ? (
+                  <p className="text-center text-sm text-muted-foreground py-10">加载收藏中…</p>
+                ) : favoritesError ? (
+                  <p className="text-center text-sm text-destructive py-10">{favoritesError}</p>
+                ) : favoriteBooks.length === 0 ? (
+                  <p className="text-center text-sm text-muted-foreground py-10">
+                    暂无收藏。在「书籍市场」登录后点击心形即可收藏。
+                  </p>
+                ) : (
+                  favoriteBooks.map((book) => (
+                    <FavoriteBookRow
+                      key={book.id}
+                      book={book}
+                      onRemoved={(asset) => setFavoriteBooks((prev) => prev.filter((b) => b.id !== asset))}
+                    />
+                  ))
+                )}
+              </>
+            ) : (profileTab === 'shelf' ? shelfBooks : boughtBooks).length === 0 ? (
               <p className="text-center text-sm text-muted-foreground py-10">暂无记录</p>
             ) : (
-              (profileTab === 'shelf' ? shelfBooks : boughtBooks).map((book) => (
-                <MiniBookCard key={book.id} book={book} />
-              ))
+              (profileTab === 'shelf' ? shelfBooks : boughtBooks).map((book) => <MiniBookCard key={book.id} book={book} />)
             )}
           </div>
 
           {/* 查看全部 */}
-          <Link
-            href={routes.transactions}
-            className="w-full py-3 border-t border-border/60 text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-1"
-          >
-            查看全部链上交易记录
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-              <path d="M4.5 3L7.5 6L4.5 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </Link>
+          {profileTab === 'favorites' ? (
+            <Link
+              href={routes.market}
+              className="w-full py-3 border-t border-border/60 text-xs text-primary hover:underline transition-colors flex items-center justify-center gap-1"
+            >
+              去书籍市场逛逛
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path d="M4.5 3L7.5 6L4.5 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </Link>
+          ) : (
+            <Link
+              href={routes.transactions}
+              className="w-full py-3 border-t border-border/60 text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-1"
+            >
+              查看全部链上交易记录
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path d="M4.5 3L7.5 6L4.5 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </Link>
+          )}
         </div>
 
         {/* 设置区 */}
@@ -984,6 +1142,17 @@ export function ProfilePage() {
               onClick: () => {
                 setProfileError(null)
                 setProfileDialogOpen(true)
+              },
+            },
+            {
+              label: '我的收藏',
+              icon: '❤️',
+              desc: '在市场收藏的书籍，可跳转或取消收藏',
+              onClick: () => {
+                setProfileTab('favorites')
+                requestAnimationFrame(() => {
+                  document.getElementById('profile-book-tabs')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                })
               },
             },
             {
@@ -1003,8 +1172,13 @@ export function ProfilePage() {
           ].map((item) => (
             <button
               key={item.label}
-              onClick={item.onClick}
-              className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-secondary/40 transition-colors text-left"
+              type="button"
+              onClick={() => item.onClick?.()}
+              disabled={!item.onClick}
+              className={[
+                'w-full flex items-center gap-3 px-4 py-3.5 transition-colors text-left',
+                item.onClick ? 'hover:bg-secondary/40' : 'opacity-70 cursor-default',
+              ].join(' ')}
             >
               <span className="text-base" role="img" aria-label={item.label}>{item.icon}</span>
               <div className="flex-1 min-w-0">

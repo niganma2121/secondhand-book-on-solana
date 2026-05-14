@@ -2,7 +2,7 @@
   "address": "B6FGFq5WVExospwD6XE4RiPdtjLp6R5wFRMYQeVPQsfz",
   "metadata": {
     "name": "book",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },
@@ -539,6 +539,10 @@
               32
             ]
           }
+        },
+        {
+          "name": "metadata_url",
+          "type": "string"
         }
       ]
     },
@@ -1023,71 +1027,81 @@
     },
     {
       "code": 6006,
+      "name": "EmptyMetadataUrl",
+      "msg": "metadata_url 不能为空"
+    },
+    {
+      "code": 6007,
+      "name": "MetadataUrlTooLong",
+      "msg": "metadata_url 长度超过限制"
+    },
+    {
+      "code": 6008,
       "name": "InvalidAsset",
       "msg": "书籍的元信息匹配"
     },
     {
-      "code": 6007,
+      "code": 6009,
       "name": "BuyerUnmatched",
       "msg": "买家地址不匹配"
     },
     {
-      "code": 6008,
+      "code": 6010,
       "name": "SellerUnmatched",
       "msg": "卖家地址不匹配"
     },
     {
-      "code": 6009,
+      "code": 6011,
       "name": "BookUnmatched",
       "msg": "传入的书和托管的书不匹配"
     },
     {
-      "code": 6010,
+      "code": 6012,
       "name": "UnauthorizedBuyerOrSeller",
       "msg": "非交易双方不能进行此交易操作"
     },
     {
-      "code": 6011,
+      "code": 6013,
       "name": "UnmatchedBuyer",
       "msg": "托管订单和上传的买家不匹配"
     },
     {
-      "code": 6012,
+      "code": 6014,
       "name": "InvalidEscrowState",
       "msg": "托管状态不满足,不能进行此操作"
     },
     {
-      "code": 6013,
+      "code": 6015,
       "name": "InvalidVoteChoice",
       "msg": "无效的投票选项,请选择有效的选项"
     },
     {
-      "code": 6014,
+      "code": 6016,
       "name": "InvalidRefund",
       "msg": "提交的返回金额不能大于商品的价格"
     },
     {
-      "code": 6015,
+      "code": 6017,
       "name": "InsufficientEscrowLamports",
       "msg": "托管账户余额不足，无法完成退款"
     },
     {
-      "code": 6016,
+      "code": 6018,
       "name": "UnauthorizedArbitrator",
       "msg": "未授权的仲裁员"
     },
     {
-      "code": 6017,
+      "code": 6019,
       "name": "AlreadyVoted",
       "msg": "不能重复投票"
     },
     {
-      "code": 6018,
+      "code": 6020,
       "name": "AdminUnmatch",
       "msg": "管理员不匹配"
     },
     {
-      "code": 6019,
+      "code": 6021,
       "name": "BuyerCancelBlockedPreShip",
       "msg": "卖家已锁单备发货，买家不可取消订单"
     }

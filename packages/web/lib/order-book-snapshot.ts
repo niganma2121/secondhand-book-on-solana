@@ -22,6 +22,17 @@ export function escrowBookSnapshotToDetailResponse(snap: unknown): BookDetailRes
   const imagesRaw = Array.isArray(o.images) ? o.images : []
   const images: BookImageDto[] = imagesRaw
     .map((row, i) => {
+      if (typeof row === 'string') {
+        const url = row.trim()
+        if (!url) return null
+        return {
+          id: i,
+          asset,
+          url,
+          sort: i,
+          created_at: Number.isFinite(captured) ? captured : 0,
+        }
+      }
       const r = row as Record<string, unknown>
       const id = typeof r.id === 'number' ? r.id : Number(r.id) || i
       const url = typeof r.url === 'string' ? r.url : ''
@@ -34,7 +45,7 @@ export function escrowBookSnapshotToDetailResponse(snap: unknown): BookDetailRes
         created_at: Number.isFinite(captured) ? captured : 0,
       }
     })
-    .filter((x) => Boolean(x.url))
+    .filter((x): x is BookImageDto => Boolean(x && x.url))
 
   const priceLamports =
     typeof o.price_lamports === 'number'

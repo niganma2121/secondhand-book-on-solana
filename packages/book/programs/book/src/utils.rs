@@ -6,7 +6,7 @@ use mpl_core::types::{FreezeDelegate, Plugin};
 pub fn freeze_asset<'info>(
     mpl_core_program: &AccountInfo<'info>,
     asset: &AccountInfo<'info>,
-    collection: &AccountInfo<'info>,
+    _collection: &AccountInfo<'info>,
     payer: &AccountInfo<'info>,
     authority: &AccountInfo<'info>,
     system_program: &AccountInfo<'info>,
@@ -14,7 +14,7 @@ pub fn freeze_asset<'info>(
 ) -> Result<()> {
     UpdatePluginV1CpiBuilder::new(mpl_core_program)
         .asset(asset)
-        .collection(Some(collection))
+        .collection(None)
         .payer(payer)
         .authority(Some(authority))
         .system_program(system_program)
@@ -26,7 +26,7 @@ pub fn freeze_asset<'info>(
 pub fn thaw_asset<'info>(
     mpl_core_program: &AccountInfo<'info>,
     asset: &AccountInfo<'info>,
-    collection: &AccountInfo<'info>,
+    _collection: &AccountInfo<'info>,
     payer: &AccountInfo<'info>,
     authority: &AccountInfo<'info>,
     system_program: &AccountInfo<'info>,
@@ -34,7 +34,7 @@ pub fn thaw_asset<'info>(
 ) -> Result<()> {
     UpdatePluginV1CpiBuilder::new(mpl_core_program)
         .asset(asset)
-        .collection(Some(collection))
+        .collection(None)
         .payer(payer)
         .authority(Some(authority))
         .system_program(system_program)
@@ -47,7 +47,7 @@ pub fn thaw_asset<'info>(
 pub fn transfer_asset<'info>(
     mpl_core_program: &AccountInfo<'info>,
     asset: &AccountInfo<'info>,
-    collection: &AccountInfo<'info>,
+    _collection: &AccountInfo<'info>,
     payer: &AccountInfo<'info>,
     authority: &AccountInfo<'info>,
     new_owner: &AccountInfo<'info>,
@@ -56,7 +56,7 @@ pub fn transfer_asset<'info>(
 ) -> Result<()> {
     TransferV1CpiBuilder::new(mpl_core_program)
         .asset(asset)
-        .collection(Some(collection))
+        .collection(None)
         .payer(payer)
         .authority(Some(authority))
         .new_owner(new_owner)
@@ -69,7 +69,7 @@ pub fn transfer_asset<'info>(
 pub fn nft_to_buyer<'info>(
     mpl_core_program: &AccountInfo<'info>,
     asset: &AccountInfo<'info>,
-    collection: &AccountInfo<'info>,
+    _collection: &AccountInfo<'info>,
     payer: &AccountInfo<'info>,
     escrow: &AccountInfo<'info>,
     buyer: &AccountInfo<'info>,
@@ -79,7 +79,7 @@ pub fn nft_to_buyer<'info>(
     thaw_asset(
         mpl_core_program,
         asset,
-        collection,
+        _collection,
         payer,
         escrow,
         system_program,
@@ -88,7 +88,7 @@ pub fn nft_to_buyer<'info>(
     transfer_asset(
         mpl_core_program,
         asset,
-        collection,
+        _collection,
         payer,
         escrow,
         buyer,
@@ -101,7 +101,7 @@ pub fn nft_to_buyer<'info>(
 pub fn nft_to_seller<'info>(
     mpl_core_program: &AccountInfo<'info>,
     asset: &AccountInfo<'info>,
-    collection: &AccountInfo<'info>,
+    _collection: &AccountInfo<'info>,
     payer: &AccountInfo<'info>,
     escrow: &AccountInfo<'info>,
     system_program: &AccountInfo<'info>,
@@ -110,7 +110,7 @@ pub fn nft_to_seller<'info>(
     thaw_asset(
         mpl_core_program,
         asset,
-        collection,
+        _collection,
         payer,
         escrow,
         system_program,

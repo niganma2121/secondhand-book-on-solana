@@ -8,7 +8,8 @@
     "dev:turbo": "next dev --turbo",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "arb:vote": "node scripts/arbitrator-vote.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

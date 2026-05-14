@@ -17,6 +17,7 @@ pub mod shipping_cipher;
 pub mod tracking_cipher;
 pub mod shipping_address;
 pub mod escrow_event;
+pub mod dispute_submission;
 pub mod book_event;
 
 pub use types::*;

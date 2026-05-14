@@ -141,12 +141,16 @@ impl AnchorService {
         let book_pda = self.book_pda(&asset_pubkey);
         let program = self.get_program()?;
         let admin_pk = self.admin_keypair.pubkey();
+        // MPL Core：Create 时不可同时指定 collection 与 update_authority（0x1d）。
+        // 资产以独立 asset 创建并由 Book PDA 任 update authority；平台 collection 仅用于业务/库表字段，不链上挂 collection。
         let mint_ix = CreateV1Builder::new()
             .asset(asset_pubkey)
-            .collection(Some(collection))
+            .collection(None)
             .authority(Some(admin_pk))
             .payer(seller)
             .owner(Some(seller))
+            // 由 Book PDA 持有 Core 的 update authority，转卖时程序可 CPI 更新 `uri` 与元数据一致。
+            .update_authority(Some(book_pda))
             .name(req.name.clone())
             .uri(metadata_url)
             .instruction();
@@ -220,6 +224,7 @@ impl AnchorService {
                 new_price: req.price,
                 metadata_id: req.metadata_cid.clone(),
                 metadata_hash: hash_arr,
+                metadata_url: req.metadata_url.clone(),
             })
             .instructions()?;
         let block_hash = self.get_blockhash().await?;
@@ -294,7 +299,7 @@ impl AnchorService {
     ) -> Result<UnsignedTxResponse, ClientError> {
         let owner = parse(&req.seller)?;
         let asset = parse(&req.asset)?;
-        let collection = parse(&req.collection)?;
+        let _collection = parse(&req.collection)?;
         let book_pda = self.book_pda(&asset);
         let program = self.get_program()?;
 
@@ -308,7 +313,7 @@ impl AnchorService {
             .instructions()?;
         let burn_ix = BurnV1Builder::new()
             .asset(asset)
-            .collection(Some(collection))
+            .collection(None)
             .payer(owner)
             .instruction();
         let mut all_ix = delist_ix;

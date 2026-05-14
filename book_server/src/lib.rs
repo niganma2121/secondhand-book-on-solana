@@ -1,3 +1,4 @@
+pub mod arbitration;
 pub mod auth;
 pub mod chat;
 pub mod client;

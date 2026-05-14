@@ -26,6 +26,8 @@ import { upsertOrderShippingCipherByAssetWhenEscrowReady } from '@/lib/api/shipp
 import { LoginRequiredFlash } from '@/components/features/market/login-required-flash'
 import { MarketLoginGatedAction } from '@/components/features/market/market-login-gated-action'
 import { MarketFavoriteButton } from '@/components/features/market/market-favorite-button'
+import { fetchMyFavorites, postToggleFavorite } from '@/lib/api/favorites'
+import { env } from '@/lib/env'
 import {
   createMyShippingAddress,
   fetchMyShippingAddresses,
@@ -51,6 +53,8 @@ interface DetailPanelProps {
   onBuy?: (book: Book) => void
   onRequireLogin: (message?: string) => void
   isAuthenticated: boolean
+  favorited: boolean
+  onFavoriteToggle: () => Promise<void>
 }
 
 function formatBuyErrorMessage(err: unknown): string {
@@ -878,7 +882,15 @@ function DetailBookPriceBlock({ book }: { book: BookDetailDto }) {
   )
 }
 
-function BookDetailPanel({ asset, onClose, onBuy, onRequireLogin, isAuthenticated }: DetailPanelProps) {
+function BookDetailPanel({
+  asset,
+  onClose,
+  onBuy,
+  onRequireLogin,
+  isAuthenticated,
+  favorited,
+  onFavoriteToggle,
+}: DetailPanelProps) {
   const searchParams = useSearchParams()
   const orderEscrow = searchParams.get('orderEscrow')?.trim() ?? ''
   const orderState = searchParams.get('orderState')?.trim() ?? ''
@@ -886,7 +898,6 @@ function BookDetailPanel({ asset, onClose, onBuy, onRequireLogin, isAuthenticate
   const orderTerminalSnapshot = fromOrder && isOrderTerminalForBookSnapshot(orderState)
 
   const { publicKey } = useWallet()
-  const [favorited, setFavorited] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [detail, setDetail] = useState<BookDetailResponse | null>(null)
@@ -1088,7 +1099,7 @@ function BookDetailPanel({ asset, onClose, onBuy, onRequireLogin, isAuthenticate
                 variant="header"
                 favorited={favorited}
                 isAuthenticated={isAuthenticated}
-                onToggle={() => setFavorited((v) => !v)}
+                onToggle={onFavoriteToggle}
                 onRequireLogin={onRequireLogin}
               />
             )}
@@ -1491,14 +1502,16 @@ function BookDetailPanel({ asset, onClose, onBuy, onRequireLogin, isAuthenticate
 // ─── BookCard (unchanged) ─────────────────────────────────────────────────────
 
 function BookCard({
-                    book,
-                    onBuy,
-                    onOpenDetail,
-                    eagerImage = false,
-                    isOwner = false,
-                    isAuthenticated,
-                    onRequireLogin,
-                  }: {
+  book,
+  onBuy,
+  onOpenDetail,
+  eagerImage = false,
+  isOwner = false,
+  isAuthenticated,
+  onRequireLogin,
+  favorited,
+  onFavoriteToggle,
+}: {
   book: Book
   onBuy: (book: Book) => void
   onOpenDetail: (asset: string) => void
@@ -1506,9 +1519,9 @@ function BookCard({
   isOwner?: boolean
   isAuthenticated: boolean
   onRequireLogin: (message?: string) => void
+  favorited: boolean
+  onFavoriteToggle: () => Promise<void>
 }) {
-  const [favorited, setFavorited] = useState(false)
-
   return (
       <div
           role="button"
@@ -1534,7 +1547,7 @@ function BookCard({
             variant="card"
             favorited={favorited}
             isAuthenticated={isAuthenticated}
-            onToggle={() => setFavorited((v) => !v)}
+            onToggle={onFavoriteToggle}
             onRequireLogin={onRequireLogin}
           />
           {/* 品相标签 */}
@@ -1609,6 +1622,35 @@ export function MarketPage() {
   const pathname = usePathname()
   const { publicKey } = useWallet()
   const { isAuthenticated } = useAuth()
+  const [favoriteAssets, setFavoriteAssets] = useState<string[]>([])
+
+  const refreshFavoriteAssets = useCallback(async () => {
+    if (!isAuthenticated || env.useMockData || !env.apiBaseUrl) {
+      setFavoriteAssets([])
+      return
+    }
+    try {
+      const { books } = await fetchMyFavorites(1, 300)
+      setFavoriteAssets(books.map((b) => b.asset.trim()))
+    } catch {
+      setFavoriteAssets([])
+    }
+  }, [isAuthenticated])
+
+  useEffect(() => {
+    void refreshFavoriteAssets()
+  }, [refreshFavoriteAssets])
+
+  const handleFavoriteToggleForAsset = useCallback(async (asset: string) => {
+    const a = asset.trim()
+    const { favorited } = await postToggleFavorite(a)
+    setFavoriteAssets((prev) => {
+      const s = new Set(prev.map((x) => x.trim()))
+      if (favorited) s.add(a)
+      else s.delete(a)
+      return Array.from(s)
+    })
+  }, [])
 
   const [loginFlash, setLoginFlash] = useState<{ open: boolean; message: string }>({
     open: false,
@@ -1875,6 +1917,8 @@ export function MarketPage() {
                         isOwner={publicKey?.toBase58() === book.seller}
                         isAuthenticated={isAuthenticated}
                         onRequireLogin={showLoginFlash}
+                        favorited={favoriteAssets.includes(book.id)}
+                        onFavoriteToggle={() => handleFavoriteToggleForAsset(book.id)}
                     />
                 ))}
               </div>
@@ -1901,6 +1945,8 @@ export function MarketPage() {
                 }}
                 isAuthenticated={isAuthenticated}
                 onRequireLogin={showLoginFlash}
+                favorited={favoriteAssets.includes(detailAsset)}
+                onFavoriteToggle={() => handleFavoriteToggleForAsset(detailAsset)}
             />
         )}
       </div>

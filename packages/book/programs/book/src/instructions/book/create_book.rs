@@ -51,7 +51,7 @@ pub fn create_book(
     //上架阶段初始化FreezeDelegate插件避免首次购买时再AddPlugin导致授权冲突
     AddPluginV1CpiBuilder::new(&ctx.accounts.mpl_core_program.to_account_info())
         .asset(&ctx.accounts.asset.to_account_info())
-        .collection(Some(&ctx.accounts.collection.to_account_info()))
+        .collection(None)
         .payer(&ctx.accounts.seller.to_account_info())
         .authority(Some(&ctx.accounts.seller.to_account_info()))
         .system_program(&ctx.accounts.system_program.to_account_info())
@@ -64,7 +64,7 @@ pub fn create_book(
     // 上架时同时写入 TransferDelegate，授权 book PDA 在托管完成后可执行 NFT 转移。
     AddPluginV1CpiBuilder::new(&ctx.accounts.mpl_core_program.to_account_info())
         .asset(&ctx.accounts.asset.to_account_info())
-        .collection(Some(&ctx.accounts.collection.to_account_info()))
+        .collection(None)
         .payer(&ctx.accounts.seller.to_account_info())
         .authority(Some(&ctx.accounts.seller.to_account_info()))
         .system_program(&ctx.accounts.system_program.to_account_info())

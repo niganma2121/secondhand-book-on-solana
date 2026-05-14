@@ -21,6 +21,12 @@ pub enum AppError {
     #[msg("metadata_cid 长度超过限制")]
     MetadataCidTooLong,
 
+    #[msg("metadata_url 不能为空")]
+    EmptyMetadataUrl,
+
+    #[msg("metadata_url 长度超过限制")]
+    MetadataUrlTooLong,
+
     //EsCrow部分
     #[msg("书籍的元信息匹配")]
     InvalidAsset,
