@@ -11,6 +11,13 @@ export class ApiError extends Error {
   }
 }
 
+/** UI 提示：优先 ApiError / Error 的 message，否则用 fallback */
+export function toUserFacingMessage(e: unknown, fallback: string): string {
+  if (e instanceof ApiError) return e.message
+  if (e instanceof Error) return e.message
+  return fallback
+}
+
 const DEFAULT_TIMEOUT_MS = 15_000
 
 type FetchOptions = RequestInit & {

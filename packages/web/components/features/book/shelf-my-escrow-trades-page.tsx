@@ -17,7 +17,7 @@ import {
 import { bookPublicHistory, routes, shelfMyEscrowTrades } from '@/config/routes'
 import { fetchBookDetail } from '@/lib/api/book-detail'
 import { fetchMyAssetEscrowEvents, type MyEscrowEventRow } from '@/lib/api/book-history'
-import { ApiError } from '@/lib/api/client'
+import { toUserFacingMessage } from '@/lib/api/client'
 import { env } from '@/lib/env'
 import {
   escrowEventPrimaryLine,
@@ -80,7 +80,7 @@ export function ShelfMyEscrowTradesPage({
     } catch (e) {
       setEvents([])
       setBookName(null)
-      setError(e instanceof ApiError ? e.message : '加载失败')
+      setError(toUserFacingMessage(e, '加载失败'))
     } finally {
       setLoading(false)
     }

@@ -5,7 +5,7 @@ use tokio::sync::RwLock;
 use crate::infra::env::{f64_env, u64_env};
 use crate::{SOL_CNY_RATE_CACHE_TTL_SECS_ENV, SOL_CNY_RATE_FALLBACK_ENV};
 
-/// 有限且为正（用于 CNY/SOL、USD/CNY、SOL/USD 等中间值）
+/// 用于人民币和SOL汇率获取
 fn is_valid_positive_rate(v: f64) -> bool {
     v.is_finite() && v > 0.0
 }

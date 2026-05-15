@@ -478,20 +478,6 @@ export function ChatPage({ initialPeerQuery }: ChatPageProps) {
                 开启桌面通知
               </Button>
             ) : null}
-            {isAuthenticated && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="rounded-xl text-xs h-8"
-                onClick={() => {
-                  setNewPeerError(null)
-                  setNewChatOpen(true)
-                }}
-              >
-                新对话
-              </Button>
-            )}
             <span className="text-xs text-muted-foreground whitespace-nowrap">
               {conversations.reduce((n, c) => n + c.unread, 0)} 条未读
             </span>

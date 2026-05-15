@@ -20,7 +20,7 @@ import {
   type PublicBookHistoryResponse,
   type PublicEscrowEvent,
 } from '@/lib/api/book-history'
-import { ApiError } from '@/lib/api/client'
+import { toUserFacingMessage } from '@/lib/api/client'
 import { env } from '@/lib/env'
 import { explorerAddressUrl, explorerTxUrl } from '@/lib/solana-explorer'
 import {
@@ -475,7 +475,7 @@ export function BookPublicHistoryPage({ asset }: { asset: string }) {
     } catch (e) {
       setData(null)
       setBookName(null)
-      setError(e instanceof ApiError ? e.message : '加载失败')
+      setError(toUserFacingMessage(e, '加载失败'))
     } finally {
       setLoading(false)
     }

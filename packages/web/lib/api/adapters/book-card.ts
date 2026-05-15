@@ -25,7 +25,7 @@ export function bookCardDtoToBook(row: BookCardDto): Book {
     id: row.asset,
     title: row.name,
     author: row.author ?? '',
-    cover: row.cover_url ?? '/placeholder.jpg',
+    cover: row.cover_url ?? '/book-cover-placeholder.svg',
     price: row.price / 1_000_000_000,
     priceCny: row.price_cny ?? undefined,
     fxCnyPerSol: row.fx_cny_per_sol ?? undefined,

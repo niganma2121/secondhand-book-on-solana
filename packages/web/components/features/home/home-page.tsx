@@ -48,8 +48,8 @@ const FEATURES = [
         <path d="M12 7v5l3.5 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
       </svg>
     ),
-    title: '秒级链上结算',
-    desc: 'Solana TPS 高达 65000，交易确认低于 0.4 秒，Gas 费极低',
+    title: '快速链上确认',
+    desc: '基于 Solana 高性能网络，托管与结算链上可查，确认快、手续费低',
   },
 ]
 

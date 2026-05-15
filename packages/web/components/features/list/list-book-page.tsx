@@ -8,7 +8,7 @@ import { useBookCategories } from '@/lib/hooks/use-book-categories'
 import { useBookConditions } from '@/lib/hooks/use-book-conditions'
 import { useSolCnyRate } from '@/lib/hooks/use-sol-cny-rate'
 import { Button } from '@/components/ui/button'
-import { useIsMobile } from '@/hooks/use-mobile'
+import { useIsMobile } from '@/lib/hooks/use-mobile'
 import {
   resolveGoogleBooksCoverUrl,
   searchGoogleBooks,
@@ -22,7 +22,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Loader2, RefreshCw, ZoomIn } from 'lucide-react'
-import { ApiError } from '@/lib/api/client'
+import { toUserFacingMessage } from '@/lib/api/client'
 import {
   broadcastRelistBook,
   broadcastCreateBook,
@@ -675,12 +675,7 @@ export function ListBookPage() {
       setBuildPhase('')
       console.error('[list-book] submit failed', { stage: failedStage, error: e })
       const stageLabel = STAGE_LABEL[failedStage]
-      const detail =
-        e instanceof ApiError
-          ? e.message
-          : e instanceof Error
-            ? e.message
-            : '上架失败，请稍后重试'
+      const detail = toUserFacingMessage(e, '上架失败，请稍后重试')
       notify(`${stageLabel}：${detail}`, 'error', Math.min(9000, 2400 + detail.length * 28))
     }
   }
@@ -745,7 +740,7 @@ export function ListBookPage() {
       if (results.length === 0) setLookupError('未找到匹配书目，可改关键词或直接上传封面')
     } catch (e) {
       setLookupResults([])
-      setLookupError(e instanceof Error ? e.message : '搜索失败')
+      setLookupError(toUserFacingMessage(e, '搜索失败'))
     } finally {
       setLookupLoading(false)
     }

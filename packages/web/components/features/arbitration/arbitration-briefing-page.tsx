@@ -9,7 +9,7 @@ import { ArbitrationBriefingView } from '@/components/features/arbitration/arbit
 import { Button } from '@/components/ui/button'
 import { routes } from '@/config/routes'
 import { fetchArbitrationBriefing, type ArbitrationBriefing } from '@/lib/api/arbitration'
-import { ApiError } from '@/lib/api/client'
+import { toUserFacingMessage } from '@/lib/api/client'
 import { env } from '@/lib/env'
 import { isArbitratorPubkey } from '@/lib/arbitration-access'
 import { shortenPubkey } from '@/lib/format-seller'
@@ -45,7 +45,7 @@ export function ArbitrationBriefingPage({ escrowPda }: { escrowPda: string }) {
       setData(b)
     } catch (e) {
       setData(null)
-      setErr(e instanceof ApiError ? e.message : e instanceof Error ? e.message : '加载失败')
+      setErr(toUserFacingMessage(e, '加载失败'))
     } finally {
       setLoading(false)
     }

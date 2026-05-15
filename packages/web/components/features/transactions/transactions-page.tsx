@@ -9,6 +9,7 @@ import { privacyPubkey } from '@/lib/format-seller'
 import { useAuth } from '@/components/providers/auth-provider'
 import { fetchOrderShippingCipher } from '@/lib/api/shipping-cipher'
 import { useSolCnyRate } from '@/lib/hooks/use-sol-cny-rate'
+import { toUserFacingMessage } from '@/lib/api/client'
 
 const TYPE_LABELS: Record<ChainTransaction['type'], string> = {
   buy: '购买',
@@ -137,7 +138,7 @@ function TxCard({ tx, myPubkey }: { tx: ChainTransaction; myPubkey?: string }) {
       )
       setShippingPlaintext(plain)
     } catch (e) {
-      setShippingError(e instanceof Error ? e.message : '解密失败')
+      setShippingError(toUserFacingMessage(e, '解密失败'))
     } finally {
       setDecrypting(false)
     }

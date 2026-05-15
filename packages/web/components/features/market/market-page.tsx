@@ -28,6 +28,7 @@ import { MarketLoginGatedAction } from '@/components/features/market/market-logi
 import { MarketFavoriteButton } from '@/components/features/market/market-favorite-button'
 import { fetchMyFavorites, postToggleFavorite } from '@/lib/api/favorites'
 import { env } from '@/lib/env'
+import { toUserFacingMessage } from '@/lib/api/client'
 import {
   createMyShippingAddress,
   fetchMyShippingAddresses,
@@ -437,7 +438,7 @@ function BuyModal({ book, onClose, onPurchased }: BuyModalProps) {
         },
       })
     } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : '收货地址提交失败')
+      setErrorMsg(toUserFacingMessage(e, '收货地址提交失败'))
     } finally {
       setAddressSaving(false)
     }
@@ -497,7 +498,7 @@ function BuyModal({ book, onClose, onPurchased }: BuyModalProps) {
         }
       } catch (e) {
         if (!cancelled) {
-          setErrorMsg(e instanceof Error ? e.message : '收货地址加载失败，请先完成登录验证后重试。')
+          setErrorMsg(toUserFacingMessage(e, '收货地址加载失败，请先完成登录验证后重试。'))
         }
       }
       if (cancelled) return
@@ -575,7 +576,7 @@ function BuyModal({ book, onClose, onPurchased }: BuyModalProps) {
       setManualDistrictCode('')
       setManualDetail('')
     } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : '新增地址失败')
+      setErrorMsg(toUserFacingMessage(e, '新增地址失败'))
     } finally {
       setAddressSaving(false)
     }
@@ -999,7 +1000,7 @@ function BookDetailPanel({
           }
         } catch { /* metadata 失败时保留默认简介 */ }
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : '详情加载失败')
+        if (!cancelled) setError(toUserFacingMessage(e, '详情加载失败'))
       } finally {
         if (!cancelled) setLoading(false)
       }

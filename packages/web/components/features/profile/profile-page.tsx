@@ -7,14 +7,15 @@ import { useWallet } from '@solana/wallet-adapter-react'
 import { areaList } from '@vant/area-data'
 import { useOpenWalletConnect } from '@/lib/hooks/use-open-wallet-connect'
 import { routes, marketBookDetail } from '@/config/routes'
+import { DEFAULT_AVATAR_SRC } from '@/lib/brand'
 import { env } from '@/lib/env'
 import type { Book, MyBook } from '@/lib/types'
 import { useMyBooks } from '@/lib/hooks/use-my-books'
 import { useAuth } from '@/components/providers/auth-provider'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { toast } from '@/hooks/use-toast'
-import { ApiError } from '@/lib/api/client'
+import { toast } from '@/lib/hooks/use-toast'
+import { ApiError, toUserFacingMessage } from '@/lib/api/client'
 import { claimQiniuAvatarUpload, updateMyProfile, uploadAvatarFileToQiniu } from '@/lib/api/profile'
 import {
   fetchEncryptionTemplates,
@@ -270,7 +271,6 @@ export function ProfilePage() {
   } = useAuth()
 
   const addr = publicKey ? publicKey.toBase58() : ''
-  const short = addr ? `${addr.slice(0, 4)}...${addr.slice(-4)}` : ''
 
   const { published, owned } = useMyBooks()
 
@@ -279,9 +279,10 @@ export function ProfilePage() {
 
   const displayName =
     isAuthenticated && user?.username ? user.username : '匿名用户'
-  const defaultAvatarUrl = env.defaultAvatarUrl
-  const avatarUrl = profileAvatarPreview || user?.avatar?.trim() || defaultAvatarUrl || null
-  const headerAvatarSrc = user?.avatar?.trim() || defaultAvatarUrl || null
+  const customAvatar = (profileAvatarPreview || user?.avatar?.trim() || '').trim()
+  const avatarUrl = customAvatar || DEFAULT_AVATAR_SRC
+  const headerAvatarDisplay = user?.avatar?.trim() || DEFAULT_AVATAR_SRC
+  const headerHasCustomAvatar = Boolean(user?.avatar?.trim())
   const nicknameChangesLeft = user?.username_changes_remaining_today ?? 3
 
   const stats: { label: string; value: number | string }[] = [
@@ -324,7 +325,7 @@ export function ProfilePage() {
       })
       .catch((e) => {
         if (!cancelled) {
-          setFavoritesError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : '加载失败')
+          setFavoritesError(toUserFacingMessage(e, '加载失败'))
           setFavoriteBooks([])
         }
       })
@@ -621,7 +622,7 @@ export function ProfilePage() {
         await refreshShippingAddressesFromSource()
       } catch (err) {
         if (cancelled) return
-        setAddressError(err instanceof Error ? err.message : '地址配置加载失败')
+        setAddressError(toUserFacingMessage(err, '地址配置加载失败'))
       } finally {
         if (!cancelled) setAddressLoading(false)
       }
@@ -635,7 +636,7 @@ export function ProfilePage() {
   useEffect(() => {
     if (!profileDialogOpen) return
     setProfileNameDraft((user?.username ?? '').trim())
-    setProfileAvatarPreview(user?.avatar?.trim() || env.defaultAvatarUrl || null)
+    setProfileAvatarPreview(user?.avatar?.trim() || '')
     setProfileAvatarFile(null)
     setProfileNicknameEditing(false)
   }, [profileDialogOpen, user?.username, user?.avatar])
@@ -725,7 +726,7 @@ export function ProfilePage() {
       setAddressHint(selectedShippingId ? '地址已更新。' : '地址已新增。')
       setAddressFormMode('hidden')
     } catch (err) {
-      setAddressError(err instanceof Error ? err.message : '地址保存失败')
+      setAddressError(toUserFacingMessage(err, '地址保存失败'))
     } finally {
       setAddressActionLoading(false)
     }
@@ -767,7 +768,7 @@ export function ProfilePage() {
       setAddressHint('地址已删除。')
       if (selectedShippingId === id) setAddressFormMode('hidden')
     } catch (err) {
-      setAddressError(err instanceof Error ? err.message : '删除地址失败')
+      setAddressError(toUserFacingMessage(err, '删除地址失败'))
     } finally {
       setAddressActionLoading(false)
     }
@@ -811,7 +812,7 @@ export function ProfilePage() {
       setDefaultShippingId(id)
       setAddressHint('已设置为默认地址。')
     } catch (err) {
-      setAddressError(err instanceof Error ? err.message : '设置默认地址失败')
+      setAddressError(toUserFacingMessage(err, '设置默认地址失败'))
     } finally {
       setAddressActionLoading(false)
     }
@@ -842,7 +843,7 @@ export function ProfilePage() {
       await refreshShippingAddressesFromSource()
       setAddressDialogOpen(true)
     } catch (err) {
-      setAddressError(err instanceof Error ? err.message : '初始化通讯密钥失败')
+      setAddressError(toUserFacingMessage(err, '初始化通讯密钥失败'))
       setAddressDialogOpen(true)
     } finally {
       setAddressActionLoading(false)
@@ -896,8 +897,7 @@ export function ProfilePage() {
       setProfileDialogOpen(false)
       toast({ title: '保存成功', duration: 2800 })
     } catch (err) {
-      const msg =
-        err instanceof ApiError ? err.message : err instanceof Error ? err.message : '保存失败'
+      const msg = toUserFacingMessage(err, '保存失败')
       setProfileError(msg)
       toast({
         title: '保存失败',
@@ -961,53 +961,32 @@ export function ProfilePage() {
           <div className="px-4 pb-4 -mt-8 flex items-end gap-3">
             <button
               type="button"
-              disabled={!headerAvatarSrc}
+              disabled={!headerHasCustomAvatar}
               onClick={() => {
-                if (!headerAvatarSrc) return
-                setProfileAvatarLightboxSrc(headerAvatarSrc)
+                if (!headerHasCustomAvatar) return
+                setProfileAvatarLightboxSrc(headerAvatarDisplay)
                 setProfileAvatarViewerOpen(true)
               }}
               className={[
                 'w-16 h-16 rounded-2xl border-2 border-card shrink-0 overflow-hidden flex items-center justify-center',
                 'bg-primary/20',
-                headerAvatarSrc
+                headerHasCustomAvatar
                   ? 'cursor-zoom-in ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
                   : 'cursor-default',
               ].join(' ')}
-              aria-label={headerAvatarSrc ? '查看头像大图' : '默认头像'}
+              aria-label={headerHasCustomAvatar ? '查看头像大图' : '默认头像'}
             >
-              {headerAvatarSrc ? (
-                <Image
-                  src={headerAvatarSrc}
-                  alt=""
-                  width={64}
-                  height={64}
-                  className="object-cover w-full h-full"
-                  unoptimized
-                />
-              ) : (
-                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true" className="text-primary">
-                  <circle cx="14" cy="10" r="5" fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="1.5" />
-                  <path d="M4 26c0-5.523 4.477-10 10-10s10 4.477 10 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                </svg>
-              )}
+              <Image
+                src={headerAvatarDisplay}
+                alt=""
+                width={64}
+                height={64}
+                className="object-cover w-full h-full"
+                unoptimized
+              />
             </button>
             <div className="flex-1 min-w-0 pb-1">
               <p className="font-bold text-foreground text-base">{displayName}</p>
-              <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
-                支持修改昵称、上传头像
-              </p>
-              <button
-                onClick={() => navigator.clipboard?.writeText(addr)}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors mt-0.5"
-                aria-label="复制钱包地址"
-              >
-                <span className="font-mono">{short}</span>
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                  <rect x="3.5" y="3.5" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.2" />
-                  <path d="M1.5 8.5V2a.5.5 0 01.5-.5h6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                </svg>
-              </button>
               <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-medium text-yellow-400 bg-yellow-400/10 px-1.5 py-0.5 rounded">
                 <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
                 Devnet
@@ -1271,7 +1250,7 @@ export function ProfilePage() {
             {
               label: '个人信息',
               icon: '👤',
-              desc: '支持修改昵称、上传头像',
+              desc: '',
               onClick: () => {
                 setProfileError(null)
                 setProfileDialogOpen(true)
@@ -1291,7 +1270,7 @@ export function ProfilePage() {
             {
               label: '关于 BookChain',
               icon: '📖',
-              desc: '版本 0.1.0 · Solana Devnet',
+              desc: '',
               onClick: () => {
                 window.open(
                   'https://github.com/niganma2121/secondhand-book-on-solana',
@@ -1310,7 +1289,9 @@ export function ProfilePage() {
               <span className="text-base" role="img" aria-label={item.label}>{item.icon}</span>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-foreground">{item.label}</p>
-                <p className="text-[11px] text-muted-foreground">{item.desc}</p>
+                {item.desc ? (
+                  <p className="text-[11px] text-muted-foreground">{item.desc}</p>
+                ) : null}
               </div>
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="text-muted-foreground shrink-0">
                 <path d="M5 3.5L8.5 7 5 10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -1542,26 +1523,22 @@ export function ProfilePage() {
               <div className="flex flex-col items-center gap-2.5">
                 <button
                   type="button"
-                  disabled={!avatarUrl}
+                  disabled={!customAvatar}
                   onClick={() => {
-                    if (!avatarUrl) return
-                    setProfileAvatarLightboxSrc(avatarUrl)
+                    if (!customAvatar) return
+                    setProfileAvatarLightboxSrc(customAvatar)
                     setProfileAvatarViewerOpen(true)
                   }}
                   className={[
                     'relative w-36 h-36 rounded-3xl overflow-hidden border border-border bg-secondary',
-                    avatarUrl
+                    customAvatar
                       ? 'cursor-zoom-in ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
                       : 'cursor-default opacity-80',
                   ].join(' ')}
-                  aria-label={avatarUrl ? '查看头像大图' : '头像'}
+                  aria-label={customAvatar ? '查看头像大图' : '头像'}
                 >
-                  {avatarUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- 含 data URL / 外链
-                    <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-sm text-muted-foreground">无头像</span>
-                  )}
+                  {/* eslint-disable-next-line @next/next/no-img-element -- 含 data URL / 外链 */}
+                  <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
                 </button>
                 <Button
                   type="button"

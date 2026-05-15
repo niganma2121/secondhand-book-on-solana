@@ -25,7 +25,7 @@ import {
   type EscrowBroadcastResponse,
 } from '@/lib/api/escrow'
 import { submitOrderReview } from '@/lib/api/reviews'
-import { ApiError } from '@/lib/api/client'
+import { ApiError, toUserFacingMessage } from '@/lib/api/client'
 import { fetchOrderShippingCipher, upsertOrderShippingCipher } from '@/lib/api/shipping-cipher'
 import { fetchMyShippingAddresses, createMyShippingAddress } from '@/lib/api/shipping-addresses'
 import {
@@ -661,7 +661,7 @@ export function PendingPage() {
       .catch((e) => {
         if (!cancelled) {
           setDisputeMaterialErr(
-            e instanceof ApiError ? e.message : e instanceof Error ? e.message : '加载失败',
+            toUserFacingMessage(e, '加载失败'),
           )
         }
       })
@@ -696,7 +696,7 @@ export function PendingPage() {
         await refreshChangeAddrList()
         if (cancelled) return
       } catch (e) {
-        if (!cancelled) setChangeAddrErr(e instanceof Error ? e.message : '加载地址失败')
+        if (!cancelled) setChangeAddrErr(toUserFacingMessage(e, '加载地址失败'))
       } finally {
         if (!cancelled) setChangeAddrLoading(false)
       }
@@ -777,7 +777,7 @@ export function PendingPage() {
       setChangeAddressOrder(null)
       void markOrdersAttentionSeen()
     } catch (e) {
-      setChangeAddrErr(e instanceof Error ? e.message : '提交失败')
+      setChangeAddrErr(toUserFacingMessage(e, '提交失败'))
     } finally {
       setChangeAddrSubmitting(false)
     }
@@ -834,7 +834,7 @@ export function PendingPage() {
       resetCaFields()
       notify('地址已保存，请在上方选用后同步到本订单', 'success', 2000)
     } catch (e) {
-      const msg = e instanceof Error ? e.message : '保存地址失败'
+      const msg = toUserFacingMessage(e, '保存地址失败')
       setChangeAddrErr(msg)
       notify(msg, 'error', 2500)
     } finally {
@@ -861,7 +861,7 @@ export function PendingPage() {
       await loadOrders()
       void markOrdersAttentionSeen()
     } catch (e) {
-      notify(e instanceof Error ? e.message : '锁单失败', 'error')
+      notify(toUserFacingMessage(e, '锁单失败'), 'error')
     } finally {
       setSubmittingId(null)
     }
@@ -915,12 +915,7 @@ export function PendingPage() {
       setReviewOrder(null)
       await loadOrders()
     } catch (e) {
-      const msg =
-        e instanceof ApiError
-          ? e.message
-          : e instanceof Error
-            ? e.message
-            : '评价提交失败'
+      const msg = toUserFacingMessage(e, '评价提交失败')
       notify(msg, 'error', 2500)
     } finally {
       setReviewSubmitting(false)
@@ -941,7 +936,7 @@ export function PendingPage() {
         if (cancelled) return
       } catch (e) {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : '加载待处理订单失败')
+          setError(toUserFacingMessage(e, '加载待处理订单失败'))
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -1007,7 +1002,7 @@ export function PendingPage() {
       })
     } catch (e) {
       notify(
-        `发货已上链，但物流密文保存失败：${e instanceof Error ? e.message : '请稍后重试'}`,
+        `发货已上链，但物流密文保存失败：${toUserFacingMessage(e, '请稍后重试')}`,
         'error',
         2800,
       )
@@ -1053,7 +1048,7 @@ export function PendingPage() {
     } catch (e) {
       setTrackingErrMap((prev) => ({
         ...prev,
-        [escrowPda]: e instanceof Error ? e.message : '读取物流单号失败',
+        [escrowPda]: toUserFacingMessage(e, '读取物流单号失败'),
       }))
     } finally {
       setDecryptingTrackingOrder(null)
@@ -1154,7 +1149,7 @@ export function PendingPage() {
       }
     } catch (e) {
       setConfirmProof(null)
-      setConfirmCheckError(e instanceof Error ? e.message : '校验失败')
+      setConfirmCheckError(toUserFacingMessage(e, '校验失败'))
     } finally {
       setConfirmChecking(false)
     }
@@ -1321,7 +1316,7 @@ export function PendingPage() {
     } catch (e) {
       setShippingErrMap((prev) => ({
         ...prev,
-        [escrowPda]: e instanceof Error ? e.message : '解密收货地址失败',
+        [escrowPda]: toUserFacingMessage(e, '解密收货地址失败'),
       }))
     } finally {
       setDecryptingShippingOrder(null)

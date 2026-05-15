@@ -20,7 +20,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { arbitrationBriefing, routes, bookPublicHistory } from '@/config/routes'
 import { isArbitratorPubkey } from '@/lib/arbitration-access'
 import { fetchArbitrationDisputes, type ArbitrationDisputeOrder } from '@/lib/api/arbitration'
-import { ApiError } from '@/lib/api/client'
+import { toUserFacingMessage } from '@/lib/api/client'
 import {
   buildResolveDispute,
   broadcastResolveDispute,
@@ -148,7 +148,7 @@ export function ArbitrationWorkbenchPage() {
       setOrders(res.orders ?? [])
     } catch (e) {
       setOrders([])
-      setError(e instanceof ApiError ? e.message : '加载失败')
+      setError(toUserFacingMessage(e, '加载失败'))
     } finally {
       setLoading(false)
     }
@@ -231,7 +231,7 @@ export function ArbitrationWorkbenchPage() {
     } catch (e) {
       setVoteOutcome({
         ok: false,
-        message: e instanceof ApiError ? e.message : e instanceof Error ? e.message : '提交失败',
+        message: toUserFacingMessage(e, '提交失败'),
       })
     } finally {
       setSubmitting(false)

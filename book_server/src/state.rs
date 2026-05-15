@@ -25,7 +25,6 @@ impl AppState{
         let admin_pubkey_url=var(ADMIN_KEYPAIR_URL_ENV).expect("缺少管理员密钥对");
         let keypair=read_keypair_file(&admin_pubkey_url)
             .expect("密钥加载失败");
-        //TODO,需要删除和修改,目前chat需要使用暂时不管
         let admin_keypair=Arc::new(keypair);
         let chat_service=ChatService::new(admin_keypair.clone()).await;
         let anchor_service=Arc::new(AnchorService::new());

@@ -19,6 +19,7 @@ import {
   buildUpdatePrice,
 } from '@/lib/api/book-management'
 import { signSerializedTxWithWallet } from '@/lib/api/book-listing'
+import { formatBeijingDateTime } from '@/lib/format-datetime'
 
 type ShelfTab = 'published' | 'owned' | 'history'
 
@@ -204,7 +205,7 @@ function ShelfBookCard({ book, type }: { book: MyBook; type: ShelfTab }) {
               className="block min-w-0 hover:text-primary transition-colors"
             >
               <p className="font-semibold text-sm md:text-base text-foreground truncate">{book.title}</p>
-              <p className="text-xs md:text-sm text-muted-foreground">{book.author}</p>
+              <p className="text-sm md:text-base text-muted-foreground">{book.author}</p>
             </Link>
           </div>
           <span className={['text-[10px] md:text-xs font-medium px-1.5 py-0.5 rounded shrink-0', status.className].join(' ')}>
@@ -212,24 +213,22 @@ function ShelfBookCard({ book, type }: { book: MyBook; type: ShelfTab }) {
           </span>
         </div>
 
-        <p className="text-[11px] md:text-sm text-muted-foreground font-mono">#{book.tokenId}</p>
-
         <div className="flex items-center justify-between mt-auto">
           <div>
             {snapshotPriceCny != null ? (
               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                <span className="text-primary font-mono font-bold text-base md:text-lg">
+                <span className="text-primary font-mono font-bold text-lg md:text-xl">
                   ¥{snapshotPriceCny.toFixed(2)}
                 </span>
-                <span className="text-sm md:text-[15px] text-muted-foreground font-mono tabular-nums">
+                <span className="text-base md:text-lg text-muted-foreground font-mono tabular-nums">
                   {priceSol} SOL
                 </span>
               </div>
             ) : (
-              <span className="text-primary font-mono font-bold text-base md:text-lg">{priceSol} SOL</span>
+              <span className="text-primary font-mono font-bold text-lg md:text-xl">{priceSol} SOL</span>
             )}
             {(cnyPerSol ?? snapshotFx) != null && (
-              <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs md:text-sm text-muted-foreground">
+              <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm md:text-base text-muted-foreground">
                 <span className="min-w-0">
                   参考汇率：1 SOL ≈ ¥
                   {(cnyPerSol ?? snapshotFx)!.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}
@@ -241,7 +240,7 @@ function ShelfBookCard({ book, type }: { book: MyBook; type: ShelfTab }) {
                     <span className="text-muted-foreground/35 select-none" aria-hidden>
                       ·
                     </span>
-                    <span className="text-[10px] md:text-xs opacity-90">
+                    <span className="text-xs md:text-sm opacity-90">
                       上架快照 ¥{snapshotFx.toLocaleString('zh-CN', { maximumFractionDigits: 2 })} / SOL
                     </span>
                   </>
@@ -249,10 +248,12 @@ function ShelfBookCard({ book, type }: { book: MyBook; type: ShelfTab }) {
               </div>
             )}
             {type === 'published' ? (
-              <p className="text-[10px] md:text-xs text-muted-foreground">上架于 {book.listedAt}</p>
+              <p className="text-xs md:text-sm text-muted-foreground">
+                上架于 {formatBeijingDateTime(book.listedAt)}
+              </p>
             ) : (
-              <p className="text-[10px] md:text-xs text-muted-foreground">
-                购入于 {book.purchasedAt ?? book.listedAt}
+              <p className="text-xs md:text-sm text-muted-foreground">
+                购入于 {formatBeijingDateTime(book.purchasedAt ?? book.listedAt)}
               </p>
             )}
           </div>

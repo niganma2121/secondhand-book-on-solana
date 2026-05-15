@@ -12,7 +12,8 @@ import {
   type PublicUserProfile,
   type UserReviewsResponse,
 } from '@/lib/api/users'
-import { ApiError } from '@/lib/api/client'
+import { toUserFacingMessage } from '@/lib/api/client'
+import { BOOK_COVER_PLACEHOLDER_SRC, DEFAULT_AVATAR_SRC } from '@/lib/brand'
 import { peerDisplayTitle, privacyPubkey } from '@/lib/format-seller'
 import { chatWithPeer, marketBookDetail, routes, userPublicProfile } from '@/config/routes'
 import type { Book } from '@/lib/types'
@@ -79,12 +80,7 @@ export function PublicUserPage() {
         }
       } catch (e) {
         if (!cancelled) {
-          const msg =
-            e instanceof ApiError
-              ? e.message
-              : e instanceof Error
-                ? e.message
-                : '加载失败'
+          const msg = toUserFacingMessage(e, '加载失败')
           setError(msg)
           setProfile(undefined)
         }
@@ -105,7 +101,7 @@ export function PublicUserPage() {
           ? peerDisplayTitle(null, pubkey)
           : '用户'
         : peerDisplayTitle(profile.username, profile.pubkey)
-  const avatarSrc = profile?.avatar?.trim() || null
+  const avatarSrc = profile?.avatar?.trim() || DEFAULT_AVATAR_SRC
 
   return (
     <div className="max-w-2xl mx-auto px-4 sm:px-6 pt-4 pb-28 md:pb-10">
@@ -165,33 +161,11 @@ export function PublicUserPage() {
             <div className="px-4 pb-4 -mt-8 flex gap-3">
               <button
                 type="button"
-                disabled={!avatarSrc}
-                onClick={() => {
-                  if (avatarSrc) setAvatarLightboxOpen(true)
-                }}
-                className={[
-                  'relative w-16 h-16 rounded-2xl overflow-hidden border-2 border-card bg-secondary shrink-0',
-                  avatarSrc
-                    ? 'cursor-zoom-in ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
-                    : 'cursor-default',
-                ].join(' ')}
-                aria-label={avatarSrc ? '查看头像大图' : '默认头像'}
+                onClick={() => setAvatarLightboxOpen(true)}
+                className="relative w-16 h-16 rounded-2xl overflow-hidden border-2 border-card bg-secondary shrink-0 cursor-zoom-in ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label="查看头像"
               >
-                {avatarSrc ? (
-                  <Image src={avatarSrc} alt="" fill className="object-cover" unoptimized />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-primary/40">
-                    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden>
-                      <circle cx="14" cy="10" r="5" fill="currentColor" fillOpacity="0.25" />
-                      <path
-                        d="M4 26c0-5.523 4.477-10 10-10s10 4.477 10 10"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                  </div>
-                )}
+                <Image src={avatarSrc} alt="" fill className="object-cover" unoptimized />
               </button>
               <div className="flex-1 min-w-0 pt-9">
                 <h1 className="text-lg font-bold text-foreground truncate">{displayName}</h1>
@@ -290,7 +264,7 @@ export function PublicUserPage() {
                     >
                       <div className="relative aspect-[3/4] bg-secondary">
                         <Image
-                          src={b.cover || '/placeholder.svg'}
+                          src={b.cover || BOOK_COVER_PLACEHOLDER_SRC}
                           alt=""
                           fill
                           className="object-cover"

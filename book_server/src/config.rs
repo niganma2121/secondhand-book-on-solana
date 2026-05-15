@@ -39,7 +39,7 @@ pub const QINIU_PUBLIC_BASE_ENV: &str = "QINIU_PUBLIC_BASE";
 /// Bucket 在华南 z2 时应设为 `https://up-z2.qiniup.com` 等，与控制台「存储区域」一致。
 pub const QINIU_UPLOAD_HOST_ENV: &str = "QINIU_UPLOAD_HOST";
 
-/// 新用户入库时的默认头像 URL（可选）。与前端 `NEXT_PUBLIC_DEFAULT_AVATAR_URL` 可设为同一地址。
+/// 新用户入库时的默认头像 URL（七牛等公网地址）；写入 `users.avatar`。
 pub const DEFAULT_AVATAR_URL_ENV: &str = "DEFAULT_AVATAR_URL";
 
 /// Pinata v3 创建「直传签名 URL」时，链接有效期（秒）。可选，默认 120。

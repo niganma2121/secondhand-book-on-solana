@@ -1,15 +1,4 @@
-/**
- * 浏览器可读环境变量（NEXT_PUBLIC_*）
- *
- * API 基址须含协议、**端口（默认 3005）**、`/api`，例如 `http://127.0.0.1:3005/api`、
- * `http://10.141.210.224:3005/api`。漏写端口会变成访问 80 → 连接被拒绝。
- * `authPrefix` 默认为 `/auth`（完整路径形如 `/api/auth/nonce`）。
- *
- * useMockData：
- * - 显式 `NEXT_PUBLIC_USE_MOCK_DATA=false` → 不调 fixture
- * - 已配置 `NEXT_PUBLIC_API_URL` → 默认走真实接口（避免「填了 URL 却误留 MOCK=true」导致永远不接后端）
- * - 否则：未设置 MOCK 或与旧行为一致时默认 mock（纯前端预览）
- */
+
 const rawApiUrlInput = process.env.NEXT_PUBLIC_API_URL?.trim() ?? ''
 /** 未写 `http://` / `https://` 时浏览器会把地址当成相对路径，请求打到 Next 页面 → 返回 HTML 404 */
 const rawApiUrl = (() => {
@@ -51,11 +40,6 @@ export const env = {
   isDev: process.env.NODE_ENV === 'development',
   /** 未配置则不显示人民币参考价 */
   solCnyApprox,
-  /** 用户未上传头像时的占位图；可与后端 `DEFAULT_AVATAR_URL` 设为同一 CDN 地址 */
-  defaultAvatarUrl: (() => {
-    const u = process.env.NEXT_PUBLIC_DEFAULT_AVATAR_URL?.trim() ?? ''
-    return u.length > 0 ? u : null
-  })(),
   /** 与链上 `ARBITRATORS` 对齐；可用 `NEXT_PUBLIC_ARBITRATOR_PUBKEYS`（逗号分隔）覆盖 */
   arbitratorPubkeys: (() => {
     const raw = process.env.NEXT_PUBLIC_ARBITRATOR_PUBKEYS?.trim()
@@ -65,12 +49,11 @@ export const env = {
         .map((s) => s.trim())
         .filter((s) => s.length > 0)
     }
-    const DEFAULT: string[] = [
+    return [
       'A5JSJ3J184YKqB71dFG47XrmmxmZqTZRUah9udC4dsnZ',
       'CCiL4DCuzwKGSMYDDWA3E84XtNhsGc1SeWekNJvVF71j',
       'EKufV8XKB5QfX52xDbEjsYts8CHsiz8QihXCw9A6G6Fj',
     ]
-    return DEFAULT
   })(),
 } as const
 
