@@ -71,7 +71,7 @@ function parseErrorMessage(text: string, fallback: string) {
 export async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T> {
   const base = env.apiBaseUrl
   if (!base) {
-    throw new Error('NEXT_PUBLIC_API_URL is not set')
+    throw new Error('NEXT_PUBLIC_API_URL 没有设置')
   }
   const url = path.startsWith('http') ? path : `${base}${path.startsWith('/') ? path : `/${path}`}`
   const headers = new Headers(options.headers)

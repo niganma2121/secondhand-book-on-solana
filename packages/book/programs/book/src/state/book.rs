@@ -10,7 +10,6 @@ pub struct Book {
     pub price: u64,     //价格
     //0:上架中锁定中,1:已售卖,2:仲裁中
     pub status: BookStatus, //状态
-
     //目前cid大小上限为59,存64预留容错
     #[max_len(64)]
     pub metadata_cid: String,//IPFS的Json的cid

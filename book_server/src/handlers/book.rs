@@ -33,7 +33,7 @@ fn mask_pubkey(pk: &str) -> String {
     format!("{head}…")
 }
 
-// GET /api/books/categories — 上架与筛选用的分类字典（存库用 key，展示用 label）
+// GET /api/books/categories — 上架与筛选用的分类字典
 pub async fn list_book_categories_handler(State(state): State<AppState>) -> HandlerResult {
     let rows = state.db_service.list_book_categories().await?;
     let categories: Vec<_> = rows
@@ -49,7 +49,7 @@ pub async fn list_book_categories_handler(State(state): State<AppState>) -> Hand
     Ok(ok(json!({ "categories": categories })))
 }
 
-// GET /api/books/conditions — 品相字典（存库用 key，展示用 label / description）
+// GET /api/books/conditions — 品相字典
 pub async fn list_book_conditions_handler(State(state): State<AppState>) -> HandlerResult {
     let rows = state.db_service.list_book_conditions().await?;
     let conditions: Vec<_> = rows
@@ -66,7 +66,7 @@ pub async fn list_book_conditions_handler(State(state): State<AppState>) -> Hand
     Ok(ok(json!({ "conditions": conditions })))
 }
 
-// GET /api/books?page=1&category=literature&keyword=xxx （category 为 book_categories.key）
+// GET /api/books?page=1&category=computer&keyword=xxx （category 为 book_categories.key）
 pub async fn list_market_books_handler(
     State(state): State<AppState>,
     Query(q): Query<MarketQuery>,

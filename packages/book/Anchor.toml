@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-book = { address="B6FGFq5WVExospwD6XE4RiPdtjLp6R5wFRMYQeVPQsfz",path="../target/deploy/book.so"}
+book = { address="AQG2ZMQuQYSaSjxJwmsqQsASWChXwkTza2BRxKqBwHoC",path="../target/deploy/book.so"}
 
 [provider]
 cluster = "devnet"

@@ -20,7 +20,6 @@ function parseAttachmentUrls(raw: unknown): string[] {
   return raw.filter((x): x is string => typeof x === 'string' && x.length > 0)
 }
 
-/** 尚无 revisions 表数据时，用当前 submission 顶一条展示，避免工作台空白 */
 function submissionAsSingleRevision(row: DisputeSubmissionResponse): DisputeSubmissionRevision {
   return {
     id: -Math.abs(row.created_at),
@@ -55,7 +54,7 @@ function EvidenceImageTile({
       type="button"
       onClick={() => onPick(url)}
       className="group relative block w-full overflow-hidden rounded-lg border border-border bg-muted/30 text-left outline-none transition-shadow hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring"
-      aria-label="点击放大查看凭证图"
+      aria-label="点击放大查看"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img

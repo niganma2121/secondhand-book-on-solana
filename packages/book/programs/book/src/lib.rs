@@ -11,7 +11,7 @@ pub use state::{book::*,escrow::*};
 pub use error::*;
 use instructions::{*};
 pub use utils::*;
-declare_id!("B6FGFq5WVExospwD6XE4RiPdtjLp6R5wFRMYQeVPQsfz");
+declare_id!("AQG2ZMQuQYSaSjxJwmsqQsASWChXwkTza2BRxKqBwHoC");
 
 #[program]
 pub mod book {

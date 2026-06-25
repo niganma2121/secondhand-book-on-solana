@@ -6,11 +6,6 @@ pub struct Escrow{
     pub seller:Pubkey,//卖家
     pub buyer:Pubkey,//买家
     pub asset:Pubkey,//关联的书的NFT
-    /*
-        最终成交价格
-        Book部分记录原价,
-        这里记录的最终价格可能是打折或者双方协商的价格
-    */
     pub book:Pubkey,
     pub price:u64,
     pub state:EscrowState,//托管状态
@@ -31,7 +26,7 @@ pub struct Ship{
 #[derive(Clone,InitSpace,AnchorDeserialize,AnchorSerialize)]
 pub struct Dispute{
     pub dispute_initiator:Pubkey,//仲裁发起者
-    pub votes:[ArbVote;3],//3个dao评委
+    pub votes:[ArbVote;3],//3个评委
     pub arb_res:ArbitrationResult,//投票结果
     //如果买家胜利,裁决员决定是否返还部分买金作为补偿以及还是退书退款
     pub refund_amount:u64,

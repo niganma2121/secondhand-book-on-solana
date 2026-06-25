@@ -1,6 +1,6 @@
 import { routes } from '@/config/routes'
 
-/** 桌面端顶栏：含「我的书架」 */
+/* 桌面端顶栏 */
 export const desktopNavItems = [
   { label: '首页', href: routes.home },
   { label: '书籍市场', href: routes.market },
@@ -12,10 +12,7 @@ export const desktopNavItems = [
   { label: '我的', href: routes.profile },
 ] as const
 
-/**
- * 移动端底栏：5 项 + 中心上架；「书架」由个人页/首页进入
- * href 与 routes 对齐，用于 pathname 高亮
- */
+/*移动端底栏*/
 export const mobileNavItems = [
   { label: '首页', href: routes.home, navKey: 'home' as const },
   { label: '市场', href: routes.market, navKey: 'market' as const },

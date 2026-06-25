@@ -26,37 +26,35 @@ pub const PINATA_DEFAULT_IMAGE_MIME: &str = "image/jpeg";
 pub const PINATA_METADATA_FILENAME: &str = "metadata.json";
 pub const GOOGLE_BOOKS_API_KEY_ENV: &str = "GOOGLE_BOOKS_API_KEY";
 
-/// 七牛云 AccessKey（头像直传用上传凭证）。未配置则 `/me/upload/qiniu-avatar` 不可用。
+/// 七牛云 AccessKey
 pub const QINIU_ACCESS_KEY_ENV: &str = "QINIU_ACCESS_KEY";
 /// 七牛云 SecretKey。
 pub const QINIU_SECRET_KEY_ENV: &str = "QINIU_SECRET_KEY";
 /// 存储空间名（bucket）。
 pub const QINIU_BUCKET_ENV: &str = "QINIU_BUCKET";
-/// 文件对外访问前缀（不含末尾 `/`）：绑定在 Bucket 上的 CDN 或默认源站域名，例如
-/// `https://cdn.example.com`、`https://xxx.clouddn.com`。不要填 `up-*.qiniup.com`（那是上传接口域名，见 `QINIU_UPLOAD_HOST`）。
+///公有域名前缀
 pub const QINIU_PUBLIC_BASE_ENV: &str = "QINIU_PUBLIC_BASE";
-/// 表单直传的上传 Host（不含路径），默认 `https://up.qiniup.com`（华东 z0）。
-/// Bucket 在华南 z2 时应设为 `https://up-z2.qiniup.com` 等，与控制台「存储区域」一致。
+
 pub const QINIU_UPLOAD_HOST_ENV: &str = "QINIU_UPLOAD_HOST";
 
-/// 新用户入库时的默认头像 URL（七牛等公网地址）；写入 `users.avatar`。
+/// 新用户入库时的默认头像 URL
 pub const DEFAULT_AVATAR_URL_ENV: &str = "DEFAULT_AVATAR_URL";
 
-/// Pinata v3 创建「直传签名 URL」时，链接有效期（秒）。可选，默认 120。
+/// Pinata给前端的密钥的有效时间
 pub const PINATA_SIGN_EXPIRES_SECS_ENV: &str = "PINATA_SIGN_EXPIRES_SECS";
-/// 每用户每分钟最多请求几次「直传签名 URL」。可选，默认 30。
+/// 每用户每分钟最多请求几次
 pub const RATE_LIMIT_PINATA_SIGN_PER_MIN_USER_ENV: &str = "RATE_LIMIT_PINATA_SIGN_PER_MIN_USER";
-/// 每 IP 每分钟最多请求几次「直传签名 URL」。可选，默认 60。
+/// 每 IP 每分钟最多请求几次
 pub const RATE_LIMIT_PINATA_SIGN_PER_MIN_IP_ENV: &str = "RATE_LIMIT_PINATA_SIGN_PER_MIN_IP";
-/// 封面直传时 Pinata 侧最大字节数。可选，默认 8MiB。
+/// 封面直传时 Pinata 最大字节数
 pub const PINATA_SIGN_COVER_MAX_BYTES_ENV: &str = "PINATA_SIGN_COVER_MAX_BYTES";
-/// 详情图直传时 Pinata 侧最大字节数。可选，默认 4MiB。
+/// 详情图直传时 Pinata 最大字节数
 pub const PINATA_SIGN_DETAIL_MAX_BYTES_ENV: &str = "PINATA_SIGN_DETAIL_MAX_BYTES";
 
 pub const PINATA_UPLOAD_SIGN_URL: &str = "https://uploads.pinata.cloud/v3/files/sign";
 
 pub const BOOK_RECONCILE_INTERVAL_SECS_ENV:&str="BOOK_RECONCILE_INTERVAL_SECS";
-/// 汇率缓存 TTL（秒），默认 60。
+/// 汇率缓存 
 pub const SOL_CNY_RATE_CACHE_TTL_SECS_ENV: &str = "SOL_CNY_RATE_CACHE_TTL_SECS";
-/// 汇率兜底值：1 SOL 约合多少 CNY（当远端接口失败且无缓存时生效）。
+
 pub const SOL_CNY_RATE_FALLBACK_ENV: &str = "SOL_CNY_RATE_FALLBACK";

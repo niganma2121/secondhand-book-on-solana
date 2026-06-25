@@ -66,7 +66,7 @@ function solInputToLamports(solStr: string): number | null {
   return Math.round(n * LAMPORTS_PER_SOL)
 }
 
-/** 本浏览器内：某仲裁员已对某托管投过票（广播成功后写入，用于禁用重复投票） */
+/*广播成功后写入，用于禁用重复投票*/
 const ARB_VOTE_STORAGE_KEY = 'bookchain:arb-voted-escrows:v1'
 
 function readArbitratorVoteIndex(): Record<string, string[]> {
