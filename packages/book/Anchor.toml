@@ -5,15 +5,11 @@ package_manager = "yarn"
 resolution = true
 skip-lint = false
 
-[programs.localnet]
-book = { address="AQG2ZMQuQYSaSjxJwmsqQsASWChXwkTza2BRxKqBwHoC",path="../target/deploy/book.so"}
+[programs.devnet]
+book = "BGd96f97JcSz84HJxcjyWY9ZnQismb69XWr9eNENEMoS"
 
 [provider]
 cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
-[scripts]
-post_build = "mkdir -p ../shared/idls && cp target/idl/book.json ../shared/idls/"
-test = "cargo test"
 
-[hooks]
